@@ -5,22 +5,85 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 BOT="$ROOT_DIR/bin/bot.php"
-STATE_DIR="$ROOT_DIR/state"
-PID_FILE="$STATE_DIR/bot.pid"
-LOG_FILE="$STATE_DIR/bot.log"
 PHP="${PHP_BIN:-php}"
 STOP_TIMEOUT=15
+LEGACY_PID_FILE="$ROOT_DIR/state/bot.pid"
+
+# STATE_DIR exactly as the bot sees it: the bot's own .env parser (src/Env.php: real environment
+# first, quotes, whitespace, the last duplicate wins) and Config::resolvePath() (a relative path is
+# taken from the installation directory), so the two cannot drift apart. Nothing is exported: only
+# the resolved directory is printed.
+resolve_state_dir() {
+    local dir
+    # shellcheck disable=SC2016
+    if ! dir=$("$PHP" -d display_errors=stderr -r '
+        require $argv[1]."/bootstrap.php";
+        $root = $argv[1];
+        $value = is_file($root."/.env")
+            ? (string) GpsLab\WorkspaceAssistant\Env::load($root."/.env")->get("STATE_DIR", "")
+            : (string) getenv("STATE_DIR");
+        echo GpsLab\WorkspaceAssistant\Config::resolvePath($value === "" ? $root."/state" : $value, $root);
+    ' -- "$ROOT_DIR") || [[ "$dir" != /* || "$dir" == *$'\n'* ]]; then
+        return 1
+    fi
+    printf '%s' "$dir"
+}
+
+# Without a reliable STATE_DIR the PID file may be looked for in the wrong place: commands that
+# start the bot refuse to run (a wrong guess would start a second poller); the others fall back to
+# ./state with a warning.
+if ! STATE_DIR="$(resolve_state_dir)"; then
+    case "${1:-}" in
+        start|fg|restart)
+            echo "Error: could not resolve STATE_DIR with $PHP (see the message above); not starting." >&2
+            exit 1
+            ;;
+    esac
+    echo "Warning: could not resolve STATE_DIR with $PHP; using $ROOT_DIR/state." >&2
+    STATE_DIR="$ROOT_DIR/state"
+fi
+PID_FILE="$STATE_DIR/bot.pid"
+LOG_FILE="$STATE_DIR/bot.log"
 
 mkdir -p "$STATE_DIR"
 
+# The PID is alive and is this bot. After a reboot the PID from the file can belong to an unrelated
+# process; the command line is matched by the suffix bin/bot.php, not the full path, because the
+# installation may be reached through a symlink. Without /proc only kill -0 is available.
+is_bot_pid() {
+    local pid="$1" arg
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    [[ -r "/proc/$pid/cmdline" ]] || return 0
+    while IFS= read -r -d '' arg; do
+        [[ "$arg" == bin/bot.php || "$arg" == */bin/bot.php ]] && return 0
+    done < "/proc/$pid/cmdline"
+    return 1
+}
+
+# Before STATE_DIR was honoured the PID file lived in ./state next to the code. A bot started by the
+# old script is still found there, so no command (start and fg included) starts a second instance:
+# two pollers of one token conflict, and the bot has no lock of its own.
+ACTIVE_PID_FILE="$PID_FILE"
+if [[ "$PID_FILE" != "$LEGACY_PID_FILE" && ! -f "$PID_FILE" && -f "$LEGACY_PID_FILE" ]] \
+    && is_bot_pid "$(cat "$LEGACY_PID_FILE" 2>/dev/null)"; then
+    ACTIVE_PID_FILE="$LEGACY_PID_FILE"
+    echo "Warning: the running bot was started with the PID file $LEGACY_PID_FILE; after it stops the PID file is $PID_FILE." >&2
+fi
+
 is_running() {
     local pid
-    pid=$(cat "$PID_FILE" 2>/dev/null) || return 1
-    kill -0 "$pid" 2>/dev/null
+    pid=$(cat "$ACTIVE_PID_FILE" 2>/dev/null) || return 1
+    is_bot_pid "$pid"
 }
 
 get_pid() {
-    cat "$PID_FILE" 2>/dev/null || true
+    cat "$ACTIVE_PID_FILE" 2>/dev/null || true
+}
+
+forget_pid() {
+    rm -f "$ACTIVE_PID_FILE"
+    ACTIVE_PID_FILE="$PID_FILE"
 }
 
 cmd_start() {
@@ -32,13 +95,14 @@ cmd_start() {
     nohup "$PHP" "$BOT" >> "$LOG_FILE" 2>&1 &
     local pid=$!
     echo "$pid" > "$PID_FILE"
+    ACTIVE_PID_FILE="$PID_FILE"
     echo "Started (PID $pid). Log: $LOG_FILE"
 }
 
 cmd_stop() {
     if ! is_running; then
         echo "Not running."
-        rm -f "$PID_FILE"
+        forget_pid
         return 0
     fi
 
@@ -59,7 +123,7 @@ cmd_stop() {
     else
         echo "Stopped."
     fi
-    rm -f "$PID_FILE"
+    forget_pid
 }
 
 cmd_restart() {
@@ -72,7 +136,7 @@ cmd_status() {
         echo "Running (PID $(get_pid))."
     else
         echo "Not running."
-        rm -f "$PID_FILE"
+        forget_pid
         return 1
     fi
 }

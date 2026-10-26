@@ -188,7 +188,8 @@ override the file. Every setting is documented in [`.env.dist`](.env.dist).
 ### Running as a service
 
 `bin/ctl.sh` manages a background process (`start`, `stop`, `restart`, `status`, `fg`, `logs`); the PID
-and the log go to the state directory. Use `PHP_BIN=/path/to/php bin/ctl.sh start` to choose the PHP binary.
+file and the log go to `STATE_DIR` (from the environment or `.env`, default `./state`; a relative path is
+taken from the installation directory), the same directory the bot uses. Use `PHP_BIN=/path/to/php bin/ctl.sh start` to choose the PHP binary.
 
 Alternatively, a systemd unit (use the dedicated user from the [isolation recipe](#isolation-recipe)):
 

@@ -23,7 +23,7 @@ system user it runs as, `<service>` is the name of its service unit.
 
 Run the bot as a dedicated unprivileged user (isolation recipe: [context.md](context.md)).
 
-**Use one launcher per deployment.** `bin/ctl.sh` keeps its own `state/bot.pid` and knows nothing about
+**Use one launcher per deployment.** `bin/ctl.sh` keeps its own `<STATE_DIR>/bot.pid` and knows nothing about
 a PID owned by a service manager. Starting `ctl.sh` while a service-managed instance is alive creates a
 second process and a 409 conflict (below). With a service manager use only its commands or `/restart`;
 keep `ctl.sh` for local development (`bin/ctl.sh fg`) or for hosts without a service manager.

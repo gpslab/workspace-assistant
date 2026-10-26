@@ -128,6 +128,37 @@ final class ConfigTest extends TestCase
         self::assertDirectoryExists($this->repoDir.'/state');
     }
 
+    public function testRelativeStateDirIsResolvedAgainstInstallDirNotCwd(): void
+    {
+        $relative = 'state/configtest_'.uniqid('', true);
+        $expected = dirname(__DIR__).'/'.$relative;
+        $this->writeEnv("STATE_DIR={$relative}");
+        $cwd = (string) getcwd();
+        chdir($this->repoDir);
+        try {
+            $config = Config::load($this->envFile);
+        } finally {
+            chdir($cwd);
+        }
+
+        try {
+            self::assertSame($expected, $config->stateDir);
+            self::assertDirectoryExists($expected.'/outbox');
+            self::assertDirectoryDoesNotExist($this->repoDir.'/'.$relative);
+        } finally {
+            @rmdir($expected.'/outbox');
+            @rmdir($expected.'/inbox');
+            @rmdir($expected);
+        }
+    }
+
+    public function testResolvePathKeepsAbsoluteAndEmptyValues(): void
+    {
+        self::assertSame('/var/lib/bot', Config::resolvePath('/var/lib/bot', '/opt/app'));
+        self::assertSame('', Config::resolvePath('', '/opt/app'));
+        self::assertSame('/opt/app/data', Config::resolvePath('data', '/opt/app/'));
+    }
+
     public function testCreatesOutboxDir(): void
     {
         $this->writeEnv();
