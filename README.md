@@ -89,7 +89,7 @@ and epic runs behave, see [Mode personas](#mode-personas). Details are in [Epics
 
 ## Requirements
 
-- PHP 8.5+ with the extensions `curl`, `pdo_sqlite`, `pcntl` (and `posix`).
+- PHP 8.4+ with the extensions `curl`, `pdo_sqlite`, `pcntl` (and `posix`).
 - Claude Code CLI, authenticated for the account you want to use.
 - git with access to the workspace's remote (for example an SSH key).
 - [GitHub CLI](https://cli.github.com/) (`gh`), authenticated with `gh auth login` as the user that

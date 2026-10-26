@@ -13,7 +13,7 @@ epics are in [../EPICS.md](../EPICS.md).
 
 | Parameter      | Value                                                                        |
 |----------------|------------------------------------------------------------------------------|
-| Language       | PHP `>=8.5`; production, dev and CI all run 8.5                              |
+| Language       | PHP `>=8.4`; CI runs 8.4 and 8.5, production runs 8.5                        |
 | Extensions     | `ext-curl`, `ext-pdo`, `ext-pdo_sqlite`, `pcntl` (signals)                   |
 | Dependencies   | runtime: **none**; dev: php-cs-fixer, phpstan, phpunit                       |
 | Autoloading    | own PSR-4 in `bootstrap.php` (`GpsLab\WorkspaceAssistant\`), not `vendor/`   |
@@ -283,5 +283,5 @@ queues an isolated `claude -p` run (`kind = epic`, no `--resume`, a signal file 
 ## Tests and CI
 
 `composer test` (phpunit), `composer stan`, `composer cs:check`. CI (`.github/workflows/ci.yml`) runs
-`composer validate --strict` and a QA matrix of those three on PHP 8.5 for pushes to `master` and PRs.
+`composer validate --strict` and a QA matrix of those three on PHP 8.4 and 8.5 for pushes to `master` and PRs.
 The flow tests (`QueueFlowTest`, `Epic\FlowTest`) drive `Bot` with fake `claude` shell scripts.

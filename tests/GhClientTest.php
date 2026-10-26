@@ -222,13 +222,13 @@ final class GhClientTest extends TestCase
 
         $lists = array_values(array_filter($calls, static fn (array $c): bool => $c[1] === 'repo'));
         self::assertSame(['first', 'second'], [$lists[0][3], $lists[1][3]]);
-        $query = implode(' ', array_last($calls) ?? []);
+        $query = implode(' ', $calls === [] ? [] : $calls[array_key_last($calls)]);
         self::assertStringContainsString('owner:"first",name:"a"', $query);
         self::assertStringContainsString('owner:"second",name:"b"', $query);
         self::assertSame([7 => ['a', 'second/b']], $found);
 
         $gh->commentPr('second/b#7', 7, 'x');
-        self::assertContains('second/b', array_last($calls) ?? []);
+        self::assertContains('second/b', $calls === [] ? [] : $calls[array_key_last($calls)]);
     }
 
     public function testSecondOwnerIsUsedByTaskStateColdFindingsMasterCiAndAddLabel(): void

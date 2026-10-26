@@ -3,6 +3,8 @@ includes:
 
 parameters:
     level: 8
+    # Minimum supported PHP (composer.json): report functions and classes newer than 8.4.
+    phpVersion: 80400
     paths:
         - src
         - bin

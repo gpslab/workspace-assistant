@@ -14,7 +14,7 @@ system user it runs as, `<service>` is the name of its service unit.
 
 | Parameter | Value                                                                                      |
 |-----------|--------------------------------------------------------------------------------------------|
-| PHP       | **8.5**                                                                                    |
+| PHP       | **8.5** in production; the minimum is 8.4                                                  |
 | Config    | `<install-dir>/.env` (real environment variables override it)                              |
 | Launch    | A service manager (see the unit example in the README) or `bin/ctl.sh` (nohup + pid file)  |
 | Restart   | With a service manager use `Restart=always`: it recovers both a crash and a clean exit     |

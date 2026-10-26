@@ -66,7 +66,8 @@ jobs:
               assertions; checks that pass for any implementation.
 
             Repository specifics:
-            - Code and CI run PHP 8.5 (`"php": ">=8.5"`); no compatibility check for older PHP.
+            - Minimum PHP is 8.4 (`"php": ">=8.4"`); CI runs 8.4 and 8.5, production runs 8.5. Any
+              function, class or syntax newer than PHP 8.4 in src/, bin/ or tests/ is a blocker.
             - The bot has NO runtime dependencies: classes are loaded by its own PSR-4
               autoloader in `bootstrap.php`, and a deployment may have no `vendor/`. Any new
               dependency in `require` of composer.json (not `require-dev`) breaks deployment;

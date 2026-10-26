@@ -28,14 +28,16 @@ php bin/bot.php     # run the bot (daemonizing: bin/ctl.sh or a service manager)
 
 ## PHP version
 
-**PHP 8.5 everywhere**: `composer.json` requires `"php": ">=8.5"` and CI
-(`.github/workflows/ci.yml`) runs 8.5. Run `composer test`/`stan`/`cs:check` on 8.5. If the
-supported version changes, `composer.json`, CI and this section move together.
+**Minimum PHP 8.4, production reference 8.5**: `composer.json` requires `"php": ">=8.4"`, CI
+(`.github/workflows/ci.yml`) runs a matrix of 8.4 and 8.5, and PHPStan checks against 8.4
+(`phpVersion: 80400` in `phpstan.dist.neon`), so a function or class newer than 8.4 fails `composer stan`
+even on 8.5. If the supported version changes, `composer.json`, `composer.lock`, CI, PHPStan, the
+reviewer prompt in `claude-review.yml` and this section move together.
 
 ## Boundaries
 
 ### MUST
-- Target PHP **>=8.5**.
+- Target PHP **>=8.4**: no API or syntax newer than 8.4.
 - Before committing: green `composer cs:check`, `composer stan`, `composer test`.
 - **Code, comments and documentation are written in English.** The project is published as the
   open-source package `gpslab/workspace-assistant` (MIT). New and changed text is English right away.
