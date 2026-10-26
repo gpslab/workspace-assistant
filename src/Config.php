@@ -97,7 +97,7 @@ final class Config
 
         // Inbox directory: the bot downloads files sent in Telegram here,
         // before attaching their absolute paths to the Claude prompt (see
-        // Bot::startFileJob). Files are deleted after the run.
+        // Bot::tryStartQueueHead, Inbox::downloadIncomingFile). Files are deleted after the run.
         $inboxDir = $stateDir.'/inbox';
         if (!is_dir($inboxDir) && !mkdir($inboxDir, 0775, true) && !is_dir($inboxDir)) {
             throw new \RuntimeException("Failed to create the inbox directory {$inboxDir}.");
