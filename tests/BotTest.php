@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\SessionFiles;
+use GpsLab\WorkspaceAssistant\SubRepoSync;
 use GpsLab\WorkspaceAssistant\TelegramClient;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -49,9 +50,9 @@ final class BotTest extends TestCase
         @rmdir($this->dbDir);
     }
 
-    private function makeBot(?TelegramClient $tg = null, string $repoPath = '', string $subreposDir = ''): Bot
+    private function makeConfig(string $repoPath = '', string $subreposDir = ''): Config
     {
-        $config = new Config(
+        return new Config(
             botToken: 'test-token',
             allowedUserIds: [self::ALLOWED_USER_ID],
             repoPath: $repoPath !== '' ? $repoPath : sys_get_temp_dir(),
@@ -70,6 +71,16 @@ final class BotTest extends TestCase
             subreposDir: $subreposDir,
             botLocale: 'en',
         );
+    }
+
+    private function makeSubRepoSync(string $repoPath, string $subreposDir = ''): SubRepoSync
+    {
+        return new SubRepoSync($this->makeConfig($repoPath, $subreposDir), new Locale('en'));
+    }
+
+    private function makeBot(?TelegramClient $tg = null, string $repoPath = '', string $subreposDir = ''): Bot
+    {
+        $config = $this->makeConfig($repoPath, $subreposDir);
 
         return new Bot(
             $config,
@@ -402,12 +413,10 @@ final class BotTest extends TestCase
         // A clone directly under REPO_PATH must be ignored too: without the guards the scan root is the repo itself.
         exec('cp -r '.escapeshellarg($repo.'/docs/sub').' '.escapeshellarg($repo.'/sub'));
         try {
-            $bot = $this->makeBot(null, $repo);
-            $snapshot = new \ReflectionMethod(Bot::class, 'snapshotSubRepos');
-            $pull = new \ReflectionMethod(Bot::class, 'pullSubRepos');
+            $sync = $this->makeSubRepoSync($repo);
 
-            self::assertSame([], $snapshot->invoke($bot));
-            self::assertSame([], $pull->invoke($bot));
+            self::assertSame([], $sync->snapshotSubRepos());
+            self::assertSame([], $sync->pullSubRepos());
         } finally {
             $this->removeDir($repo);
         }
@@ -417,12 +426,10 @@ final class BotTest extends TestCase
     {
         $repo = $this->makeRepoWithSubrepo('components');
         try {
-            $snapshot = new \ReflectionMethod(Bot::class, 'snapshotSubRepos');
-
-            self::assertSame([], $snapshot->invoke($this->makeBot(null, $repo, 'docs')));
+            self::assertSame([], $this->makeSubRepoSync($repo, 'docs')->snapshotSubRepos());
             self::assertSame(
                 [$repo.'/components/sub'],
-                array_keys($snapshot->invoke($this->makeBot(null, $repo, 'components'))),
+                array_keys($this->makeSubRepoSync($repo, 'components')->snapshotSubRepos()),
             );
         } finally {
             $this->removeDir($repo);
@@ -434,8 +441,7 @@ final class BotTest extends TestCase
         $repo = $this->makeRepoWithSubrepo('components');
         file_put_contents($repo.'/components/sub/new.txt', 'x');
         try {
-            $pull = new \ReflectionMethod(Bot::class, 'pullSubRepos');
-            $notes = $pull->invoke($this->makeBot(null, $repo, 'components'));
+            $notes = $this->makeSubRepoSync($repo, 'components')->pullSubRepos();
 
             self::assertCount(1, $notes);
             self::assertStringContainsString('sub: uncommitted changes', $notes[0]);
@@ -448,8 +454,7 @@ final class BotTest extends TestCase
     {
         $repo = $this->makeRepoWithSubrepo('components');
         try {
-            $pull = new \ReflectionMethod(Bot::class, 'pullSubRepos');
-            $notes = $pull->invoke($this->makeBot(null, $repo, 'components'));
+            $notes = $this->makeSubRepoSync($repo, 'components')->pullSubRepos();
 
             foreach ($notes as $note) {
                 self::assertStringNotContainsString('uncommitted changes', $note);
