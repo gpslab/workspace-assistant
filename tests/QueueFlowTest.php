@@ -14,6 +14,7 @@ use GpsLab\WorkspaceAssistant\Epic\GitHub;
 use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
+use GpsLab\WorkspaceAssistant\Inbox;
 use GpsLab\WorkspaceAssistant\PmRunbook;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\ReviewStatusHook;
@@ -1302,9 +1303,8 @@ final class QueueFlowTest extends TestCase
             ['message_id' => 2, 'text' => 'file caption', 'files' => [['file_id' => 'f', 'extension' => 'jpg', 'name' => 'pic.jpg', 'file_size' => 1]]],
             ['message_id' => 3, 'text' => 'and more', 'files' => []],
         ];
-        $prompt = (new \ReflectionMethod(Bot::class, 'buildQueuePrompt'))->invoke(null, $parts, [1 => ['/in/x_pic.jpg']]);
+        $prompt = Inbox::buildQueuePrompt($parts, [1 => ['/in/x_pic.jpg']]);
 
-        self::assertIsString($prompt);
         $a = strpos($prompt, 'text first');
         $b = strpos($prompt, 'file caption');
         $c = strpos($prompt, '/in/x_pic.jpg (original name: pic.jpg)');
@@ -1315,27 +1315,21 @@ final class QueueFlowTest extends TestCase
 
     public function testFilePromptsUseEnglishHeadersAndDefaultPrompt(): void
     {
-        $build = new \ReflectionMethod(Bot::class, 'buildFilePrompt');
-        $one = $build->invoke(null, null, ['/in/a.jpg']);
-        $two = $build->invoke(null, 'caption', ['/in/a.jpg', '/in/b.jpg']);
+        $one = Inbox::buildFilePrompt(null, ['/in/a.jpg']);
+        $two = Inbox::buildFilePrompt('caption', ['/in/a.jpg', '/in/b.jpg']);
 
-        self::assertIsString($one);
-        self::assertIsString($two);
         self::assertStringStartsWith("Look at the attached file(s) and discuss them with me.\n\nFile:\n/in/a.jpg", $one);
         self::assertStringStartsWith("caption\n\nFiles:\n/in/a.jpg\n/in/b.jpg", $two);
 
-        $queue = new \ReflectionMethod(Bot::class, 'buildQueuePrompt');
         $files = [['file_id' => 'f', 'extension' => 'jpg', 'name' => 'pic.jpg', 'file_size' => 1]];
-        $merged = $queue->invoke(null, [
+        $merged = Inbox::buildQueuePrompt([
             ['message_id' => 1, 'text' => 'hi', 'files' => $files],
             ['message_id' => 2, 'text' => '', 'files' => $files],
         ], [0 => ['/in/x.jpg'], 1 => ['/in/y.jpg', '/in/z.jpg']]);
-        self::assertIsString($merged);
         self::assertStringContainsString("hi\n\nFile:\n/in/x.jpg", $merged);
         self::assertStringContainsString("Files:\n/in/y.jpg", $merged);
 
-        $noText = $queue->invoke(null, [['message_id' => 1, 'text' => null, 'files' => $files]], [0 => ['/in/x.jpg']]);
-        self::assertIsString($noText);
+        $noText = Inbox::buildQueuePrompt([['message_id' => 1, 'text' => null, 'files' => $files]], [0 => ['/in/x.jpg']]);
         self::assertStringContainsString('Look at the attached file(s) and discuss them with me.', $noText);
     }
 
