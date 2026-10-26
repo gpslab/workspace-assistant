@@ -323,7 +323,7 @@ new stateless branch **above** the decision check, a stateful one **below**.
 
 `threadIdOf()` is unreliable for `callback_query.message` of long-lived keyboards: Telegram sends a
 truncated message object without topic flags and the result silently becomes `0` (General). That is why
-the topic is encoded in `callback_data` (`parseModeCallback()`). `chat_id` is taken from the update as usual.
+the topic is encoded in `callback_data` (`ModeAndLang::parseModeCallback()`). `chat_id` is taken from the update as usual.
 
 ---
 

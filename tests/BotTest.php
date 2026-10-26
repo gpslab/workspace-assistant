@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\Delivery;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\ModeAndLang;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\SubRepoSync;
 use GpsLab\WorkspaceAssistant\TelegramClient;
@@ -21,9 +22,9 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * `Bot` needs heavy dependencies (Config/Database/TelegramClient/GitManager/
- * SessionFiles) for its constructor. Some of the parsing (buildModeKeyboard,
- * parseModeCallback) is pure static methods, tested via
- * reflection without instantiating the bot. The handleCallback/
+ * SessionFiles) for its constructor. Some of the parsing (ModeAndLang::buildModeKeyboard,
+ * ModeAndLang::parseModeCallback) is pure static methods, tested directly
+ * without instantiating the bot. The handleCallback/
  * handleModeCallback wiring (routing before/after $pending, thread_id source)
  * is tested on a real Bot instance: Config/Database/GitManager/
  * SessionFiles are cheap local objects (temp dir, no network), and
@@ -310,9 +311,7 @@ final class BotTest extends TestCase
      */
     private function buildModeKeyboard(string $currentMode, int $threadId): array
     {
-        $method = new \ReflectionMethod(Bot::class, 'buildModeKeyboard');
-
-        return $method->invoke(null, $currentMode, $threadId);
+        return ModeAndLang::buildModeKeyboard($currentMode, $threadId);
     }
 
     /**
@@ -320,9 +319,7 @@ final class BotTest extends TestCase
      */
     private function parseModeCallback(string $data): ?array
     {
-        $method = new \ReflectionMethod(Bot::class, 'parseModeCallback');
-
-        return $method->invoke(null, $data);
+        return ModeAndLang::parseModeCallback($data);
     }
 
     public function testModeKeyboardMarksActiveModeAndEncodesThread(): void
