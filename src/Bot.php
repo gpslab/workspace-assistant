@@ -60,25 +60,11 @@ final class Bot
     /** How many seconds to wait before retrying the head start after a transient failure. */
     private const int RETRY_DELAY_SEC = 60;
 
-    /** Budget of the change summary in a message with buttons (characters after escaping) — leaves headroom under the Telegram 4096 limit. */
-    private const int SUMMARY_HTML_BUDGET = 2500;
     private const int MAX_START_RETRIES = 10;
     private const int LIMIT_PAUSE_MAX_SEC = 7 * 86400;
 
     /** Pause on a Claude limit when the reset time could not be parsed from the error text. */
     private const int LIMIT_PAUSE_FALLBACK_SEC = 3600;
-
-    /** Cap on outbox files per run — otherwise a hundred files turn into a hundred messages in a row. */
-    private const int OUTBOX_MAX_FILES = 10;
-
-    /** Extension → MIME for outbox files so that images go out via sendPhoto. */
-    private const array OUTBOX_IMAGE_MIME_TYPES = [
-        'png' => 'image/png',
-        'jpg' => 'image/jpeg',
-        'jpeg' => 'image/jpeg',
-        'gif' => 'image/gif',
-        'webp' => 'image/webp',
-    ];
 
     /** Album debounce: how many seconds without new frames of the group to wait before starting the task. */
     private const float ALBUM_DEBOUNCE_SEC = 1.5;
@@ -131,6 +117,7 @@ final class Bot
     private readonly Locale $locale;
     private readonly ClaudeErrorText $claudeErrorText;
     private readonly SubRepoSync $subRepoSync;
+    private readonly Delivery $delivery;
 
     public function __construct(
         private readonly Config $config,
@@ -144,6 +131,7 @@ final class Bot
         $this->locale = $locale ?? Locale::fromConfig($config);
         $this->claudeErrorText = new ClaudeErrorText($this->locale);
         $this->subRepoSync = new SubRepoSync($config, $this->locale);
+        $this->delivery = new Delivery($tg, $config, $this->locale);
         $this->albumBuffer = new AlbumBuffer();
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
         if ($github !== null) {
@@ -247,7 +235,7 @@ final class Bot
             }
             try {
                 $this->tg->deleteMessage($this->jobContext['chat_id'], $this->jobContext['thinking_id']);
-                $this->deliver(
+                $this->delivery->deliver(
                     $this->jobContext['chat_id'],
                     $this->jobContext['thread_id'],
                     $this->localeFor($this->jobContext['locale'])->t('restart.job_interrupted_now'),
@@ -631,7 +619,7 @@ final class Bot
         // go out with the next run's reply (possibly to another topic). Another topic's
         // running job's outbox is not touched — those are its files.
         if ($killed || $this->activeJob === null) {
-            $this->clearOutbox();
+            $this->delivery->clearOutbox();
         }
 
         $lines = [];
@@ -650,7 +638,7 @@ final class Bot
         if ($pausedEpic !== null) {
             $text .= ($text !== '' ? "\n" : '').$this->t('cancel.epic_paused', ['slug' => $pausedEpic]);
         }
-        $this->deliver($chatId, $threadId, $text);
+        $this->delivery->deliver($chatId, $threadId, $text);
 
         if ($killed) {
             $this->db->clearDecision();
@@ -1961,7 +1949,7 @@ final class Bot
             $this->tg->deleteMessage($item['chat_id'], $item['placeholder_id']);
         } catch (\Throwable) {
         }
-        $this->safeDeliver($item['chat_id'], $item['thread_id'], $message);
+        $this->delivery->safeDeliver($item['chat_id'], $item['thread_id'], $message);
     }
 
     /**
@@ -1993,7 +1981,7 @@ final class Bot
         $this->db->setRetry($head['id'], time() + self::RETRY_DELAY_SEC, true);
 
         if (!$notified) {
-            $this->safeDeliver($head['chat_id'], $head['thread_id'], $message."\n".$this->t('queue.retry_notice', ['seconds' => self::RETRY_DELAY_SEC]));
+            $this->delivery->safeDeliver($head['chat_id'], $head['thread_id'], $message."\n".$this->t('queue.retry_notice', ['seconds' => self::RETRY_DELAY_SEC]));
         }
     }
 
@@ -2015,7 +2003,7 @@ final class Bot
                 continue;
             }
             $this->db->queueRemove($item['id']);
-            $this->safeDeliver($item['chat_id'], $item['thread_id'], $this->localeFor($item['locale'])->t('restart.job_interrupted'));
+            $this->delivery->safeDeliver($item['chat_id'], $item['thread_id'], $this->localeFor($item['locale'])->t('restart.job_interrupted'));
         }
 
         $this->db->clearRetry();
@@ -2035,26 +2023,7 @@ final class Bot
             ++$counts[$key]['n'];
         }
         foreach ($counts as $c) {
-            $this->safeDeliver($c['chat'], $c['thread'], $this->t('restart.queue_kept', ['count' => $c['n']]));
-        }
-    }
-
-    private function safeDeliver(int $chatId, int $threadId, string $text): void
-    {
-        try {
-            $this->deliver($chatId, $threadId, $text);
-        } catch (\Throwable $e) {
-            Log::line('failed to send message: '.$e->getMessage());
-        }
-    }
-
-    /** Deletes the outbox files: after /cancel and before every launchJob they belong to someone else. */
-    private function clearOutbox(): void
-    {
-        foreach (glob($this->config->outboxDir.'/*') ?: [] as $path) {
-            if (is_file($path)) {
-                @unlink($path);
-            }
+            $this->delivery->safeDeliver($c['chat'], $c['thread'], $this->t('restart.queue_kept', ['count' => $c['n']]));
         }
     }
 
@@ -2311,7 +2280,7 @@ final class Bot
         // Files in the outbox at this point belong to someone else (a cancelled or
         // failed run): otherwise they would go out with this run's reply, possibly
         // to another topic.
-        $this->clearOutbox();
+        $this->delivery->clearOutbox();
 
         // Epic run signal: the previous file is stale. The path is passed to the process via the environment.
         $env = [];
@@ -2497,8 +2466,8 @@ final class Bot
                 $this->finishJobState($chatId, $threadId);
                 $this->deleteInboxFiles($inboxFiles);
                 $this->tg->deleteMessage($chatId, $thinkingId);
-                $this->flushOutbox($chatId, $threadId);
-                $this->deliver($chatId, $threadId, $this->t('run.killed', ['reason' => $reason !== '' ? $reason : $this->t('run.timeout')]));
+                $this->delivery->flushOutbox($chatId, $threadId);
+                $this->delivery->deliver($chatId, $threadId, $this->t('run.killed', ['reason' => $reason !== '' ? $reason : $this->t('run.timeout')]));
                 if ($gateSkip !== '') {
                     $this->reportPmGateSkip($chatId, $threadId, $kind, $epicSlug, $epicRun, $gateSkip);
                 }
@@ -2549,7 +2518,7 @@ final class Bot
             // Outbox files go out BEFORE the text reply (to the same topic); the
             // directory is always cleared regardless of the run outcome (error or
             // success below).
-            $this->flushOutbox($chatId, $threadId);
+            $this->delivery->flushOutbox($chatId, $threadId);
 
             // KIND_COMPACT_RESEED writes to the DB itself (finishCompactReseed), after
             // resetSession; otherwise the accumulated counters of the old session
@@ -2573,13 +2542,13 @@ final class Bot
                     $this->db->setLimitPauseUntil($until);
                     $this->db->queueRelease($queueId);
                     $requeued = true;
-                    $this->deliver($chatId, $threadId, $limit['message']."\n".$this->t('run.queue_paused_until', ['until' => date('H:i d.m', $until)]));
+                    $this->delivery->deliver($chatId, $threadId, $limit['message']."\n".$this->t('run.queue_paused_until', ['until' => date('H:i d.m', $until)]));
                     $this->afterFailedRun($chatId, $threadId, $epicSlug, 'Claude limit: '.$limit['message']);
 
                     return;
                 }
 
-                $this->deliver($chatId, $threadId, $this->claudeErrorText->format($claude->text));
+                $this->delivery->deliver($chatId, $threadId, $this->claudeErrorText->format($claude->text));
                 $this->afterFailedRun($chatId, $threadId, $epicSlug, 'Claude error: '.$claude->text);
 
                 return;
@@ -2615,7 +2584,7 @@ final class Bot
     private function reportPmGateSkip(int $chatId, int $threadId, string $kind, ?string $epicSlug, ?array $epicRun, string $reason): void
     {
         Log::line('pm gate: the pipeline stages were skipped: '.$reason);
-        $this->deliver($chatId, $threadId, $kind === self::KIND_EPIC
+        $this->delivery->deliver($chatId, $threadId, $kind === self::KIND_EPIC
             ? $this->t('epicrun.pm_gate_skipped', ['slug' => (string) $epicSlug, 'run' => (string) ($epicRun['run'] ?? ''), 'reason' => $reason])
             : $this->t('result.pm_gate_skipped', ['reason' => $reason]));
     }
@@ -2664,7 +2633,7 @@ final class Bot
             }
         } catch (\InvalidArgumentException $e) {
             Log::line("epic {$slug}: run failed: ".$e->getMessage());
-            $this->deliver($chatId, $threadId, $this->t('epicrun.signal_invalid', ['slug' => $slug, 'error' => $e->getMessage()]));
+            $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.signal_invalid', ['slug' => $slug, 'error' => $e->getMessage()]));
             $this->failEpicRun($slug, 'invalid signal: '.$e->getMessage());
 
             return;
@@ -2677,10 +2646,10 @@ final class Bot
 
         // blocked outranks done: a stopped epic is not considered completed.
         if ($this->db->epicApplySignal($slug, $signal->added, $signal->hold, $signal->done && $signal->blocked === null)) {
-            $this->deliver($chatId, $threadId, $this->t('epicrun.tails_ceiling', ['slug' => $slug, 'rounds' => Database::MAX_TAILS_ROUNDS]));
+            $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.tails_ceiling', ['slug' => $slug, 'rounds' => Database::MAX_TAILS_ROUNDS]));
         }
         if ($signal->message !== null) {
-            $this->deliver($chatId, $threadId, $signal->message);
+            $this->delivery->deliver($chatId, $threadId, $signal->message);
         }
         if ($signal->blocked !== null) {
             $this->blockEpic($slug, $signal->blocked);
@@ -2693,7 +2662,7 @@ final class Bot
             try {
                 $this->git->commitAndPush($this->commitMessage("epic {$slug}"));
             } catch (\RuntimeException $e) {
-                $this->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
+                $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
                 $this->offerDecisionIfDirty($chatId, $threadId);
             }
         }
@@ -2716,7 +2685,7 @@ final class Bot
         $cold = ColdFindings::load(ColdFindings::path($this->config->stateDir, $slug, $pr));
         if ($cold === null) {
             $reason = $this->t('epicrun.no_cold_list', ['pr' => $pr]);
-            $this->deliver($chatId, $threadId, $this->t('epicrun.failed', ['slug' => $slug, 'reason' => $reason]));
+            $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.failed', ['slug' => $slug, 'reason' => $reason]));
             $this->failEpicRun($slug, $reason);
 
             return false;
@@ -2732,7 +2701,7 @@ final class Bot
         }
 
         $reason = implode('; ', $result['problems']);
-        $this->deliver($chatId, $threadId, $this->t('epicrun.coverage_incomplete', ['slug' => $slug, 'pr' => $pr, 'reason' => $reason]));
+        $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.coverage_incomplete', ['slug' => $slug, 'pr' => $pr, 'reason' => $reason]));
         $this->failEpicRun($slug, "findings coverage {$pr}: {$reason}");
 
         $counters = [];
@@ -2769,7 +2738,7 @@ final class Bot
     {
         $epic = $this->db->epicGet($slug);
         if ($epic !== null) {
-            $this->deliver($epic['chat_id'], $epic['thread_id'], "⚠️ {$text}");
+            $this->delivery->deliver($epic['chat_id'], $epic['thread_id'], "⚠️ {$text}");
         }
     }
 
@@ -2781,7 +2750,7 @@ final class Bot
         }
         $this->db->epicBlock($slug, $reason);
         $this->epicCard->update($slug);
-        $this->deliver($epic['chat_id'], $epic['thread_id'], $this->t('epic.blocked', ['reason' => $reason]));
+        $this->delivery->deliver($epic['chat_id'], $epic['thread_id'], $this->t('epic.blocked', ['reason' => $reason]));
     }
 
     /**
@@ -2862,13 +2831,13 @@ final class Bot
     {
         $summary = trim($claude->text);
         if ($summary === '') {
-            $this->deliver($chatId, $threadId, $this->t('compact.no_summary'));
+            $this->delivery->deliver($chatId, $threadId, $this->t('compact.no_summary'));
 
             return;
         }
 
         if ($this->git->hasChanges()) {
-            $this->deliver(
+            $this->delivery->deliver(
                 $chatId,
                 $threadId,
                 $this->t('compact.dirty', ['changes' => $this->git->changesSummary()]),
@@ -2883,14 +2852,14 @@ final class Bot
             $prompt = PromptFiles::load('compact_reseed_prefix')."\n".$summary."\n\n".PromptFiles::load('compact_reseed_suffix');
         } catch (\RuntimeException $e) {
             $this->tg->deleteMessage($chatId, $thinkingId);
-            $this->deliver($chatId, $threadId, $this->t('queue.claude_start_failed', ['error' => $e->getMessage()]));
+            $this->delivery->deliver($chatId, $threadId, $this->t('queue.claude_start_failed', ['error' => $e->getMessage()]));
 
             return;
         }
         $error = $this->launchJob($chatId, $threadId, self::KIND_COMPACT_RESEED, $prompt, null, $thinkingId, $compactOldSessionId, $this->db->getMode($chatId, $threadId), $queueId, localeCode: $localeCode);
         if ($error !== null) {
             $this->tg->deleteMessage($chatId, $thinkingId);
-            $this->deliver($chatId, $threadId, $this->t('queue.claude_start_failed', ['error' => $error]));
+            $this->delivery->deliver($chatId, $threadId, $this->t('queue.claude_start_failed', ['error' => $error]));
         }
     }
 
@@ -2903,7 +2872,7 @@ final class Bot
     private function finishCompactReseed(int $chatId, int $threadId, ClaudeResult $claude, ?string $compactOldSessionId, ?string $promptHash): void
     {
         if ($claude->sessionId === null) {
-            $this->deliver($chatId, $threadId, $this->t('compact.reseed_failed'));
+            $this->delivery->deliver($chatId, $threadId, $this->t('compact.reseed_failed'));
 
             return;
         }
@@ -2920,7 +2889,7 @@ final class Bot
         }
 
         $text = $claude->text !== '' ? $claude->text : $this->t('result.empty');
-        $this->deliver($chatId, $threadId, $this->t('compact.done', ['text' => $text]));
+        $this->delivery->deliver($chatId, $threadId, $this->t('compact.done', ['text' => $text]));
         $this->offerDecisionIfDirty($chatId, $threadId);
     }
 
@@ -2965,7 +2934,7 @@ final class Bot
         foreach ($warnings as $warning) {
             Log::line('prompt: '.$warning);
             if ($notify) {
-                $this->deliver($chatId, $threadId, '⚠️ '.$warning);
+                $this->delivery->deliver($chatId, $threadId, '⚠️ '.$warning);
             }
         }
     }
@@ -3017,7 +2986,7 @@ final class Bot
             ]);
         }
 
-        $this->deliver($chatId, $threadId, $text, null, $this->overflowCaption($mode));
+        $this->delivery->deliver($chatId, $threadId, $text, null, $this->delivery->overflowCaption($mode));
     }
 
     /**
@@ -3054,7 +3023,7 @@ final class Bot
         $warning = trim($this->promptFilesWarning($this->changedPromptFiles()));
         if ($warning !== '') {
             Log::line('prompt: '.$warning);
-            $this->deliver($chatId, $threadId, $warning);
+            $this->delivery->deliver($chatId, $threadId, $warning);
         }
     }
 
@@ -3068,22 +3037,6 @@ final class Bot
         }
 
         return "\n\n".$this->t('prompt_files.changed', ['files' => implode(', ', $files)]);
-    }
-
-    /**
-     * Caption for the .md file when the final reply does not fit the chat length
-     * limit (see TelegramClient::sendText; a short reply with a table goes out as
-     * a file normally and gets no caption). In arch it is null (default caption):
-     * packing into a file is normal there. Outside arch "up to three lines" is a
-     * prompt goal, not a code contract, but violating it must be visible —
-     * otherwise packing into a file looks like regular outbox work rather than
-     * a mode failure.
-     */
-    private function overflowCaption(string $mode): ?string
-    {
-        return $mode === SystemPrompt::MODE_ARCH
-            ? null
-            : $this->t('overflow.caption', ['mode' => $mode]);
     }
 
     /**
@@ -3166,10 +3119,10 @@ final class Bot
                     : $this->t('commit.interrupted'));
                 $this->db->clearDirtyOwner();
                 $this->tg->answerCallback($callbackId, $this->t('decision.committed_toast'));
-                $this->deliver($chatId, $threadId, $this->t('decision.saved', ['url' => $this->commitUrl($hash)]));
+                $this->delivery->deliver($chatId, $threadId, $this->t('decision.saved', ['url' => $this->commitUrl($hash)]));
             } catch (\RuntimeException $e) {
                 $this->tg->answerCallback($callbackId, $this->t('decision.git_error_toast'));
-                $this->deliver($chatId, $threadId, $this->t('decision.git_failed', ['error' => $e->getMessage()]));
+                $this->delivery->deliver($chatId, $threadId, $this->t('decision.git_failed', ['error' => $e->getMessage()]));
                 // A failed commit is a new entry into the pause: buttons are issued again.
                 $this->ensureDecision($chatId, $threadId);
             }
@@ -3181,7 +3134,7 @@ final class Bot
             $this->git->discardChanges();
             $this->db->clearDirtyOwner();
             $this->tg->answerCallback($callbackId, $this->t('decision.discarded_toast'));
-            $this->deliver($chatId, $threadId, $this->t('decision.discarded'));
+            $this->delivery->deliver($chatId, $threadId, $this->t('decision.discarded'));
 
             return;
         }
@@ -3431,7 +3384,7 @@ final class Bot
         // queue on an eternal pause. So the summary in it is truncated (with a
         // margin for HTML escaping), and the full list goes as a separate message below.
         $summary = $this->git->changesSummary();
-        $short = $this->truncateSummary($summary);
+        $short = $this->delivery->truncateSummary($summary);
         $text = ($owner === null ? $this->t('decision.external')."\n\n" : '')
             .$this->t('decision.uncommitted')."\n\n".$short."\n\n".$this->t('decision.question');
 
@@ -3440,10 +3393,10 @@ final class Bot
         // come with thread_id=0. Keeping the original (deleted) topic would make a
         // click yield "decision is no longer relevant" and the dirty tree could not
         // be resolved interactively.
-        $landed = $this->deliverMessage($chatId, $threadId, $text, $markup);
+        $landed = $this->delivery->deliverMessage($chatId, $threadId, $text, $markup);
         $this->db->setDecision($chatId, $landed['thread_id'], $landed['message_id']);
         if ($short !== $summary) {
-            $this->safeDeliver($chatId, $landed['thread_id'], $this->t('decision.full_list')."\n\n".$summary);
+            $this->delivery->safeDeliver($chatId, $landed['thread_id'], $this->t('decision.full_list')."\n\n".$summary);
         }
 
         $notified = [];
@@ -3453,142 +3406,8 @@ final class Bot
                 continue;
             }
             $notified[$key] = true;
-            $this->safeDeliver($item['chat_id'], $item['thread_id'], $this->t('decision.queue_waits', ['topic' => $this->topicLabel($chatId, $landed['thread_id'])]));
+            $this->delivery->safeDeliver($item['chat_id'], $item['thread_id'], $this->t('decision.queue_waits', ['topic' => $this->topicLabel($chatId, $landed['thread_id'])]));
         }
-    }
-
-    /**
-     * Summary for the message with buttons: by whole lines, so that after HTML
-     * conversion (escaping &, <, > inflates the text) the message is guaranteed
-     * to fit the Telegram limit.
-     */
-    private function truncateSummary(string $summary): string
-    {
-        $budget = self::SUMMARY_HTML_BUDGET;
-        $out = [];
-        $used = 0;
-        $lines = explode("\n", $summary);
-        foreach ($lines as $i => $line) {
-            $cost = mb_strlen(htmlspecialchars($line)) + 1;
-            if ($used + $cost > $budget) {
-                $out[] = $this->t('decision.more_lines', ['count' => count($lines) - $i]);
-
-                return implode("\n", $out);
-            }
-            $out[] = $line;
-            $used += $cost;
-        }
-
-        return $summary;
-    }
-
-    /**
-     * Processes the outbox directory (<STATE_DIR>/outbox): Claude puts files there
-     * (e.g. screenshots) during a run, the bot sends them to the same chat and
-     * topic as the text reply — by file name, as separate messages before the
-     * text. The path is fixed: files outside outbox are not sent, paths from the
-     * reply text are not used.
-     *
-     * The directory is always cleared, including files skipped due to the size or
-     * count limit and files whose sending failed — otherwise the next run would
-     * send them again. An error on one file does not interrupt processing of the
-     * rest and does not prevent the subsequent text delivery (the caller invokes
-     * flushOutbox BEFORE deliver()).
-     *
-     * The whole method is wrapped in try/catch: it is called AFTER
-     * finishJobState(), so the run result lives only in the caller's local
-     * variable — an unhandled exception from here would bubble up to the run()
-     * loop and take the text reply with it (already paid for by Claude's work,
-     * the commit already pushed) without a single chance to retry. The summary is
-     * also sent via deliver(), not directly via sendText() — so that a
-     * deleted/closed forum topic does not silently lose it (see deliver()).
-     */
-    private function flushOutbox(int $chatId, int $threadId): void
-    {
-        try {
-            $files = glob($this->config->outboxDir.'/*') ?: [];
-            $files = array_values(array_filter($files, 'is_file'));
-            sort($files, SORT_STRING);
-
-            if ($files === []) {
-                return;
-            }
-
-            $toSend = array_slice($files, 0, self::OUTBOX_MAX_FILES);
-            $overLimit = array_slice($files, self::OUTBOX_MAX_FILES);
-
-            $notes = [];
-            foreach ($toSend as $path) {
-                $note = $this->sendOutboxFile($chatId, $threadId, $path);
-                if ($note !== null) {
-                    $notes[] = $note;
-                }
-            }
-
-            foreach ($overLimit as $path) {
-                @unlink($path);
-            }
-            if ($overLimit !== []) {
-                $notes[] = $this->t('outbox.over_limit', ['count' => count($overLimit), 'limit' => self::OUTBOX_MAX_FILES]);
-            }
-
-            if ($notes !== []) {
-                $this->deliver($chatId, $threadId, $this->t('outbox.notes_header')."\n".implode("\n", $notes));
-            }
-        } catch (\Throwable $e) {
-            Log::line('outbox: directory processing failed: '.$e->getMessage());
-        }
-    }
-
-    /**
-     * Sends one outbox file and deletes it regardless of the outcome. Returns a
-     * note for the summary (size exceeded / send failure) or null if everything
-     * went smoothly.
-     */
-    private function sendOutboxFile(int $chatId, int $threadId, string $path): ?string
-    {
-        $name = basename($path);
-
-        try {
-            $mimeType = $this->resolveOutboxMimeType($path);
-            $limit = TelegramClient::isImageMimeType($mimeType) ? TelegramClient::MAX_PHOTO_BYTES : TelegramClient::MAX_FILE_BYTES;
-            $size = (int) (filesize($path) ?: 0);
-
-            if ($size > $limit) {
-                return $this->t('outbox.too_big', ['name' => $name, 'size' => sprintf('%.1f', $size / 1_048_576), 'limit' => intdiv($limit, 1_048_576)]);
-            }
-
-            $this->tg->sendFile($chatId, $path, $name, $mimeType, $threadId);
-
-            return null;
-        } catch (\Throwable $e) {
-            Log::line("outbox: failed to send {$name}: ".$e->getMessage());
-
-            return $this->t('outbox.send_failed', ['name' => $name, 'error' => $e->getMessage()]);
-        } finally {
-            @unlink($path);
-        }
-    }
-
-    /**
-     * MIME by file extension. Known image formats are sent as sendPhoto;
-     * everything else (including an unknown extension) as sendDocument.
-     */
-    private function resolveOutboxMimeType(string $path): string
-    {
-        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-        if (isset(self::OUTBOX_IMAGE_MIME_TYPES[$ext])) {
-            return self::OUTBOX_IMAGE_MIME_TYPES[$ext];
-        }
-
-        if (function_exists('mime_content_type')) {
-            $detected = @mime_content_type($path);
-            if (is_string($detected) && $detected !== '') {
-                return $detected;
-            }
-        }
-
-        return 'application/octet-stream';
     }
 
     private function finishJobState(int $chatId, int $threadId): void
@@ -3600,83 +3419,6 @@ final class Bot
         $this->activeJob = null;
         $this->jobContext = null;
         $this->repoSnapshot = null;
-    }
-
-    /**
-     * Send to a topic with a fallback to the chat root. The topic could have been
-     * closed/deleted while the job was running — then sendMessage with
-     * message_thread_id fails and the reply (already paid for by Claude's work,
-     * the commit pushed) would be lost silently. A fallback to the chat root
-     * (General/1:1) preserves the reply. For thread_id = 0 there is no fallback
-     * — a failure of the root chat means the chat itself is unavailable.
-     *
-     * The fallback is allowed ONLY when it is known for certain that the message
-     * was not created. Otherwise a duplicate appears in two places, and worse — in
-     * two DIFFERENT Claude sessions (the topic and the chat root are keyed
-     * separately), i.e. the dialog splits. Exactly this happened on 2026-08-22:
-     * the old code took a 120-second timeout waiting for Telegram's response as
-     * non-delivery, although the message was already in the topic. So the
-     * decision is made by the exception type, not by the mere fact of one:
-     *
-     * - {@see TelegramApiException} — Telegram answered with a refusal, there is
-     *   no message → fallback to the chat root;
-     * - a transport failure with `requestSent = false` — the request did not go
-     *   out, there is no message → retry into the SAME topic (the recipient does
-     *   not change, no split);
-     * - a transport failure with `requestSent = true` (including a timeout) — the
-     *   outcome is unknown → do not forward anywhere, write the text to the log
-     *   and rethrow.
-     *
-     * Returns the thread_id where the message ACTUALLY landed (0 on fallback).
-     * Whoever binds subsequent state to this message (the commit/discard decision
-     * record) MUST key by the returned topic, not the requested one: otherwise a
-     * callback from the fallback topic will not match the decision record.
-     *
-     * @param array<string, mixed>|null $replyMarkup
-     * @param string|null               $overflowCaption see {@see TelegramClient::sendText()}
-     */
-    private function deliver(int $chatId, int $threadId, string $text, ?array $replyMarkup = null, ?string $overflowCaption = null): int
-    {
-        return $this->deliverMessage($chatId, $threadId, $text, $replyMarkup, $overflowCaption)['thread_id'];
-    }
-
-    /**
-     * Same as {@see deliver()}, but additionally returns the message_id of the
-     * sent message (needed to reconcile the decision buttons).
-     *
-     * @param array<string, mixed>|null $replyMarkup
-     *
-     * @return array{thread_id: int, message_id: int}
-     */
-    private function deliverMessage(int $chatId, int $threadId, string $text, ?array $replyMarkup = null, ?string $overflowCaption = null): array
-    {
-        try {
-            $messageId = $this->tg->sendText($chatId, $text, $replyMarkup, $threadId, $overflowCaption);
-
-            return ['thread_id' => $threadId, 'message_id' => $messageId];
-        } catch (TelegramTransportException $e) {
-            if ($e->requestSent) {
-                // The reply may have already reached the recipient. We must not duplicate,
-                // but must not silently lose the text either — put it in the log, from where we can fetch it by hand.
-                Log::line('delivery to topic '.$threadId.' with unknown outcome ('.$e->getMessage().'), not retrying; reply text: '.$text);
-
-                throw $e;
-            }
-
-            // The request did not leave the machine — there is no message, retry is safe.
-            Log::line('delivery request to topic '.$threadId.' did not go out ('.$e->getMessage().'), retrying into the same topic');
-            $messageId = $this->tg->sendText($chatId, $text, $replyMarkup, $threadId, $overflowCaption);
-
-            return ['thread_id' => $threadId, 'message_id' => $messageId];
-        } catch (TelegramApiException $e) {
-            if ($threadId === 0) {
-                throw $e;
-            }
-            Log::line('delivery to topic '.$threadId.' rejected by Telegram ('.$e->getMessage().'), fallback to chat root');
-            $messageId = $this->tg->sendText($chatId, $text, $replyMarkup, 0, $overflowCaption);
-
-            return ['thread_id' => 0, 'message_id' => $messageId];
-        }
     }
 
     private function commitMessage(string $prompt): string

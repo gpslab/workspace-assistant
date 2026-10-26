@@ -51,6 +51,15 @@ final class FakeTelegram extends TelegramClient
     /** A topic where sendText gets a Telegram refusal (as for a deleted topic). */
     public ?int $failThread = null;
 
+    /** @var list<\Throwable> failures thrown by the next sendText calls, in order */
+    public array $sendFailures = [];
+
+    /** @var list<int> thread of every sendText call, including failed ones */
+    public array $sendAttempts = [];
+
+    /** sendFile fails with a Telegram refusal. */
+    public bool $fileFails = false;
+
     private int $nextId = 1000;
 
     public function __construct()
@@ -67,6 +76,11 @@ final class FakeTelegram extends TelegramClient
 
     public function sendText(int $chatId, string $text, ?array $replyMarkup = null, int $threadId = 0, ?string $overflowCaption = null, bool $silent = false): int
     {
+        $this->sendAttempts[] = $threadId;
+        $failure = array_shift($this->sendFailures);
+        if ($failure !== null) {
+            throw $failure;
+        }
         if ($this->failThread !== null && $threadId === $this->failThread) {
             throw new TelegramApiException('sendMessage', 'Bad Request: message thread not found');
         }
@@ -124,6 +138,9 @@ final class FakeTelegram extends TelegramClient
 
     public function sendFile(int $chatId, string $path, string $caption, string $mimeType, int $threadId = 0, ?string $filename = null): void
     {
+        if ($this->fileFails) {
+            throw new TelegramApiException('sendDocument', 'Bad Request: boom');
+        }
         $this->files[] = ['chat' => $chatId, 'thread' => $threadId, 'name' => $filename ?? basename($path)];
     }
 

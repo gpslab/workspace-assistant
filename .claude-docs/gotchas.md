@@ -197,7 +197,7 @@ Traps:
   `ClaudeRunner::neutralizeUpdateMarkers()`, so a quoted block in a discussion reaches the model altered. The wording must stay "replaces everything": a
   "replaces where it contradicts" block leaves the old role's non-conflicting rules in force.
 - **Size-ceiling violation outside `arch`** (reply went out as a file) is flagged in the **caption of the
-  file** (`TelegramClient::sendText($overflowCaption)`, `Bot::overflowCaption()`), only when the reply
+  file** (`TelegramClient::sendText($overflowCaption)`, `Delivery::overflowCaption()`), only when the reply
   overflowed by length. A markdown table always goes as a file (a `<pre>` table is unreadable on a
   phone), but that is normal packaging, not a violation.
 
@@ -273,7 +273,7 @@ another session". `state/outbox` is cleaned only when the own job was killed or 
 
 ## A Telegram failure is not "not delivered": fall back only on API refusal
 
-`Bot::deliver()` sends a reply to the topic and falls back to the chat root when that fails (the topic
+`Delivery::deliver()` sends a reply to the topic and falls back to the chat root when that fails (the topic
 may be closed or deleted). A blanket `catch (\RuntimeException)` is a trap: a timeout on `sendMessage`
 with `0 bytes received` means "no answer", not "no message", and the fallback duplicates the reply. Worse,
 the topic and the chat root are **different Claude sessions**, so the dialog splits in two.
