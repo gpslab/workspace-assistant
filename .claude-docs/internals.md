@@ -283,5 +283,6 @@ queues an isolated `claude -p` run (`kind = epic`, no `--resume`, a signal file 
 ## Tests and CI
 
 `composer test` (phpunit), `composer stan`, `composer cs:check`. CI (`.github/workflows/ci.yml`) runs
-`composer validate --strict` and a QA matrix of those three on PHP 8.4 and 8.5 for pushes to `master` and PRs.
+`composer validate --strict` and a QA matrix of those three on PHP 8.4 and 8.5 for pushes to `master` and PRs; the 8.5 job runs
+`composer test:coverage` (pcov) and prints the coverage summary.
 The flow tests (`QueueFlowTest`, `Epic\FlowTest`) drive `Bot` with fake `claude` shell scripts.

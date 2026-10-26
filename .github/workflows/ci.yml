@@ -30,7 +30,8 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: curl, pdo, pdo_sqlite, sqlite3
-          coverage: none
+          # Coverage only in the production-version job: it prints the summary, the other job stays fast.
+          coverage: ${{ matrix.php == '8.5' && 'pcov' || 'none' }}
           tools: composer:v2
 
       - name: Cache Composer packages
@@ -57,4 +58,4 @@ jobs:
 
       - name: PHPUnit
         if: ${{ !cancelled() }}
-        run: composer test
+        run: composer ${{ matrix.php == '8.5' && 'test:coverage' || 'test' }}

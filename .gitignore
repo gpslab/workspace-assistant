@@ -20,6 +20,7 @@ state/
 .phpunit.cache/
 .phpunit.result.cache
 phpunit.xml
+coverage.xml
 
 # IDE
 .idea/

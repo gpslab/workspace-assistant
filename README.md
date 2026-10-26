@@ -719,9 +719,15 @@ composer cs           # fix the code style (@Symfony)
 composer cs:check     # check the style without changes
 composer stan         # static analysis (phpstan level 8)
 composer test         # unit tests (phpunit)
+composer test:coverage  # unit tests with a coverage summary and coverage.xml
 ```
 
-CI runs `cs:check`, `stan` and `test` on every push to `master` and on every pull request.
+`composer test:coverage` needs a coverage driver enabled in `php.ini` (`pcov.enabled=1`, or Xdebug with
+`XDEBUG_MODE=coverage`): `php -d …` passed to `composer` does not reach the PHPUnit process. Where pcov is
+installed but disabled, run `php -d pcov.enabled=1 vendor/bin/phpunit --coverage-text --coverage-clover=coverage.xml`.
+
+CI runs `cs:check`, `stan` and `test` on PHP 8.4 and 8.5 on every push to `master` and on every pull
+request; the 8.5 job runs the tests with coverage and prints the summary.
 
 ## License
 

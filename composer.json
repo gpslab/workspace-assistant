@@ -30,7 +30,8 @@
         "cs": "php-cs-fixer fix",
         "cs:check": "php-cs-fixer fix --dry-run --diff",
         "stan": "phpstan analyse",
-        "test": "phpunit"
+        "test": "phpunit",
+        "test:coverage": "phpunit --coverage-text --coverage-clover=coverage.xml"
     },
     "config": {
         "sort-packages": true
