@@ -37,6 +37,7 @@ Which file to read for which task. Start here when unsure.
 | `src/SubRepoSync.php`                             | Nested repositories: pull before a run, HEAD snapshot, commit links, sync profile                                                |
 | `src/Delivery.php`                               | Sending replies (topic fallback), the outbox, summary truncation                                                                 |
 | `src/Inbox.php`                                  | Incoming files: download into the inbox, file/queue prompts, inbox cleanup                                                       |
+| `src/Epic/ChatSurface.php`                       | The `/epic` command, its menu and inline keyboard, and the `epic:` callbacks                                                     |
 | `src/ClaudeErrorText.php`                        | Claude error text for the chat; usage-limit parsing and reset moment (pause of the queue)                                        |
 | `src/ClaudeRunner.php` / `ClaudeResult.php`      | Asynchronous `claude -p` via `proc_open`, timeouts; parsing of its output                                                        |
 | `src/SystemPrompt.php` / `PromptFiles.php`       | Per-mode system prompts built from `prompts/*.md.dist`; loader and overrides                                                     |
