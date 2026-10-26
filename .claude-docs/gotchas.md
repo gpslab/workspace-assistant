@@ -305,7 +305,7 @@ Decide by exception **type**:
   the loop becomes a busy loop against the Telegram API.
 - **Downloaded files live exactly one run** and are deleted from EVERY way out of a job: normal end and
   timeout in `pollJob()` (take the paths from `jobContext['inbox_files']` BEFORE `finishJobState()` clears
-  it) and manual cancel in `cmdCancel()`. If `launchJob()` fails to start the runner, `startFileJob`
+  it) and manual cancel in `cmdCancel()`. If `launchJob()` fails to start the runner, `tryStartQueueHead()`
   deletes the files itself. `Inbox::sweepInbox()` removes leftovers older than an hour.
 
 ---
