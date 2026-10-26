@@ -30,6 +30,7 @@ use PHPUnit\Framework\TestCase;
  * docblock — the class is non-final precisely for this).
  */
 #[CoversClass(Bot::class)]
+#[CoversClass(SubRepoSync::class)]
 final class BotTest extends TestCase
 {
     private const int ALLOWED_USER_ID = 555;
