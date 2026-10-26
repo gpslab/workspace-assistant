@@ -9,18 +9,24 @@ PHP="${PHP_BIN:-php}"
 STOP_TIMEOUT=15
 LEGACY_PID_FILE="$ROOT_DIR/state/bot.pid"
 
-# STATE_DIR as the bot sees it (Config::fromEnv()): the real environment first, then .env next to
-# the code, then ./state; a relative path is taken from the installation directory. Only STATE_DIR
-# is read from .env, in a subshell: exported keys would become real environment variables of the
-# bot, which take precedence over its own .env parsing (src/Env.php).
+# STATE_DIR exactly as the bot sees it: the bot's own .env parser (src/Env.php: real environment
+# first, quotes, whitespace, the last duplicate wins) and Config::resolvePath() (a relative path is
+# taken from the installation directory), so the two cannot drift apart. Nothing is exported: only
+# the resolved directory is printed.
 resolve_state_dir() {
-    local dir="${STATE_DIR:-}"
-    if [[ -z "$dir" ]]; then
-        # shellcheck source=env.sh
-        dir=$(source "$SCRIPT_DIR/env.sh"; load_env_file "$ROOT_DIR/.env"; printf '%s' "${STATE_DIR:-}")
+    local dir
+    # shellcheck disable=SC2016
+    if ! dir=$("$PHP" -r '
+        require $argv[1]."/bootstrap.php";
+        $root = $argv[1];
+        $value = is_file($root."/.env")
+            ? (string) GpsLab\WorkspaceAssistant\Env::load($root."/.env")->get("STATE_DIR", "")
+            : (string) getenv("STATE_DIR");
+        echo GpsLab\WorkspaceAssistant\Config::resolvePath($value === "" ? $root."/state" : $value, $root);
+    ' -- "$ROOT_DIR") || [[ -z "$dir" ]]; then
+        echo "Warning: could not read STATE_DIR with $PHP; using $ROOT_DIR/state." >&2
+        dir="$ROOT_DIR/state"
     fi
-    [[ -n "$dir" ]] || dir="$ROOT_DIR/state"
-    [[ "$dir" == /* ]] || dir="$ROOT_DIR/$dir"
     printf '%s' "$dir"
 }
 

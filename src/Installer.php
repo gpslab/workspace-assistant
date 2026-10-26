@@ -172,7 +172,7 @@ final class Installer
             // outbox on purpose (Config does it); with the umask above they are 0700, which is fine
             // because the bot runs as the same user as the installer.
             try {
-                Config::fromEnv(Env::load($tmpPath, true));
+                Config::fromEnv(Env::load($tmpPath, true), $this->rootDir);
             } catch (\Throwable $e) {
                 return $this->fail(['The resulting configuration is rejected: '.$e->getMessage()], $err);
             }

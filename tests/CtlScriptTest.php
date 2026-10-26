@@ -23,7 +23,10 @@ final class CtlScriptTest extends TestCase
         $this->root = sys_get_temp_dir().'/ctl_'.uniqid('', true);
         mkdir($this->root.'/bin', 0777, true);
         copy(dirname(__DIR__).'/bin/ctl.sh', $this->root.'/bin/ctl.sh');
-        copy(dirname(__DIR__).'/bin/env.sh', $this->root.'/bin/env.sh');
+        copy(dirname(__DIR__).'/bootstrap.php', $this->root.'/bootstrap.php');
+        mkdir($this->root.'/src');
+        copy(dirname(__DIR__).'/src/Env.php', $this->root.'/src/Env.php');
+        copy(dirname(__DIR__).'/src/Config.php', $this->root.'/src/Config.php');
     }
 
     protected function tearDown(): void
@@ -47,6 +50,31 @@ final class CtlScriptTest extends TestCase
         self::assertSame(0, $code, $out);
         self::assertStringContainsString('Running', $out);
         self::assertDirectoryDoesNotExist($this->root.'/state');
+    }
+
+    public function testQuotedStateDirAndLastDuplicateFollowTheBotParser(): void
+    {
+        $stateDir = $this->root.'/quoted state';
+        file_put_contents($this->root.'/.env', "STATE_DIR=/nowhere\nSTATE_DIR=\"{$stateDir}\"  \n");
+        mkdir($stateDir);
+        file_put_contents($stateDir.'/bot.pid', (string) $this->spawn(true));
+
+        [$code, $out] = $this->ctl('status');
+
+        self::assertSame(0, $code, $out);
+        self::assertStringContainsString('Running', $out);
+    }
+
+    public function testRealEnvironmentOverridesTheEnvFile(): void
+    {
+        file_put_contents($this->root.'/.env', "STATE_DIR=from-file\n");
+        mkdir($this->root.'/from-env');
+        file_put_contents($this->root.'/from-env/bot.pid', (string) $this->spawn(true));
+
+        [$code, $out] = $this->ctl('status', null, ['STATE_DIR' => 'from-env']);
+
+        self::assertSame(0, $code, $out);
+        self::assertStringContainsString('Running', $out);
     }
 
     public function testUnsetStateDirKeepsStateNextToTheCode(): void
@@ -129,11 +157,13 @@ final class CtlScriptTest extends TestCase
     }
 
     /**
+     * @param array<string, string> $extraEnv
+     *
      * @return array{int, string, string}
      */
-    private function ctl(string $command, ?string $cwd = null): array
+    private function ctl(string $command, ?string $cwd = null, array $extraEnv = []): array
     {
-        $env = ['PATH' => (string) getenv('PATH'), 'PHP_BIN' => \PHP_BINARY];
+        $env = ['PATH' => (string) getenv('PATH'), 'PHP_BIN' => \PHP_BINARY, ...$extraEnv];
         $process = proc_open(['bash', $this->root.'/bin/ctl.sh', $command], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd ?? $this->root, $env);
         self::assertIsResource($process);
         $out = (string) stream_get_contents($pipes[1]);

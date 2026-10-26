@@ -583,12 +583,13 @@ final class InstallerTest extends TestCase
 
     public function testCronLogResolvesRelativeStateDirAgainstInstallDir(): void
     {
-        mkdir($this->root.'/relative-state');
         $this->writeEnv("STATE_DIR=relative-state\n");
         [$code, $out] = $this->install($this->required());
 
         self::assertSame(0, $code);
         self::assertStringContainsString(">> {$this->root}/relative-state/check_gh_auth.log 2>&1", $out);
+        self::assertDirectoryExists($this->root.'/relative-state/outbox');
+        self::assertDirectoryDoesNotExist(dirname(__DIR__).'/relative-state');
     }
 
     public function testUnitAndCronEscapeSpacesAndPercent(): void
