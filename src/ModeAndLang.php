@@ -10,6 +10,7 @@ namespace GpsLab\WorkspaceAssistant;
  */
 final class ModeAndLang
 {
+    /** Telegram's limit for inline button callback_data. */
     private const int CALLBACK_DATA_MAX_BYTES = 64;
 
     /**

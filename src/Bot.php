@@ -33,7 +33,6 @@ use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
  */
 final class Bot
 {
-    /** Telegram's limit for inline button callback_data. */
     private const string KIND_CHAT = 'chat';
     private const string KIND_COMPACT_SUMMARIZE = 'compact_summarize';
     private const string KIND_COMPACT_RESEED = 'compact_reseed';
