@@ -1,0 +1,37 @@
+# Local configuration with tokens
+.env
+
+# Bot state (SQLite, locks, temporary files)
+state/
+*.sqlite
+*.sqlite-journal
+
+# Logs
+*.log
+
+# Composer (the bot runtime needs no dependencies; vendor is for dev tooling only)
+/vendor/
+
+# php-cs-fixer
+.php-cs-fixer.cache
+.php-cs-fixer.php
+
+# PHPUnit
+.phpunit.cache/
+.phpunit.result.cache
+phpunit.xml
+
+# IDE
+.idea/
+.vscode/
+
+# PHPStan (local override; phpstan.dist.neon is committed)
+phpstan.neon
+
+# Local overrides of the prompt texts (prompts/*.md.dist are committed)
+/prompts/*.md
+/prompts/agents/*.md
+
+# Installer backup and temporary files
+.env.bak
+.env.tmp*

@@ -1,0 +1,2 @@
+# The code runs on Linux/WSL: force LF regardless of the development OS.
+* text=auto eol=lf

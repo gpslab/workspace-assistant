@@ -1,0 +1,97 @@
+# PM runbook: working out a task
+
+This runbook applies when a message starts or continues working out a task: designing a
+change, writing the task text, opening the issues. For any other message (a question, a
+status check) ignore it and answer normally.
+
+The bot does not run the stages below. You run them inside your session. The pipeline
+config is the first json block of this file:
+
+```json
+{
+  "stages": [
+    {"id": "critique", "agent": "critic", "required": true},
+    {"id": "verify", "agent": "verifier", "required": true},
+    {"id": "edit", "agent": "editor", "required": true},
+    {"id": "scope", "agent": "scope-check", "required": true}
+  ],
+  "skip_allowed": {"pm": false, "review": true, "tick": false, "final": false, "epic_review": true}
+}
+```
+
+`stages` lists the stages that call a sub-agent, in order. `required` stages are not
+optional. `skip_allowed` says, per kind of run, whether a required stage may be skipped:
+`pm` (the pm chat), `review` (the review chat; it does not receive this runbook, the key is read by the issue-creation gate), `tick`, `final` (epic runs) and
+`epic_review` (the hot review of an epic pull request). An instance addition can replace
+`stages` and override single `skip_allowed` keys.
+
+## Stages
+
+1. **Author's input.** Write the author's request word for word into the decision
+   document in the repository. Do not paraphrase it.
+2. **Design draft.** You write the draft yourself, into the decision document. The design is
+   never delegated to a cold agent.
+3. **Cold critique** (`critic`). The agent has no context from this session and attacks
+   the draft. Call it with the template below.
+4. **Verification** (`verifier`). Every finding is checked against the facts (code, command
+   output). Pass it the findings in the contract format and nothing else of your opinion.
+5. **Design fix.** Fix the design for every confirmed finding. Write the analysis into the
+   decision document: each finding, its verdict, what changed or why nothing did.
+6. **Editing** (`editor`). Pass it an explicit list of the load-bearing decisions: the
+   ones that must survive editing unchanged. It tightens the text and must not drop or
+   change any of them.
+7. **Series scope check** (`scope-check`). Check that every pull request built from the
+   tasks stays in scope, passes its repository's CI gates, and that the series has every
+   prerequisite in the right order. Fix every problem (split, add the missing task,
+   reorder, reword) before any issue is opened.
+8. **Issues.** Open the issues from the checked task texts.
+9. **Reply to the author.** Only forks: for each one an option, its consequence and a
+   recommendation. The reasoning and the rejected alternatives stay in the decision
+   document, not in the chat.
+
+## Contract between stages
+
+A **finding** (from `critic`) has:
+- `id`: unique within the run;
+- the claim;
+- `severity`: `blocker`, `major` or `minor`;
+- the evidence: `file:line` or the output of a command;
+- the fix.
+
+A **verdict** (from `verifier`), one per finding id, has:
+- `verdict`: `confirmed`, `refuted`, `overstated` or `unproven`;
+- the evidence the verdict rests on.
+
+Only `confirmed` findings (and `overstated` ones at the severity the verifier gives) go on
+to the design fix. `refuted` and `unproven` findings go no further; they are only listed
+in the decision document with the reason.
+
+## Calling `critic`
+
+Pass exactly this and nothing else. No summary of the design, no hints, none of your own
+arguments:
+
+```
+Decision document: <absolute path to the decision document>
+Target repositories: <absolute path of each repository the design touches>
+```
+
+## Calling agents
+
+Call every agent with `run_in_background: false` only. A background agent dies when the
+turn ends and still looks finished, so its result would be lost silently. Wait for the
+result before the next stage.
+
+## Skipping a stage
+
+A required stage may be skipped only for a kind of run where `skip_allowed` for that kind
+is `true`, and only for side findings that carry no design. Write the reason for the skip
+into the decision document. In the `pm` run and the epic runs `tick` and `final` the
+default does not allow skipping.
+
+## Epic runs without an author
+
+In an epic run (`tick`, `final`, `epic_review`) there is no author to talk to. Stages 1
+and 9, the ones that involve the author, do not apply: take the task text from the epic plan and the journal, and run the other stages as
+written. A fork you would have put into the reply goes into the epic signal as a
+"message", by the rules of the epic runbook.

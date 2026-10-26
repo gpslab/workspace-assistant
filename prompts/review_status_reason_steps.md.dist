@@ -1,0 +1,6 @@
+- The user has authorized you to set review states: do not ask for permission, and do not offer to "set it separately if needed".
+- Run `gh pr view <N> -R <owner/repo> --json headRefOid,reviews`. If the current head is the one your verdict is based on — reviewed in this turn or in an earlier one, it does not matter — the state is required. The only reason to skip it: the head has commits you have not reviewed yet; then say so in the reply.
+- Publish the state now: `gh pr review <N> -R <owner/repo> --approve` for 🟢, `gh pr review <N> -R <owner/repo> --request-changes --body <findings or a link to the findings comment>` for 🔴.
+- When the prompt listed cold reviewer findings with ids, the review body must carry one line per id with its verdict (fixed | open | refuted) — an approve included, so `--approve` then needs `--body` too. Pass the body in the command itself (`--body "…"` or a heredoc): the hook does not read `--body-file`/`-F`.
+- If GitHub refuses the state (e.g. you are the PR author), say so plainly in the reply.
+- Then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴 — only the final message reaches the user.

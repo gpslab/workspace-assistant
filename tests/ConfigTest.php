@@ -1,0 +1,251 @@
+<?php
+
+declare(strict_types=1);
+
+namespace GpsLab\WorkspaceAssistant\Tests;
+
+use GpsLab\WorkspaceAssistant\Config;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\TestCase;
+
+#[CoversClass(Config::class)]
+final class ConfigTest extends TestCase
+{
+    private string $repoDir;
+    private string $envFile;
+
+    protected function setUp(): void
+    {
+        $this->repoDir = sys_get_temp_dir().'/tgrepo_'.uniqid('', true);
+        mkdir($this->repoDir.'/.git', 0777, true);
+        $this->envFile = $this->repoDir.'/.env';
+    }
+
+    protected function tearDown(): void
+    {
+        @unlink($this->envFile);
+        @rmdir($this->repoDir.'/.git');
+        @rmdir($this->repoDir.'/state/outbox');
+        @rmdir($this->repoDir.'/state/inbox');
+        @rmdir($this->repoDir.'/state');
+        @rmdir($this->repoDir);
+    }
+
+    private function writeEnv(string $extra = ''): void
+    {
+        $base = <<<ENV
+            BOT_TOKEN=secret-token
+            ALLOWED_USER_IDS=111, 222
+            REPO_PATH={$this->repoDir}
+            GITHUB_REPO=owner/repo
+            CLAUDE_BIN=/usr/bin/claude
+            STATE_DIR={$this->repoDir}/state
+            ENV;
+        file_put_contents($this->envFile, $base."\n".$extra);
+    }
+
+    public function testEpicQuietMinutesDefaultsToTen(): void
+    {
+        $this->writeEnv();
+        self::assertSame(10, Config::load($this->envFile)->epicQuietMinutes);
+    }
+
+    public function testEpicPollSecondsDefaultsAndClamps(): void
+    {
+        $this->writeEnv();
+        self::assertSame(30, Config::load($this->envFile)->epicPollSeconds);
+
+        $this->writeEnv('EPIC_POLL_SECONDS=45');
+        self::assertSame(45, Config::load($this->envFile)->epicPollSeconds);
+
+        $this->writeEnv('EPIC_POLL_SECONDS=3');
+        self::assertSame(10, Config::load($this->envFile)->epicPollSeconds);
+    }
+
+    public function testLoadsValidConfig(): void
+    {
+        $this->writeEnv();
+
+        $config = Config::load($this->envFile);
+
+        self::assertSame('secret-token', $config->botToken);
+        self::assertSame([111, 222], $config->allowedUserIds);
+        self::assertSame($this->repoDir, $config->repoPath);
+        self::assertSame('owner/repo', $config->githubRepo);
+        self::assertSame('/usr/bin/claude', $config->claudeBin);
+        self::assertSame(['--dangerously-skip-permissions'], $config->claudeExtraArgs);
+        self::assertSame(0, $config->claudeTimeout);
+    }
+
+    public function testGithubOwnersAreParsedWithDefaultFirst(): void
+    {
+        $this->writeEnv("GITHUB_OWNERS= anime-db , gpslab,\n");
+
+        self::assertSame(['anime-db', 'gpslab'], Config::load($this->envFile)->githubOwners->all());
+        self::assertSame('anime-db', Config::load($this->envFile)->githubOwners->default());
+    }
+
+    public function testOpenroninLoginsAreParsedAndSilenceTheWarning(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS= anime-db-bot , other,\n");
+        $config = Config::load($this->envFile);
+
+        self::assertSame(['anime-db-bot', 'other'], $config->openroninLogins);
+        self::assertSame([], $config->startupWarnings());
+    }
+
+    public function testOpenroninLoginsUnsetWarnsOnce(): void
+    {
+        $this->writeEnv();
+        $config = Config::load($this->envFile);
+
+        self::assertSame([], $config->openroninLogins);
+        self::assertCount(1, $config->startupWarnings());
+        self::assertStringContainsString('OPENRONIN_LOGINS', $config->startupWarnings()[0]);
+    }
+
+    public function testGithubOwnersUnsetHasNoDefault(): void
+    {
+        $this->writeEnv();
+
+        self::assertTrue(Config::load($this->envFile)->githubOwners->isEmpty());
+    }
+
+    public function testIsAllowed(): void
+    {
+        $this->writeEnv();
+        $config = Config::load($this->envFile);
+
+        self::assertTrue($config->isAllowed(111));
+        self::assertFalse($config->isAllowed(999));
+    }
+
+    public function testCreatesStateDir(): void
+    {
+        $this->writeEnv();
+        Config::load($this->envFile);
+
+        self::assertDirectoryExists($this->repoDir.'/state');
+    }
+
+    public function testCreatesOutboxDir(): void
+    {
+        $this->writeEnv();
+        $config = Config::load($this->envFile);
+
+        self::assertDirectoryExists($this->repoDir.'/state/outbox');
+        self::assertSame($this->repoDir.'/state/outbox', $config->outboxDir);
+    }
+
+    public function testCreatesInboxDir(): void
+    {
+        $this->writeEnv();
+        $config = Config::load($this->envFile);
+
+        self::assertDirectoryExists($this->repoDir.'/state/inbox');
+        self::assertSame($this->repoDir.'/state/inbox', $config->inboxDir);
+    }
+
+    public function testRejectsPlaceholderToken(): void
+    {
+        file_put_contents(
+            $this->envFile,
+            "BOT_TOKEN=PASTE_YOUR_BOT_TOKEN_HERE\nALLOWED_USER_IDS=1\nREPO_PATH={$this->repoDir}\n"
+        );
+
+        $this->expectException(\RuntimeException::class);
+        Config::load($this->envFile);
+    }
+
+    public function testRejectsEmptyAllowedUsers(): void
+    {
+        file_put_contents(
+            $this->envFile,
+            "BOT_TOKEN=t\nALLOWED_USER_IDS=\nREPO_PATH={$this->repoDir}\n"
+        );
+
+        $this->expectException(\RuntimeException::class);
+        Config::load($this->envFile);
+    }
+
+    public function testRejectsNonGitRepoPath(): void
+    {
+        file_put_contents(
+            $this->envFile,
+            "BOT_TOKEN=t\nALLOWED_USER_IDS=1\nREPO_PATH=/tmp/definitely-not-a-repo-".uniqid()."\n"
+        );
+
+        $this->expectException(\RuntimeException::class);
+        Config::load($this->envFile);
+    }
+
+    public function testEpicsDirDefaultsToNeutralPath(): void
+    {
+        $this->writeEnv();
+
+        self::assertSame('.workspace-assistant/epics', Config::load($this->envFile)->epicsDir);
+    }
+
+    public function testEpicsDirIsConfigurable(): void
+    {
+        $this->writeEnv("EPICS_DIR=/context/epics/\n");
+
+        self::assertSame('context/epics', Config::load($this->envFile)->epicsDir);
+    }
+
+    public function testSubreposDirDisabledByDefault(): void
+    {
+        $this->writeEnv();
+
+        self::assertSame('', Config::load($this->envFile)->subreposDir);
+    }
+
+    public function testSubreposDirIsConfigurable(): void
+    {
+        $this->writeEnv("SUBREPOS_DIR=docs/\n");
+
+        self::assertSame('docs', Config::load($this->envFile)->subreposDir);
+    }
+
+    public function testTimezoneDefaultsToUtc(): void
+    {
+        $this->writeEnv();
+
+        self::assertSame('UTC', Config::load($this->envFile)->timezone);
+    }
+
+    public function testTimezoneIsConfigurable(): void
+    {
+        $this->writeEnv("TIMEZONE=Europe/Moscow\n");
+
+        self::assertSame('Europe/Moscow', Config::load($this->envFile)->timezone);
+    }
+
+    public function testInvalidTimezoneFails(): void
+    {
+        $this->writeEnv("TIMEZONE=Mars/Olympus\n");
+
+        $this->expectException(\RuntimeException::class);
+        Config::load($this->envFile);
+    }
+
+    public function testLocaleDefaultsToEnglishAndLocalesDirIsUnset(): void
+    {
+        $this->writeEnv();
+
+        $config = Config::load($this->envFile);
+
+        self::assertSame('en', $config->botLocale);
+        self::assertSame('', $config->localesDir);
+    }
+
+    public function testReadsBotLocaleAndLocalesDir(): void
+    {
+        $this->writeEnv("BOT_LOCALE= ru \nLOCALES_DIR=/instance/locales/\n");
+
+        $config = Config::load($this->envFile);
+
+        self::assertSame('ru', $config->botLocale);
+        self::assertSame('instance/locales', $config->localesDir);
+    }
+}

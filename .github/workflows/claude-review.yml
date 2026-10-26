@@ -1,0 +1,104 @@
+name: Claude Code Review
+
+on:
+  # No synchronize: the review does not rerun on every commit (including the implementer's
+  # fix-ups), which saves Actions minutes. It runs on open, ready-for-review and reopen;
+  # to re-review, reopen the PR or mark it ready again.
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+
+# One PR, one review: a quick ready→draft→ready cancels the previous run.
+# Every event here is a PR event.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    name: Claude review
+    # Drafts are not reviewed: an implementer may open a PR as a draft, and without this
+    # gate the review would run on unfinished code. The review runs once the PR is ready
+    # (ready_for_review) or when it is opened as a non-draft.
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    # This job hangs more easily than the others: the agent works over the network in a
+    # loop with no ceiling of its own. Observed runs take 2.5–5 minutes; 20 leaves room
+    # for a large PR. The limit is higher than CI's on purpose: CI time is predictable.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are a senior QA / security engineer. Review this pull request. Reply in English.
+
+            Repository context (Workspace Assistant):
+            A Telegram bot that takes chat messages, runs `claude -p` on them in a managed git
+            repository and commits/pushes the result itself. It is not a library but a
+            privileged executor: input comes from a messenger, and the output is a CLI process
+            with access to the file system, git and tokens. Treat incoming data as untrusted.
+
+            Look for real problems first:
+            - Security: command lines for external processes built without escaping
+              (`shell_exec`/`exec`/`system`/`proc_open` with string concatenation), path
+              traversal in state file paths (inbox/outbox, sessions, logs), secrets (the
+              Telegram token, git/GitHub tokens) written to logs or replies, unvalidated input
+              at the boundaries (Telegram API updates, Claude output, state file contents).
+            - Correctness: does the change do what it claims; logic errors, off-by-one, null
+              dereferences, type mismatches, wrong regexes.
+            - Regressions: existing bot behaviour broken.
+            - A lost reply: a branch where an exception or an early return leaves the user
+              without any chat message is a blocking defect, not a nit. The user sees ONLY the
+              final text; whatever never reaches `sendText`/`deliver` is lost.
+            - Test soundness: a test that would also pass on BROKEN code is a critical defect.
+              Assertions must tell correct behaviour from wrong behaviour. Typical traps: a
+              stub/fixture returns the same value that used to be hard-coded, so the test does
+              not prove the value really comes from the injection/wiring; tautological
+              assertions; checks that pass for any implementation.
+
+            Repository specifics:
+            - Code and CI run PHP 8.5 (`"php": ">=8.5"`); no compatibility check for older PHP.
+            - The bot has NO runtime dependencies: classes are loaded by its own PSR-4
+              autoloader in `bootstrap.php`, and a deployment may have no `vendor/`. Any new
+              dependency in `require` of composer.json (not `require-dev`) breaks deployment;
+              flag it as a blocker.
+            - The process is managed by `bin/ctl.sh` or a service manager; new code takes effect
+              only after a restart. A change that silently needs a restart or touches process
+              management must say so in the PR description.
+            - The bot runs as a single instance: Telegram long polling answers 409 to a second
+              one. Changes to the polling loop must not allow parallel polling.
+            - Code, comments and documentation are in English.
+            - The license is MIT (see LICENSE). Source files need no license headers.
+
+            Do not flag: style nits the project linter catches (php-cs-fixer `@Symfony` +
+            `declare_strict_types` + no Yoda conditions; `composer cs:check` fails on them);
+            hypothetical future problems unrelated to this PR.
+
+            Severity: do NOT downgrade correctness, security or test-soundness findings to
+            "nit / not a blocker". If a test does not prove the claimed behaviour, or a defect
+            can lead to a wrong result, a leak or a regression, it is must-fix. State it
+            directly as "must fix" so the implementer takes it up instead of skipping it.
+
+            Post findings as inline comments on the relevant lines.
+
+            At the END of the review you MUST leave exactly one summary comment with
+            `gh pr comment` — a mandatory final step in every outcome:
+            - with findings: a short summary (how many, where, what);
+            - without significant problems: confirm briefly, "✅ No significant problems found".
+            Without this comment the review counts as unfinished.
+
+            Post the summary with ONE command such as `gh pr comment <N> --body '<text>'` (or
+            `--body "<text>"`), WITHOUT a heredoc and WITHOUT command substitution `$(...)`:
+            command substitution is denied by the permission settings and would block the comment.
+          claude_args: |
+            --model claude-opus-5-5
+            --allowedTools "Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)"

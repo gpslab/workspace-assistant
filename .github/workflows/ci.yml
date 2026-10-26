@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel outdated runs of the same ref on a new push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One job for all tooling: composer install once, then validate/cs/stan/test in a row.
+  # GitHub bills each job rounded up to a minute, so separate jobs would cost more for nothing.
+  # Steps use `if: ${{ !cancelled() }}` so that one failure does not hide the others.
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: curl, pdo, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer packages
+        uses: actions/cache@v5
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Validate composer.json
+        if: ${{ !cancelled() }}
+        run: composer validate --strict
+
+      - name: PHP-CS-Fixer
+        if: ${{ !cancelled() }}
+        run: composer cs:check
+
+      - name: PHPStan
+        if: ${{ !cancelled() }}
+        run: composer stan
+
+      - name: PHPUnit
+        if: ${{ !cancelled() }}
+        run: composer test

@@ -1,0 +1,7 @@
+Finish the current session: do not use any tools and do not edit any files,
+just output a condensed summary of the whole conversation and the work done —
+it will become the starting context of a new session. Include the key
+decisions and their reasons, open questions, important paths/files, the
+current state of the task and the next step. Format: a compact list of items
+without preambles and without markdown headings, only what is really needed
+to continue the work. Write the summary in English.

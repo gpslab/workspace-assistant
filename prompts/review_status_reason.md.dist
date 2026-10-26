@@ -1,0 +1,1 @@
+Review-status check: your reply carries a {verdict} PR verdict (when a reply has both 🟢 and 🔴, the one that comes first decides), so the PR must get the {state} state, but {problem}
