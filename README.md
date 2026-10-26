@@ -341,6 +341,12 @@ forum topics are independent. Consecutive pending messages of one topic in the s
 into one request. The queue pauses when the working tree is dirty (commit/discard buttons appear) and
 when Claude reports a usage limit.
 
+One run at a time is a supported property, not a temporary limitation, and it covers the bot's own
+Claude runs of every kind: chat requests and the isolated runs of epics alike. The managed repository
+has a single working tree, and a dirty tree has a single pending commit/discard decision. This does not
+contradict "independent tasks run in parallel" in epics: there the parallel work is done by the
+implementer (openronin), not by the bot's Claude runs.
+
 ### Files
 
 - **Outbox.** Files Claude puts into `<STATE_DIR>/outbox` during a run are sent to the chat before the
