@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\Bot;
+use GpsLab\WorkspaceAssistant\ClaudeErrorText;
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
@@ -18,7 +19,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * `Bot` needs heavy dependencies (Config/Database/TelegramClient/GitManager/
- * SessionFiles) for its constructor. Some of the parsing (formatClaudeError,
+ * SessionFiles) for its constructor. Some of the parsing (ClaudeErrorText::format,
  * buildModeKeyboard, parseModeCallback) is pure static methods, tested via
  * reflection without instantiating the bot. The handleCallback/
  * handleModeCallback wiring (routing before/after $pending, thread_id source)
@@ -242,9 +243,7 @@ final class BotTest extends TestCase
 
     private function formatClaudeError(string $text): string
     {
-        $method = new \ReflectionMethod(Bot::class, 'formatClaudeError');
-
-        return $method->invoke($this->makeBot(new FakeTelegram()), $text);
+        return (new ClaudeErrorText(new Locale('en')))->format($text);
     }
 
     public function testPromptWarningsGoToChatOutsideSendResult(): void
