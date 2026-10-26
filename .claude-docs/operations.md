@@ -133,12 +133,12 @@ nothing to the parent's output for minutes. The stall timeout is the only safety
 ## Pull before a run
 
 Before every run the bot syncs the managed repository (`git pull --rebase`), then, when `SUBREPOS_DIR` is
-set, every clone under it (`Bot::pullSubRepos`), so Claude does not work on stale code.
+set, every clone under it (`SubRepoSync::pullSubRepos`), so Claude does not work on stale code.
 
 - **Best-effort for sub-repositories:** a failure in one clone does not cancel the run (the managed
   repository pull gates it); it goes into a warning sent before "Thinking…".
 - **Dirty clones are skipped** so a rebase cannot clobber work in progress; the skip is reported.
-- **Branch deleted on the remote** (`Bot::recoverGoneBranch`): if the local branch is fully merged into the
+- **Branch deleted on the remote** (`SubRepoSync::recoverGoneBranch`): if the local branch is fully merged into the
   default branch (`merge-base --is-ancestor HEAD origin/<default>`, default taken from the origin's HEAD
   symref), the clone is switched to the default branch and refreshed (non-destructive). If it is not
   merged, it is left alone and reported for manual handling:
