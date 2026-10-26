@@ -230,7 +230,7 @@ final class Installer
             fwrite($err, "Warning: the current user name is unknown: the systemd unit has no User= line, add it before installing.\n");
         }
         $unit = $this->unit($services);
-        $cron = $this->cronLine($defaults?->get('STATE_DIR') ?? $this->rootDir.'/state');
+        $cron = $this->cronLine(Config::resolvePath($defaults?->get('STATE_DIR') ?? $this->rootDir.'/state', $this->rootDir));
         if ($unitFile !== null) {
             if (file_put_contents($unitFile, $unit) === false || !chmod($unitFile, 0644)) {
                 fwrite($err, "Error: failed to write the unit file {$unitFile}.\n");

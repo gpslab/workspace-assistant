@@ -5,22 +5,68 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 BOT="$ROOT_DIR/bin/bot.php"
-STATE_DIR="$ROOT_DIR/state"
-PID_FILE="$STATE_DIR/bot.pid"
-LOG_FILE="$STATE_DIR/bot.log"
 PHP="${PHP_BIN:-php}"
 STOP_TIMEOUT=15
+LEGACY_PID_FILE="$ROOT_DIR/state/bot.pid"
+
+# STATE_DIR as the bot sees it (Config::fromEnv()): the real environment first, then .env next to
+# the code, then ./state; a relative path is taken from the installation directory. Only STATE_DIR
+# is read from .env, in a subshell: exported keys would become real environment variables of the
+# bot, which take precedence over its own .env parsing (src/Env.php).
+resolve_state_dir() {
+    local dir="${STATE_DIR:-}"
+    if [[ -z "$dir" ]]; then
+        # shellcheck source=env.sh
+        dir=$(source "$SCRIPT_DIR/env.sh"; load_env_file "$ROOT_DIR/.env"; printf '%s' "${STATE_DIR:-}")
+    fi
+    [[ -n "$dir" ]] || dir="$ROOT_DIR/state"
+    [[ "$dir" == /* ]] || dir="$ROOT_DIR/$dir"
+    printf '%s' "$dir"
+}
+
+STATE_DIR="$(resolve_state_dir)"
+PID_FILE="$STATE_DIR/bot.pid"
+LOG_FILE="$STATE_DIR/bot.log"
 
 mkdir -p "$STATE_DIR"
 
+# The PID is alive and is this bot. After a reboot the PID from the file can belong to an unrelated
+# process; the command line is matched by the suffix bin/bot.php, not the full path, because the
+# installation may be reached through a symlink. Without /proc only kill -0 is available.
+is_bot_pid() {
+    local pid="$1" arg
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    [[ -r "/proc/$pid/cmdline" ]] || return 0
+    while IFS= read -r -d '' arg; do
+        [[ "$arg" == bin/bot.php || "$arg" == */bin/bot.php ]] && return 0
+    done < "/proc/$pid/cmdline"
+    return 1
+}
+
+# Before STATE_DIR was honoured the PID file lived in ./state next to the code. A bot started by the
+# old script is still found there, so no command (start and fg included) starts a second instance:
+# two pollers of one token conflict, and the bot has no lock of its own.
+ACTIVE_PID_FILE="$PID_FILE"
+if [[ "$PID_FILE" != "$LEGACY_PID_FILE" && ! -f "$PID_FILE" && -f "$LEGACY_PID_FILE" ]] \
+    && is_bot_pid "$(cat "$LEGACY_PID_FILE" 2>/dev/null)"; then
+    ACTIVE_PID_FILE="$LEGACY_PID_FILE"
+    echo "Warning: the running bot was started with the PID file $LEGACY_PID_FILE; after it stops the PID file is $PID_FILE." >&2
+fi
+
 is_running() {
     local pid
-    pid=$(cat "$PID_FILE" 2>/dev/null) || return 1
-    kill -0 "$pid" 2>/dev/null
+    pid=$(cat "$ACTIVE_PID_FILE" 2>/dev/null) || return 1
+    is_bot_pid "$pid"
 }
 
 get_pid() {
-    cat "$PID_FILE" 2>/dev/null || true
+    cat "$ACTIVE_PID_FILE" 2>/dev/null || true
+}
+
+forget_pid() {
+    rm -f "$ACTIVE_PID_FILE"
+    ACTIVE_PID_FILE="$PID_FILE"
 }
 
 cmd_start() {
@@ -32,13 +78,14 @@ cmd_start() {
     nohup "$PHP" "$BOT" >> "$LOG_FILE" 2>&1 &
     local pid=$!
     echo "$pid" > "$PID_FILE"
+    ACTIVE_PID_FILE="$PID_FILE"
     echo "Started (PID $pid). Log: $LOG_FILE"
 }
 
 cmd_stop() {
     if ! is_running; then
         echo "Not running."
-        rm -f "$PID_FILE"
+        forget_pid
         return 0
     fi
 
@@ -59,7 +106,7 @@ cmd_stop() {
     else
         echo "Stopped."
     fi
-    rm -f "$PID_FILE"
+    forget_pid
 }
 
 cmd_restart() {
@@ -72,7 +119,7 @@ cmd_status() {
         echo "Running (PID $(get_pid))."
     else
         echo "Not running."
-        rm -f "$PID_FILE"
+        forget_pid
         return 1
     fi
 }

@@ -51,6 +51,16 @@ final class Config
         return self::fromEnv(Env::load($envPath));
     }
 
+    /**
+     * A relative path from `.env` is taken from the installation directory, not from the current working
+     * directory: the same `.env` must mean the same place whether the bot is started by a service manager
+     * or by `bin/ctl.sh` from any directory. `bin/ctl.sh` resolves `STATE_DIR` the same way.
+     */
+    public static function resolvePath(string $path, string $baseDir): string
+    {
+        return $path === '' || str_starts_with($path, '/') ? $path : rtrim($baseDir, '/').'/'.$path;
+    }
+
     public static function fromEnv(Env $env): self
     {
         $token = $env->require('BOT_TOKEN');
@@ -68,8 +78,8 @@ final class Config
             throw new \RuntimeException("REPO_PATH={$repoPath} does not look like a git repository.");
         }
 
-        $defaultStateDir = dirname(__DIR__).'/state';
-        $stateDir = (string) $env->get('STATE_DIR', $defaultStateDir);
+        $installDir = dirname(__DIR__);
+        $stateDir = self::resolvePath((string) $env->get('STATE_DIR', $installDir.'/state'), $installDir);
         if (!is_dir($stateDir) && !mkdir($stateDir, 0775, true) && !is_dir($stateDir)) {
             throw new \RuntimeException("Failed to create STATE_DIR={$stateDir}.");
         }
