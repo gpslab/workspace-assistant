@@ -139,6 +139,21 @@ final class CtlScriptTest extends TestCase
         self::assertStringContainsString($this->root.'/state/bot.pid', $err);
     }
 
+    public function testStartDoesNotStartASecondBotWhileTheLegacyPidFileIsLive(): void
+    {
+        $stateDir = $this->root.'/var/state';
+        file_put_contents($this->root.'/.env', "STATE_DIR={$stateDir}\n");
+        mkdir($this->root.'/state');
+        $pid = $this->spawn(true);
+        file_put_contents($this->root.'/state/bot.pid', (string) $pid);
+
+        [$code, $out] = $this->ctl('start');
+
+        self::assertSame(0, $code, $out);
+        self::assertStringContainsString("Already running (PID {$pid})", $out);
+        self::assertFileDoesNotExist($stateDir.'/bot.pid');
+    }
+
     public function testOtherEnvKeysAreNotExportedToTheBot(): void
     {
         file_put_contents($this->root.'/.env', "STATE_DIR=data\nBOT_TOKEN=from-file\n");
