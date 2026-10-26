@@ -19,7 +19,10 @@ jobs:
     # Drafts are not reviewed: an implementer may open a PR as a draft, and without this
     # gate the review would run on unfinished code. The review runs once the PR is ready
     # (ready_for_review) or when it is opened as a non-draft.
-    if: ${{ github.event.pull_request.draft == false }}
+    # Pull requests from forks are skipped: GitHub passes no secrets to them, so the review
+    # could only fail. The maintainer reviews them (CONTRIBUTING.md). Not pull_request_target:
+    # it would run untrusted code with access to the token.
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     # This job hangs more easily than the others: the agent works over the network in a
     # loop with no ceiling of its own. Observed runs take 2.5–5 minutes; 20 leaves room
