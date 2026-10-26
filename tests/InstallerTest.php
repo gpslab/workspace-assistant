@@ -648,7 +648,7 @@ final class InstallerTest extends TestCase
         $fail = static fn (string $binary): \Closure => static fn (array $c): array => $c[0] === $binary || ($c[0] === 'git' && $binary === 'ls-remote' && in_array('ls-remote', $c, true)) || ($c[0] === 'gh' && $binary === 'gh-auth' && in_array('auth', $c, true))
             ? [1, '', 'boom'] : [0, '', ''];
 
-        yield 'old php' => [['php' => static fn (): string => '8.0.0'], 'PHP 8.5 or newer is required', false];
+        yield 'old php' => [['php' => static fn (): string => '8.0.0'], 'PHP 8.4 or newer is required', false];
         yield 'extension curl' => [['ext' => static fn (string $e): bool => $e !== 'curl'], 'extension curl is not loaded', false];
         yield 'extension pdo_sqlite' => [['ext' => static fn (string $e): bool => $e !== 'pdo_sqlite'], 'extension pdo_sqlite is not loaded', false];
         yield 'extension pcntl' => [['ext' => static fn (string $e): bool => $e !== 'pcntl'], 'extension pcntl is not loaded', false];
