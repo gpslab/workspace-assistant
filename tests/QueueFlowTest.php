@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\Bot;
+use GpsLab\WorkspaceAssistant\ClaudeErrorText;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\EditStatus;
@@ -1262,10 +1263,9 @@ final class QueueFlowTest extends TestCase
     {
         $tz = new \DateTimeZone('Europe/Moscow');
         $now = (new \DateTimeImmutable('2026-10-17 15:02:00', $tz))->getTimestamp();
-        $m = new \ReflectionMethod(Bot::class, 'resetTimestamp');
 
-        self::assertNull($m->invoke(null, null, 15, 0, 'resets 3pm (Europe/Moscow)', $now));
-        self::assertNull($m->invoke(null, 'Oct 17', 15, 0, 'resets Oct 17, 3pm (Europe/Moscow)', $now));
+        self::assertNull(ClaudeErrorText::resetTimestamp(null, 15, 0, 'resets 3pm (Europe/Moscow)', $now));
+        self::assertNull(ClaudeErrorText::resetTimestamp('Oct 17', 15, 0, 'resets Oct 17, 3pm (Europe/Moscow)', $now));
     }
 
     public function testCancelClearsLimitPause(): void
@@ -1612,7 +1612,6 @@ final class QueueFlowTest extends TestCase
 
     public function testResetTimestampParsesUtcThreePartAndEtcZones(): void
     {
-        $m = new \ReflectionMethod(Bot::class, 'resetTimestamp');
         $cases = [
             '(UTC)' => 'UTC',
             '(America/Argentina/Buenos_Aires)' => 'America/Argentina/Buenos_Aires',
@@ -1620,7 +1619,7 @@ final class QueueFlowTest extends TestCase
         ];
         $now = (new \DateTimeImmutable('2026-10-17 12:00:00 UTC'))->getTimestamp();
         foreach ($cases as $text => $zone) {
-            $at = $m->invoke(null, null, 15, 0, 'resets 3pm '.$text, $now);
+            $at = ClaudeErrorText::resetTimestamp(null, 15, 0, 'resets 3pm '.$text, $now);
             self::assertIsInt($at, $text);
             self::assertSame('15:00', (new \DateTimeImmutable('@'.$at))->setTimezone(new \DateTimeZone($zone))->format('H:i'), $text);
         }
