@@ -53,7 +53,7 @@ class TelegramClient
     /**
      * The single source of truth for "is this an image or not": used both
      * here to pick the method (sendPhoto/sendDocument) and by the calling code
-     * (see Bot::sendOutboxFile) to pick the applicable size limit. If the
+     * (see Delivery::sendOutboxFile) to pick the applicable size limit. If the
      * limit were decided by some other criterion (e.g. the `image/*` prefix),
      * the two would diverge on MIME types like `image/svg+xml`, which are not
      * in IMAGE_MIME_TYPES.

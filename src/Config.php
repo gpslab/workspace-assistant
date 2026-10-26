@@ -89,7 +89,7 @@ final class Config
         }
 
         // Outbox directory: Claude puts files here (screenshots etc.) and the bot
-        // sends them to the chat after the run (see Bot::flushOutbox).
+        // sends them to the chat after the run (see Delivery::flushOutbox).
         $outboxDir = $stateDir.'/outbox';
         if (!is_dir($outboxDir) && !mkdir($outboxDir, 0775, true) && !is_dir($outboxDir)) {
             throw new \RuntimeException("Failed to create the outbox directory {$outboxDir}.");
