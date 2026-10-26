@@ -97,7 +97,7 @@ final class Inbox
         return $hasText ? $prompt : PromptFiles::load('default_file_prompt')."\n\n".$prompt;
     }
 
-    public static function fileLine(string $path, mixed $name): string
+    private static function fileLine(string $path, mixed $name): string
     {
         return is_string($name) && $name !== '' ? $path.' (original name: '.$name.')' : $path;
     }
