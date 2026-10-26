@@ -10,6 +10,105 @@ in the prompt).
 This document is the reference for **when the bot merges and releases on its own**. Read it before
 changing `Epic\Gates`, `Epic\MergeGate` or the `Orchestrator`.
 
+## How an epic runs
+
+From design with the author to the final report, the epic goes through three stages:
+
+```mermaid
+flowchart LR
+  subgraph DAY["1 · With the author"]
+    direction TB
+    A["Spec<br/>(PM runbook, see TASKS.md)"] --> I["GitHub issues"]
+    I --> P["Epic plan<br/>(tasks, after, releases)"]
+  end
+
+  subgraph NIGHT["2 · Unattended: the Orchestrator"]
+    direction TB
+    D["do-it label<br/>in after order"] --> O["openronin<br/>opens a PR"]
+    O --> CR["Cold review<br/>(CI, optional)"]
+    CR --> HR["Hot review<br/>(epic run)"]
+    HR -- "PR comments" --> O
+    HR --> M["Merge (gate)"]
+    M -. "next task" .-> D
+    M --> R["Release (gate)"]
+  end
+
+  subgraph END["3 · Completion"]
+    direction TB
+    F["Final check<br/>(epic run)"] --> H["HTML report<br/>to the topic"]
+    H --> AU["Author reads it"]
+  end
+
+  DAY == "/epic start" ==> NIGHT
+  NIGHT ==> END
+
+  classDef human fill:#fdf1e6,stroke:#e08a3c,color:#3a2a1a
+  classDef claude fill:#e6f4f0,stroke:#1f8a70,color:#123
+  classDef bot fill:#e8eef5,stroke:#3b6e9e,color:#123
+  classDef gate fill:#fbe9e7,stroke:#c0462b,color:#3a1a12
+  class A,AU human
+  class HR,F,H claude
+  class I,P,D,O,CR bot
+  class M,R gate
+```
+
+How the task text and the issues of stage 1 are produced is shown in [Working out a task](TASKS.md).
+
+## The plan is a dependency graph
+
+- **Parallel by default.** Every task whose dependencies are met is handed over in the same pass, so
+  independent tasks are implemented, reviewed and merged side by side (in the card below one task is
+  in review while another one's CI is running).
+- **Dependencies are enforced.** A task with `after` is not started until every task it depends on is
+  merged, also across repositories (`frontend#3` after `backend#12`); a contract release waits for its
+  `after` tasks the same way. A cycle in the plan is rejected at `/epic start`.
+- **Problems stay local.** A red `master` pauses merges and releases of that repository only, and
+  `hold` parks a single task; the rest of the epic keeps going.
+
+<p align="center">
+  <img src="assets/screenshot-epic.jpg" width="320"
+       alt="The epic card in a forum topic: eight tasks with their state — merged, in review, CI is running, waiting for other tasks — and the last journal entry">
+  <br>
+  <em>The epic card is one message the bot keeps up to date: each task's state, what it waits for, and the last journal entry.</em>
+</p>
+
+The plan of that epic, as a graph (states as in the screenshot). #152 depends on nothing and was merged
+alongside #153; #146 and #147 started together as soon as #153 was merged; #149 waits for both of them,
+while the installer branch (#150 → #151) only needs #147:
+
+```mermaid
+flowchart LR
+  T153["#153 Prompts<br/>to files"] --> T146["#146 Scenario tests<br/>in English"]
+  T153 --> T147["#147 Unit tests<br/>in English"]
+  T146 --> T149["#149 Epic classes<br/>to own namespace"]
+  T147 --> T149
+  T147 --> T150["#150 Installer:<br/>.env from options"]
+  T150 --> T151["#151 Installer:<br/>interactive mode"]
+  T149 --> T133["#133 README:<br/>How it works"]
+  T153 --> T133
+  T152["#152 /lang reply fix"]
+
+  classDef merged fill:#d1f0d6,stroke:#2e7d32,color:#1b1b1b
+  classDef active fill:#d6e6fb,stroke:#1565c0,color:#1b1b1b
+  classDef waiting fill:#f1f1f1,stroke:#9e9e9e,color:#1b1b1b
+  class T153,T152 merged
+  class T146,T147 active
+  class T149,T150,T151,T133 waiting
+```
+
+Green — merged, blue — in progress (review, CI), grey — waiting for dependencies.
+
+Before the bot merges a pull request of an epic, it goes through the hot review with the epic's context; if a
+cold CI reviewer is set up, its findings come first and the hot review gives each of them a verdict. openronin
+answers the findings and pushes fixes:
+
+<p align="center">
+  <img src="assets/screenshot-review.jpg" width="400"
+       alt="A pull request timeline on GitHub: the cold CI reviewer leaves a recommendation, openronin answers it and pushes a fix, then the hot review with the epic's context requests changes">
+  <br>
+  <em>Cold review recommendation → openronin's fix → hot review with the epic's context.</em>
+</p>
+
 ## GitHub owners
 
 `GITHUB_OWNERS` in `.env` is a comma-separated list of owners; the first one is the default owner.
@@ -230,7 +329,7 @@ needed:
   polled. Cost per pass: GraphQL — one query per epic task and one default-branch CI query per
   repository; REST — one Actions-runs call per task that has a PR, plus one or two compare calls per
   approved open PR (five more per master-merge commit since the approval) (hourly limits are separate and shared with `gh` calls made inside runs; see
-  [Why polling, not webhooks](README.md#why-polling-not-webhooks)). A poll pass is limited by a
+  [Why polling, not webhooks](INSTALL.md#why-polling-not-webhooks)). A poll pass is limited by a
   budget (20 s, epics go round-robin), the `gh` timeout is 15 s; remembering the fingerprint after a run happens on the nearest poll, not
   synchronously. If an epic's poll fails 5 times in a row (for example `gh` auth expired), the bot
   reports it once in the epic topic.

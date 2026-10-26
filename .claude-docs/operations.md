@@ -16,7 +16,7 @@ system user it runs as, `<service>` is the name of its service unit.
 |-----------|--------------------------------------------------------------------------------------------|
 | PHP       | **8.5** in production; the minimum is 8.4                                                  |
 | Config    | `<install-dir>/.env` (real environment variables override it)                              |
-| Launch    | A service manager (see the unit example in the README) or `bin/ctl.sh` (nohup + pid file)  |
+| Launch    | A service manager (see the unit example in [INSTALL.md](../INSTALL.md#running-as-a-service)) or `bin/ctl.sh` (nohup + pid file)  |
 | Restart   | With a service manager use `Restart=always`: it recovers both a crash and a clean exit     |
 | Log       | `state/bot.log` (STDERR redirected by the launcher)                                        |
 | In chat   | `/restart`: pulls fresh code (`git pull --rebase`) and exits the loop cleanly              |
@@ -70,8 +70,7 @@ The bot does not signal this by itself, hence a separate check.
 
 **`bin/check_gh_auth.sh`** runs from cron (weekly), checks `gh auth status` and sends a Telegram message
 through the Bot API directly (the running bot is not touched) when authorization is broken. It reads
-`BOT_TOKEN` and `ALLOWED_USER_IDS` from the same `.env`. Setup and the cron line: README,
-"Monitoring `gh` authentication".
+`BOT_TOKEN` and `ALLOWED_USER_IDS` from the same `.env`. Setup and the cron line: [INSTALL.md](../INSTALL.md#monitoring-gh-authentication).
 
 When the notice arrives:
 

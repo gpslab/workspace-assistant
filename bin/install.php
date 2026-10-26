@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant;
 
 /**
- * Writes .env from command-line options. Run: php bin/install.php --bot-token-file=... (see README "Installation").
+ * Writes .env from command-line options. Run: php bin/install.php --bot-token-file=... (see INSTALL.md).
  */
 
 require __DIR__.'/../bootstrap.php';
