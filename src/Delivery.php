@@ -45,9 +45,8 @@ final class Delivery
      * The fallback is allowed ONLY when it is known for certain that the message
      * was not created. Otherwise a duplicate appears in two places, and worse — in
      * two DIFFERENT Claude sessions (the topic and the chat root are keyed
-     * separately), i.e. the dialog splits. Exactly this happened on 2026-08-22:
-     * the old code took a 120-second timeout waiting for Telegram's response as
-     * non-delivery, although the message was already in the topic. So the
+     * separately), i.e. the dialog splits. A timeout waiting for Telegram's
+     * response is not non-delivery: the message may already be in the topic. So the
      * decision is made by the exception type, not by the mere fact of one:
      *
      * - {@see TelegramApiException} — Telegram answered with a refusal, there is

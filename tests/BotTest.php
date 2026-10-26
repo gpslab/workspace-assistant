@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\ClaudeErrorText;
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
+use GpsLab\WorkspaceAssistant\Delivery;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
@@ -30,6 +31,7 @@ use PHPUnit\Framework\TestCase;
  * docblock — the class is non-final precisely for this).
  */
 #[CoversClass(Bot::class)]
+#[CoversClass(Delivery::class)]
 #[CoversClass(SubRepoSync::class)]
 final class BotTest extends TestCase
 {
