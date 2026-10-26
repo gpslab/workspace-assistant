@@ -77,6 +77,18 @@ final class CtlScriptTest extends TestCase
         self::assertStringContainsString('Running', $out);
     }
 
+    public function testStartRefusesWhenStateDirCannotBeResolved(): void
+    {
+        file_put_contents($this->root.'/.env', "STATE_DIR=data\n");
+
+        [$code, , $err] = $this->ctl('start', null, ['PHP_BIN' => '/bin/false']);
+
+        self::assertSame(1, $code, $err);
+        self::assertStringContainsString('not starting', $err);
+        self::assertDirectoryDoesNotExist($this->root.'/data');
+        self::assertDirectoryDoesNotExist($this->root.'/state');
+    }
+
     public function testUnsetStateDirKeepsStateNextToTheCode(): void
     {
         mkdir($this->root.'/state');

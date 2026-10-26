@@ -16,21 +16,32 @@ LEGACY_PID_FILE="$ROOT_DIR/state/bot.pid"
 resolve_state_dir() {
     local dir
     # shellcheck disable=SC2016
-    if ! dir=$("$PHP" -r '
+    if ! dir=$("$PHP" -d display_errors=stderr -r '
         require $argv[1]."/bootstrap.php";
         $root = $argv[1];
         $value = is_file($root."/.env")
             ? (string) GpsLab\WorkspaceAssistant\Env::load($root."/.env")->get("STATE_DIR", "")
             : (string) getenv("STATE_DIR");
         echo GpsLab\WorkspaceAssistant\Config::resolvePath($value === "" ? $root."/state" : $value, $root);
-    ' -- "$ROOT_DIR") || [[ -z "$dir" ]]; then
-        echo "Warning: could not read STATE_DIR with $PHP; using $ROOT_DIR/state." >&2
-        dir="$ROOT_DIR/state"
+    ' -- "$ROOT_DIR") || [[ "$dir" != /* || "$dir" == *$'\n'* ]]; then
+        return 1
     fi
     printf '%s' "$dir"
 }
 
-STATE_DIR="$(resolve_state_dir)"
+# Without a reliable STATE_DIR the PID file may be looked for in the wrong place: commands that
+# start the bot refuse to run (a wrong guess would start a second poller); the others fall back to
+# ./state with a warning.
+if ! STATE_DIR="$(resolve_state_dir)"; then
+    case "${1:-}" in
+        start|fg|restart)
+            echo "Error: could not resolve STATE_DIR with $PHP (see the message above); not starting." >&2
+            exit 1
+            ;;
+    esac
+    echo "Warning: could not resolve STATE_DIR with $PHP; using $ROOT_DIR/state." >&2
+    STATE_DIR="$ROOT_DIR/state"
+fi
 PID_FILE="$STATE_DIR/bot.pid"
 LOG_FILE="$STATE_DIR/bot.log"
 
