@@ -306,7 +306,7 @@ Decide by exception **type**:
 - **Downloaded files live exactly one run** and are deleted from EVERY way out of a job: normal end and
   timeout in `pollJob()` (take the paths from `jobContext['inbox_files']` BEFORE `finishJobState()` clears
   it) and manual cancel in `cmdCancel()`. If `launchJob()` fails to start the runner, `startFileJob`
-  deletes the files itself. `sweepInbox()` removes leftovers older than an hour.
+  deletes the files itself. `Inbox::sweepInbox()` removes leftovers older than an hour.
 
 ---
 

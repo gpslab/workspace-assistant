@@ -72,9 +72,6 @@ final class Bot
     /** Bot API getFile download limit. */
     private const int MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 
-    /** Inbox files older than this are swept as orphans (see sweepInbox). */
-    private const int INBOX_MAX_AGE_SEC = 3600;
-
     /** Commands registered with Telegram; descriptions are the `command.<name>` texts. */
     private const array BOT_COMMANDS = ['new', 'compact', 'cancel', 'queue', 'stats', 'verbose', 'mode', 'lang', 'epic', 'restart', 'help'];
 
@@ -118,6 +115,7 @@ final class Bot
     private readonly ClaudeErrorText $claudeErrorText;
     private readonly SubRepoSync $subRepoSync;
     private readonly Delivery $delivery;
+    private readonly Inbox $inbox;
 
     public function __construct(
         private readonly Config $config,
@@ -132,6 +130,7 @@ final class Bot
         $this->claudeErrorText = new ClaudeErrorText($this->locale);
         $this->subRepoSync = new SubRepoSync($config, $this->locale);
         $this->delivery = new Delivery($tg, $config, $this->locale);
+        $this->inbox = new Inbox($tg, $config, $this->locale);
         $this->albumBuffer = new AlbumBuffer();
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
         if ($github !== null) {
@@ -573,7 +572,7 @@ final class Bot
 
             $this->activeJob->kill();
             $this->finishJobState($chatId, $threadId);
-            $this->deleteInboxFiles($inboxFiles);
+            $this->inbox->deleteInboxFiles($inboxFiles);
             if ($queueId > 0) {
                 $this->db->queueRemove($queueId);
             }
@@ -1653,25 +1652,25 @@ final class Bot
         }
         if ($hasFiles) {
             // Safeguard against orphan files left after a crash in the middle of the previous run.
-            $this->sweepInbox();
+            $this->inbox->sweepInbox();
         }
         try {
             foreach ($head['parts'] as $i => $part) {
                 $pathsByPart[$i] = [];
-                foreach (self::partFiles($part) as $file) {
-                    $path = $this->downloadIncomingFile($file);
+                foreach (Inbox::partFiles($part) as $file) {
+                    $path = $this->inbox->downloadIncomingFile($file);
                     $paths[] = $path;
                     $pathsByPart[$i][] = $path;
                     $names[] = $file['name'] ?? basename($path);
                 }
             }
         } catch (\Throwable $e) {
-            $this->deleteInboxFiles($paths);
-            $failure = $this->formatDownloadError($e);
-            if (self::isPermanentDownloadError($e)) {
+            $this->inbox->deleteInboxFiles($paths);
+            $failure = $this->inbox->formatDownloadError($e);
+            if (Inbox::isPermanentDownloadError($e)) {
                 // File permanently unavailable: drop the item WHOLE (a merged one - with all its files).
                 $this->dropItem($head, $failure."\n".($hasFiles
-                    ? $this->t('queue.dropped_whole_files', ['files' => implode(', ', $this->fileNames($head['parts']))])
+                    ? $this->t('queue.dropped_whole_files', ['files' => implode(', ', $this->inbox->fileNames($head['parts']))])
                     : $this->t('queue.dropped_whole')));
             } else {
                 $this->scheduleRetry($head, $failure, true);
@@ -1682,12 +1681,12 @@ final class Bot
 
         // 7. Launch claude.
         try {
-            $prompt = self::buildQueuePrompt($head['parts'], $pathsByPart);
+            $prompt = Inbox::buildQueuePrompt($head['parts'], $pathsByPart);
             if ($head['mode'] === SystemPrompt::MODE_PM) {
                 $prompt = PmRunbook::line($this->absolutePromptsDir())."\n\n".$prompt;
             }
         } catch (\RuntimeException $e) {
-            $this->deleteInboxFiles($paths);
+            $this->inbox->deleteInboxFiles($paths);
             $this->dropItem($head, $this->t('queue.claude_start_failed', ['error' => $e->getMessage()]));
 
             return;
@@ -1874,13 +1873,13 @@ final class Bot
         if ($thinkingId > 0) {
             $status = $this->tg->editMessageText($chatId, $thinkingId, $text);
             if ($status === EditStatus::Gone) {
-                $this->deleteInboxFiles($inboxFiles);
+                $this->inbox->deleteInboxFiles($inboxFiles);
                 $this->dropItem($head, $this->t('queue.placeholder_gone'));
 
                 return;
             }
             if ($status === EditStatus::Failed) {
-                $this->deleteInboxFiles($inboxFiles);
+                $this->inbox->deleteInboxFiles($inboxFiles);
                 $this->scheduleRetry($head, $this->t('queue.telegram_unreachable'));
 
                 return;
@@ -1890,7 +1889,7 @@ final class Bot
                 // The service message of an epic run disappears when it ends - no push.
                 $thinkingId = $this->tg->sendText($chatId, $text, null, $threadId, null, $kind === self::KIND_EPIC);
             } catch (TelegramApiException) {
-                $this->deleteInboxFiles($inboxFiles);
+                $this->inbox->deleteInboxFiles($inboxFiles);
                 $this->dropItem($head, null);
                 Log::line("queue: topic of item {$head['id']} unavailable, item dropped");
 
@@ -1915,7 +1914,7 @@ final class Bot
         if ($error !== null) {
             $this->db->queueRelease($head['id']);
             $this->db->queueSetPlaceholder($head['id'], $thinkingId);
-            $this->deleteInboxFiles($inboxFiles);
+            $this->inbox->deleteInboxFiles($inboxFiles);
             $this->scheduleRetry($head, $this->t('queue.claude_start_failed', ['error' => $error]));
 
             return;
@@ -2024,181 +2023,6 @@ final class Bot
         }
         foreach ($counts as $c) {
             $this->delivery->safeDeliver($c['chat'], $c['thread'], $this->t('restart.queue_kept', ['count' => $c['n']]));
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $part
-     *
-     * @return list<array{file_id: string, extension: string|null, name: string|null, file_size: int|null}>
-     */
-    private static function partFiles(array $part): array
-    {
-        /** @var list<array{file_id: string, extension: string|null, name: string|null, file_size: int|null}> $files */
-        $files = $part['files'] ?? [];
-
-        return $files;
-    }
-
-    /**
-     * @param list<array<string, mixed>> $parts
-     *
-     * @return list<string>
-     */
-    private function fileNames(array $parts): array
-    {
-        $names = [];
-        foreach ($parts as $part) {
-            foreach (self::partFiles($part) as $file) {
-                $names[] = $file['name'] ?? $this->t('file.unnamed');
-            }
-        }
-
-        return $names;
-    }
-
-    /**
-     * Item prompt: the messages in order; files carry the caption of their own
-     * message. A single file item without merging is built as before
-     * ({@see buildFilePrompt()}).
-     *
-     * @param list<array<string, mixed>> $parts
-     * @param array<int, list<string>>   $pathsByPart downloaded paths by part index
-     */
-    private static function buildQueuePrompt(array $parts, array $pathsByPart): string
-    {
-        if (count($parts) === 1) {
-            $files = self::partFiles($parts[0]);
-            $text = is_string($parts[0]['text'] ?? null) ? $parts[0]['text'] : null;
-            if ($files === []) {
-                return (string) $text;
-            }
-
-            return self::buildFilePrompt($text, $pathsByPart[0] ?? [], array_column($files, 'name'));
-        }
-
-        $blocks = [];
-        $hasText = false;
-        foreach ($parts as $i => $part) {
-            $lines = [];
-            if (is_string($part['text'] ?? null) && $part['text'] !== '') {
-                $lines[] = $part['text'];
-                $hasText = true;
-            }
-            $paths = $pathsByPart[$i] ?? [];
-            if ($paths !== []) {
-                if ($lines !== []) {
-                    $lines[] = '';
-                }
-                $lines[] = count($paths) === 1 ? 'File:' : 'Files:';
-                $names = array_column(self::partFiles($part), 'name');
-                foreach ($paths as $j => $path) {
-                    $lines[] = self::fileLine($path, $names[$j] ?? null);
-                }
-            }
-            $blocks[] = implode("\n", $lines);
-        }
-
-        $prompt = implode("\n\n", $blocks);
-
-        return $hasText ? $prompt : PromptFiles::load('default_file_prompt')."\n\n".$prompt;
-    }
-
-    private static function fileLine(string $path, mixed $name): string
-    {
-        return is_string($name) && $name !== '' ? $path.' (original name: '.$name.')' : $path;
-    }
-
-    /**
-     * Downloads a single file into INBOX_DIR under a safe name (random
-     * prefix + sanitized `file_name`, see IncomingFile::diskName).
-     * Returns the absolute path.
-     *
-     * @param array{file_id: string, extension: string|null, name: string|null, file_size: int|null} $file
-     */
-    private function downloadIncomingFile(array $file): string
-    {
-        $filePath = $this->tg->getFilePath($file['file_id']);
-        $dest = $this->config->inboxDir.'/'.IncomingFile::diskName($file, bin2hex(random_bytes(8)));
-        $this->tg->downloadFile($filePath, $dest);
-
-        return $dest;
-    }
-
-    /**
-     * Final download refusal: explicit cases only; 429/5xx and network
-     * failures are transient (the item stays at the head, retry).
-     */
-    private static function isPermanentDownloadError(\Throwable $e): bool
-    {
-        $m = strtolower($e->getMessage());
-        foreach (['file is too big', 'wrong file_id', 'wrong file id', 'invalid file_id', 'invalid file id', 'file not found', 'wrong file identifier'] as $marker) {
-            if (str_contains($m, $marker)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Download failure message. The Bot API getFile limit is 20 MB; Telegram
-     * rejects such a file with a dedicated error ("file is too big"), which we
-     * recognize by its text and turn into a readable wording instead of the raw
-     * API error text.
-     */
-    private function formatDownloadError(\Throwable $e): string
-    {
-        if (stripos($e->getMessage(), 'file is too big') !== false) {
-            return $this->t('file.download_too_big');
-        }
-
-        return $this->t('file.download_failed', ['error' => $e->getMessage()]);
-    }
-
-    /**
-     * Prompt for a task with file(s): the caption (or the default) + absolute
-     * paths of the downloaded files (with the original name, if any). Everything
-     * is assembled into ONE PHP string (no shell involved) and passed on as a
-     * single argv element, like any other prompt (see ClaudeRunner::start),
-     * so injection via the caption/file name is ruled out.
-     *
-     * @param list<string>      $paths
-     * @param array<int, mixed> $names original names in the same order as $paths
-     */
-    private static function buildFilePrompt(?string $caption, array $paths, array $names = []): string
-    {
-        $lines = [$caption ?? PromptFiles::load('default_file_prompt'), ''];
-        $lines[] = count($paths) === 1 ? 'File:' : 'Files:';
-        foreach ($paths as $i => $path) {
-            $lines[] = self::fileLine($path, $names[$i] ?? null);
-        }
-
-        return implode("\n", $lines);
-    }
-
-    /**
-     * Best-effort cleanup of old files in INBOX_DIR (orphans left after a crash
-     * in the middle of a previous run; nothing persists between turns). Called
-     * at the start of every task with a file; there is no separate timer/cron.
-     */
-    private function sweepInbox(): void
-    {
-        $threshold = time() - self::INBOX_MAX_AGE_SEC;
-        foreach (glob($this->config->inboxDir.'/*') ?: [] as $path) {
-            if (is_file($path) && (filemtime($path) ?: 0) < $threshold) {
-                @unlink($path);
-            }
-        }
-    }
-
-    /**
-     * @param list<string> $paths
-     */
-    private function deleteInboxFiles(array $paths): void
-    {
-        foreach ($paths as $path) {
-            @unlink($path);
         }
     }
 
@@ -2464,7 +2288,7 @@ final class Bot
                 $reason = $this->activeJob->timeoutReason();
                 $timeoutWarnings = $this->activeJob->promptWarnings();
                 $this->finishJobState($chatId, $threadId);
-                $this->deleteInboxFiles($inboxFiles);
+                $this->inbox->deleteInboxFiles($inboxFiles);
                 $this->tg->deleteMessage($chatId, $thinkingId);
                 $this->delivery->flushOutbox($chatId, $threadId);
                 $this->delivery->deliver($chatId, $threadId, $this->t('run.killed', ['reason' => $reason !== '' ? $reason : $this->t('run.timeout')]));
@@ -2508,7 +2332,7 @@ final class Bot
             // Drop the job BEFORE delivery to Telegram: a delivery failure then cannot
             // leave a dangling activeJob or make poll() loop on a closed process.
             $this->finishJobState($chatId, $threadId);
-            $this->deleteInboxFiles($inboxFiles);
+            $this->inbox->deleteInboxFiles($inboxFiles);
             if ($gateSkip !== '' && !$gateInReply) {
                 $this->reportPmGateSkip($chatId, $threadId, $kind, $epicSlug, $epicRun, $gateSkip);
             }
