@@ -81,7 +81,7 @@ Deliberately wide surface (accepted risk, not a hole):
 | **Every external call has a timeout**                     | One blocking call freezes the whole bot ([internals.md](internals.md)).                                 |
 | **System prompt: texts in `prompts/*.md.dist`**           | Shipped under git; a local override is allowed and a contract override is always reported.               |
 | **Human-facing texts come from a locale catalog**         | `en` is the reference and the fallback ([gotchas.md](gotchas.md)).                                      |
-| **Polling, no webhooks (Telegram, GitHub)**               | Long polling is already immediate and webhooks cannot replace the timer-driven poll ([README](../README.md#why-polling-not-webhooks)). |
+| **Polling, no webhooks (Telegram, GitHub)**               | Long polling is already immediate and webhooks cannot replace the timer-driven poll ([INSTALL.md](../INSTALL.md#why-polling-not-webhooks)). |
 
 ## Out of scope
 
