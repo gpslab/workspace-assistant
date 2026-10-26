@@ -741,6 +741,10 @@ installed but disabled, run `php -d pcov.enabled=1 vendor/bin/phpunit --coverage
 CI runs `cs:check`, `stan` and `test` on PHP 8.4 and 8.5 on every push to `master` and on every pull
 request; the 8.5 job runs the tests with coverage and prints the summary.
 
+## Contributing
+
+Pull requests are welcome; the rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Released under the [MIT License](LICENSE).
