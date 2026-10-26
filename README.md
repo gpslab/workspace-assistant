@@ -120,6 +120,9 @@ php bin/bot.php
 3. Clone the workspace repository, make sure `git pull` and `git push` work there without prompts,
    and note its absolute path.
 
+The list of changes between versions is on the
+[GitHub Releases](https://github.com/gpslab/workspace-assistant/releases) page; read it before updating.
+
 ### Installer (`bin/install.php`)
 
 `bin/install.php` writes `.env`, checks the environment and the network and prints a systemd unit and a cron
@@ -687,6 +690,8 @@ remote shell for everyone in `ALLOWED_USER_IDS`.
   as the bot's system user and use that user's `gh` token and git credentials. Content Claude reads
   (files, issues, PR text) can steer it too (prompt injection).
 - Changes are committed and pushed automatically, including edits to persona and locale files.
+
+To report a vulnerability privately, see [SECURITY.md](SECURITY.md).
 
 ### Isolation recipe
 
