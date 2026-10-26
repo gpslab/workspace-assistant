@@ -739,7 +739,8 @@ composer test:coverage  # unit tests with a coverage summary and coverage.xml
 installed but disabled, run `php -d pcov.enabled=1 vendor/bin/phpunit --coverage-text --coverage-clover=coverage.xml`.
 
 CI runs `cs:check`, `stan` and `test` on PHP 8.4 and 8.5 on every push to `master` and on every pull
-request; the 8.5 job runs the tests with coverage and prints the summary.
+request; the 8.5 job runs the tests with coverage, shows the
+summary (lines, methods) on the run page and keeps `coverage.xml` as the `coverage` artifact for 14 days.
 
 ## Contributing
 

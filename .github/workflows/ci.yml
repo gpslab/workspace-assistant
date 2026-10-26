@@ -59,3 +59,27 @@ jobs:
       - name: PHPUnit
         if: ${{ !cancelled() }}
         run: composer ${{ matrix.php == '8.5' && 'test:coverage' || 'test' }}
+
+      # Coverage on the run page (job summary) and coverage.xml as an artifact; 8.5 job only.
+      - name: Coverage summary
+        if: ${{ !cancelled() && matrix.php == '8.5' && hashFiles('coverage.xml') != '' }}
+        run: |
+          php <<'PHP' >> "$GITHUB_STEP_SUMMARY"
+          <?php
+            $m = simplexml_load_file('coverage.xml')->project->metrics;
+            $row = static function (string $name, int $covered, int $total): string {
+                $pct = $total > 0 ? sprintf('%.2f%%', 100 * $covered / $total) : 'n/a';
+                return "| {$name} | {$covered} | {$total} | {$pct} |\n";
+            };
+            echo "### Test coverage (PHP 8.5)\n\n| Metric | Covered | Total | Coverage |\n|---|---|---|---|\n";
+            echo $row('Lines', (int) $m['coveredstatements'], (int) $m['statements']);
+            echo $row('Methods', (int) $m['coveredmethods'], (int) $m['methods']);
+          PHP
+
+      - name: Upload coverage.xml
+        if: ${{ !cancelled() && matrix.php == '8.5' && hashFiles('coverage.xml') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          retention-days: 14
