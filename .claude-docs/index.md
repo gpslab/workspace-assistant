@@ -34,7 +34,7 @@ Which file to read for which task. Start here when unsure.
 | `bin/pm-gate-hook.php`                           | PreToolUse hook gating issue creation in `pm`/`review` and the epic runs (`tick`, `final`, `review`), fail-closed (`PmGateHook`) |
 | `bootstrap.php`                                  | PSR-4 autoloader + `date_default_timezone_set('UTC')`                                                                            |
 | `src/Bot.php`                                    | Main loop: polling, queue (`startQueueHead`), commands, git decisions                                                            |
-| `src/SubRepoSync.php`                             | Nested repositories: pull before a run, HEAD snapshot, commit links, sync profile                                                |
+| `src/SubRepoSync.php`                            | Nested repositories: pull before a run, HEAD snapshot, commit links, sync profile                                                |
 | `src/Delivery.php`                               | Sending replies (topic fallback), the outbox, summary truncation                                                                 |
 | `src/Inbox.php`                                  | Incoming files: download into the inbox, file/queue prompts, inbox cleanup                                                       |
 | `src/Epic/ChatSurface.php`                       | The `/epic` command, its menu and inline keyboard, and the `epic:` callbacks                                                     |
