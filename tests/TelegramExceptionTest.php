@@ -12,7 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The hierarchy matters behaviourally, not decoratively: Bot::deliver() uses it to decide
+ * The hierarchy matters behaviourally, not decoratively: Delivery::deliver() uses it to decide
  * whether sending can be retried. A mistake in inheritance would quietly bring back the bug of a duplicate
  * reply in two chats, so the relations are pinned by a test.
  */
