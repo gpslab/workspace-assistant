@@ -19,8 +19,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * `Bot` needs heavy dependencies (Config/Database/TelegramClient/GitManager/
- * SessionFiles) for its constructor. Some of the parsing (ClaudeErrorText::format,
- * buildModeKeyboard, parseModeCallback) is pure static methods, tested via
+ * SessionFiles) for its constructor. Some of the parsing (buildModeKeyboard,
+ * parseModeCallback) is pure static methods, tested via
  * reflection without instantiating the bot. The handleCallback/
  * handleModeCallback wiring (routing before/after $pending, thread_id source)
  * is tested on a real Bot instance: Config/Database/GitManager/

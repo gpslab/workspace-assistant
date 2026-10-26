@@ -36,7 +36,7 @@ final class ClaudeErrorText
     /**
      * Parse a Claude limit error: the user message and the reset time (unix),
      * which sets the queue pause. reset_at = null if the time could not be
-     * parsed (the pause is then LIMIT_PAUSE_FALLBACK_SEC). null means not a limit.
+     * parsed (the pause is then Bot::LIMIT_PAUSE_FALLBACK_SEC). null means not a limit.
      *
      * @return array{message: string, reset_at: int|null}|null
      */
