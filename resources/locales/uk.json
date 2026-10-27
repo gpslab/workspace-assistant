@@ -106,6 +106,7 @@
     "common.off": "вимк",
     "common.on": "увімк",
     "compact.dirty": "Стиснення зупинено: під час підсумовування з'явилися незакомічені зміни:\n\n{changes}",
+    "compact.status_failed": "Стиснення зупинено: git status впав: {error}\n\nСесію не перестворено, кнопки commit/discard не пропонуються.",
     "compact.done": "✅ Сесію стиснуто: контекст перенесено, лічильники обнулено.\n\n{text}",
     "compact.no_session": "Активної сесії немає — стискати нічого.",
     "compact.no_summary": "Не вдалося отримати summary — сесію не чіпали.",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status впав: {error}\n\nClaude не запущено.",
     "epicrun.status_failed": "⚠️ Прогін епіка {slug} впав, робоче дерево не відкочувалося: git status впав: {error}",
     "result.status_failed": "не вдалося прочитати робоче дерево (git status впав: {error}); нічого не закомічено",
+    "result.changes_unknown": "не вдалося визначити, що змінив цей запуск (git status впав: {error})",
     "prompt_files.check_failed": "не вдалося перевірити PROMPTS_DIR / LOCALES_DIR: {error}",
     "decision.status_failed_toast": "git status впав: {error}",
     "decision.status_failed": "git status впав: {error}\n\nКнопки commit/discard не видаються, доки робоче дерево неможливо прочитати."

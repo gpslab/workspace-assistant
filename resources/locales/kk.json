@@ -106,6 +106,7 @@
     "common.off": "өшірулі",
     "common.on": "қосулы",
     "compact.dirty": "Қысу тоқтатылды: қорытындылау кезінде коммиттелмеген өзгерістер пайда болды:\n\n{changes}",
+    "compact.status_failed": "Қысу тоқтатылды: git status орындалмады: {error}\n\nСессия қайта құрылмады, commit/discard батырмалары ұсынылмайды.",
     "compact.done": "✅ Сессия қысылды: контекст көшірілді, есептегіштер нөлденді.\n\n{text}",
     "compact.no_session": "Белсенді сессия жоқ — қысатын ештеңе жоқ.",
     "compact.no_summary": "Summary алу мүмкін болмады — сессияға тиіспедік.",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status орындалмады: {error}\n\nClaude іске қосылмады.",
     "epicrun.status_failed": "⚠️ {slug} эпик жұмысы орындалмады, жұмыс ағашы кері қайтарылмады: git status орындалмады: {error}",
     "result.status_failed": "жұмыс ағашын оқу мүмкін болмады (git status орындалмады: {error}); ештеңе коммиттелмеді",
+    "result.changes_unknown": "осы іске қосу нені өзгерткенін анықтау мүмкін болмады (git status орындалмады: {error})",
     "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR тексеру мүмкін болмады: {error}",
     "decision.status_failed_toast": "git status орындалмады: {error}",
     "decision.status_failed": "git status орындалмады: {error}\n\nЖұмыс ағашын оқуға болмайынша commit/discard батырмалары берілмейді."

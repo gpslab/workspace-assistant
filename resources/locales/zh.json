@@ -106,6 +106,7 @@
     "common.off": "关",
     "common.on": "开",
     "compact.dirty": "压缩已停止：生成摘要期间出现了未提交的改动：\n\n{changes}",
+    "compact.status_failed": "压缩已停止：git status 失败: {error}\n\n会话未重建，也不提供 commit/discard 按钮。",
     "compact.done": "✅ 会话已压缩：上下文已转移，计数器已重置。\n\n{text}",
     "compact.no_session": "没有活动会话 — 无需压缩。",
     "compact.no_summary": "无法获取摘要 — 会话未改动。",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status 失败: {error}\n\nClaude 未启动。",
     "epicrun.status_failed": "⚠️ 史诗运行 {slug} 失败，工作树未回滚: git status 失败: {error}",
     "result.status_failed": "无法读取工作树（git status 失败: {error}）；未提交任何内容",
+    "result.changes_unknown": "无法确定本次运行改动了什么（git status 失败: {error}）",
     "prompt_files.check_failed": "无法检查 PROMPTS_DIR / LOCALES_DIR: {error}",
     "decision.status_failed_toast": "git status 失败: {error}",
     "decision.status_failed": "git status 失败: {error}\n\n在工作树可读之前，不提供 commit/discard 按钮。"

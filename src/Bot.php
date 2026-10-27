@@ -129,6 +129,9 @@ final class Bot
      */
     private ?array $runTreeSnapshot = null;
 
+    /** AUTO_COMMIT=0: why the snapshot of the run is unknown (taking it failed); null when it is known or not taken. */
+    private ?string $runTreeSnapshotError = null;
+
     private readonly Locale $locale;
     private readonly ClaudeErrorText $claudeErrorText;
     private readonly SubRepoSync $subRepoSync;
@@ -1780,9 +1783,14 @@ final class Bot
 
         // AUTO_COMMIT=0: the state of the tree before the process can touch it.
         $this->runTreeSnapshot = null;
+        $this->runTreeSnapshotError = null;
         if (!$this->config->autoCommit) {
             try {
                 $this->runTreeSnapshot = $this->git->treeSnapshot();
+            } catch (GitStatusException $e) {
+                // Unknown, not "none": what the run changes cannot be told afterwards.
+                $this->runTreeSnapshotError = $e->getMessage();
+                Log::line('tree snapshot failed: '.$e->getMessage());
             } catch (\RuntimeException $e) {
                 Log::line('tree snapshot failed: '.$e->getMessage());
             }
@@ -2052,6 +2060,7 @@ final class Bot
                     Log::line('git status failed after the run, dirty owner kept: '.$e->getMessage());
                 }
                 $this->runTreeSnapshot = null;
+                $this->runTreeSnapshotError = null;
             }
         }
     }
@@ -2333,23 +2342,22 @@ final class Bot
      * Paths the summarize run changed: the whole dirty tree with AUTO_COMMIT=1, the per-run diff with 0.
      *
      * @return list<string>
+     *
+     * @throws GitStatusException when the tree state is unknown (no snapshot, or git status failed)
      */
     private function compactChangedPaths(): array
     {
-        try {
-            if ($this->config->autoCommit) {
-                return $this->git->hasChanges() ? ['*'] : [];
-            }
-            if ($this->runTreeSnapshot === null) {
-                return [];
-            }
-
-            return $this->git->changedSince($this->runTreeSnapshot);
-        } catch (\RuntimeException $e) {
-            Log::line('compact: tree snapshot diff failed: '.$e->getMessage());
-
+        if ($this->config->autoCommit) {
+            return $this->git->hasChanges() ? ['*'] : [];
+        }
+        if ($this->runTreeSnapshotError !== null) {
+            throw new GitStatusException($this->runTreeSnapshotError);
+        }
+        if ($this->runTreeSnapshot === null) {
             return [];
         }
+
+        return $this->git->changedSince($this->runTreeSnapshot);
     }
 
     /**
@@ -2367,13 +2375,18 @@ final class Bot
             return;
         }
 
-        $changed = $this->compactChangedPaths();
+        try {
+            $changed = $this->compactChangedPaths();
+            $changes = $changed === [] ? '' : ($this->config->autoCommit ? $this->git->changesSummary() : implode("\n", $changed));
+        } catch (GitStatusException $e) {
+            // Unknown tree state: no guard verdict, so no phase 2 and no buttons.
+            Log::line('compact: git status failed, not reseeding: '.$e->getMessage());
+            $this->delivery->deliver($chatId, $threadId, $this->t('compact.status_failed', ['error' => $e->getMessage()]));
+
+            return;
+        }
         if ($changed !== []) {
-            $this->delivery->deliver(
-                $chatId,
-                $threadId,
-                $this->t('compact.dirty', ['changes' => $this->config->autoCommit ? $this->git->changesSummary() : implode("\n", $changed)]),
-            );
+            $this->delivery->deliver($chatId, $threadId, $this->t('compact.dirty', ['changes' => $changes]));
             $this->offerDecisionIfDirty($chatId, $threadId);
 
             return;
@@ -2496,11 +2509,17 @@ final class Bot
         $commitLinks = [];
 
         if (!$this->config->autoCommit) {
+            $changed = [];
             try {
+                if ($this->runTreeSnapshotError !== null) {
+                    throw new GitStatusException($this->runTreeSnapshotError);
+                }
                 $changed = $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot) : [];
+            } catch (GitStatusException $e) {
+                Log::line('tree snapshot diff failed: '.$e->getMessage());
+                $text .= "\n\n".$this->t('result.changes_unknown', ['error' => $e->getMessage()]);
             } catch (\RuntimeException $e) {
                 Log::line('tree snapshot diff failed: '.$e->getMessage());
-                $changed = [];
             }
             if ($changed !== []) {
                 $text .= "\n\n".$this->t('result.changed_files', ['count' => count($changed)]);
@@ -2560,6 +2579,9 @@ final class Bot
 
             try {
                 if (!$this->config->autoCommit) {
+                    if ($this->runTreeSnapshotError !== null) {
+                        throw new GitStatusException($this->runTreeSnapshotError);
+                    }
                     $files = array_merge($files, $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot, $dir) : []);
 
                     continue;

@@ -106,6 +106,7 @@
     "common.off": "बंद",
     "common.on": "चालू",
     "compact.dirty": "संक्षेपण रुका: सारांश बनाते समय बिना कमिट किए बदलाव आ गए:\n\n{changes}",
+    "compact.status_failed": "संक्षेपण रुका: git status विफल रहा: {error}\n\nसत्र दोबारा नहीं बनाया गया और commit/discard बटन नहीं दिए जा रहे।",
     "compact.done": "✅ सत्र संक्षिप्त हुआ: संदर्भ आगे ले जाया गया, काउंटर शून्य किए गए।\n\n{text}",
     "compact.no_session": "कोई सक्रिय सत्र नहीं है — संक्षिप्त करने को कुछ नहीं।",
     "compact.no_summary": "सारांश नहीं मिल सका — सत्र को छुआ नहीं गया।",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status विफल रहा: {error}\n\nClaude शुरू नहीं हुआ।",
     "epicrun.status_failed": "⚠️ एपिक रन {slug} विफल रहा और वर्किंग ट्री वापस नहीं किया गया: git status विफल रहा: {error}",
     "result.status_failed": "वर्किंग ट्री पढ़ा नहीं जा सका (git status विफल रहा: {error}); कुछ भी commit नहीं हुआ",
+    "result.changes_unknown": "यह नहीं बताया जा सका कि इस रन ने क्या बदला (git status विफल रहा: {error})",
     "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR जाँचे नहीं जा सके: {error}",
     "decision.status_failed_toast": "git status विफल रहा: {error}",
     "decision.status_failed": "git status विफल रहा: {error}\n\nवर्किंग ट्री पढ़े जा सकने तक commit/discard बटन नहीं दिए जाएँगे।"

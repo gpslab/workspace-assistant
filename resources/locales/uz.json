@@ -106,6 +106,7 @@
     "common.off": "o'chiq",
     "common.on": "yoqiq",
     "compact.dirty": "Siqish to'xtatildi: qisqartirish vaqtida commit qilinmagan o'zgarishlar paydo bo'ldi:\n\n{changes}",
+    "compact.status_failed": "Siqish to'xtatildi: git status bajarilmadi: {error}\n\nSessiya qayta yaratilmadi, commit/discard tugmalari taklif qilinmaydi.",
     "compact.done": "✅ Sessiya siqildi: kontekst ko'chirildi, hisoblagichlar nolga tushirildi.\n\n{text}",
     "compact.no_session": "Faol sessiya yo'q — siqadigan narsa yo'q.",
     "compact.no_summary": "Qisqacha mazmunni olib bo'lmadi — sessiyaga tegilmadi.",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status bajarilmadi: {error}\n\nClaude ishga tushirilmadi.",
     "epicrun.status_failed": "⚠️ {slug} epik ishga tushirilishi muvaffaqiyatsiz tugadi, ishchi daraxt qaytarilmadi: git status bajarilmadi: {error}",
     "result.status_failed": "ishchi daraxtni o'qib bo'lmadi (git status bajarilmadi: {error}); hech narsa commit qilinmadi",
+    "result.changes_unknown": "bu ishga tushirish nimani o'zgartirganini aniqlab bo'lmadi (git status bajarilmadi: {error})",
     "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR ni tekshirib bo'lmadi: {error}",
     "decision.status_failed_toast": "git status bajarilmadi: {error}",
     "decision.status_failed": "git status bajarilmadi: {error}\n\nIshchi daraxtni o'qib bo'lmaguncha commit/discard tugmalari berilmaydi."

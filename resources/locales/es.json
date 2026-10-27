@@ -106,6 +106,7 @@
     "common.off": "desactivado",
     "common.on": "activado",
     "compact.dirty": "Compactación detenida: aparecieron cambios sin confirmar durante el resumen:\n\n{changes}",
+    "compact.status_failed": "Compactación detenida: git status falló: {error}\n\nLa sesión no se reinició y no se ofrecen botones de commit/discard.",
     "compact.done": "✅ La sesión se compactó: el contexto se trasladó y los contadores se reiniciaron.\n\n{text}",
     "compact.no_session": "No hay una sesión activa: nada que compactar.",
     "compact.no_summary": "No se pudo obtener el resumen: la sesión no se modificó.",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status falló: {error}\n\nClaude no se inició.",
     "epicrun.status_failed": "⚠️ La ejecución del epic {slug} falló y el árbol de trabajo no se revirtió: git status falló: {error}",
     "result.status_failed": "no se pudo leer el árbol de trabajo (git status falló: {error}); no se confirmó nada",
+    "result.changes_unknown": "no se pudo saber qué cambió esta ejecución (git status falló: {error})",
     "prompt_files.check_failed": "no se pudo comprobar PROMPTS_DIR / LOCALES_DIR: {error}",
     "decision.status_failed_toast": "git status falló: {error}",
     "decision.status_failed": "git status falló: {error}\n\nLos botones commit/discard no se ofrecen hasta que se pueda leer el árbol de trabajo."

@@ -106,6 +106,7 @@
     "common.off": "オフ",
     "common.on": "オン",
     "compact.dirty": "圧縮を中止しました。要約中にコミットされていない変更が発生しました：\n\n{changes}",
+    "compact.status_failed": "圧縮を中止しました。git status が失敗しました: {error}\n\nセッションは再構築されず、commit/discard ボタンも表示されません。",
     "compact.done": "✅ セッションを圧縮しました。コンテキストを引き継ぎ、カウンターをリセットしました。\n\n{text}",
     "compact.no_session": "アクティブなセッションがないため、圧縮するものはありません。",
     "compact.no_summary": "要約を取得できませんでした。セッションには手を加えていません。",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status が失敗しました: {error}\n\nClaude は起動しませんでした。",
     "epicrun.status_failed": "⚠️ エピック実行 {slug} が失敗し、作業ツリーはロールバックされていません: git status が失敗しました: {error}",
     "result.status_failed": "作業ツリーを読み取れませんでした（git status が失敗しました: {error}）。何もコミットされていません",
+    "result.changes_unknown": "この実行で何が変更されたか判断できませんでした（git status が失敗しました: {error}）",
     "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR を確認できませんでした: {error}",
     "decision.status_failed_toast": "git status が失敗しました: {error}",
     "decision.status_failed": "git status が失敗しました: {error}\n\n作業ツリーを読み取れるようになるまで commit/discard ボタンは表示されません。"
