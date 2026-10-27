@@ -453,6 +453,27 @@ final class GitStatusFailureTest extends TestCase
         self::assertStringContainsString('could not check PROMPTS_DIR / LOCALES_DIR: ', $this->allText());
     }
 
+    public function testReplyAdmitsAnUnknownChangeListWhenGitCannotBeStartedForTheSnapshot(): void
+    {
+        $this->autoCommit = false;
+        // git runs in a directory that does not exist: it cannot be started, which is a bare
+        // RuntimeException, not a GitStatusException.
+        $this->bot = new Bot($this->config(), $this->db, $this->tg, new GitManager($this->root.'/gone', 30), new SessionFiles($this->root), null, null, null);
+
+        $this->say('hello');
+        // proc_open() also raises a warning for the failed spawn.
+        set_error_handler(static fn (int $no, string $str): bool => str_contains($str, 'proc_open()'));
+        try {
+            $this->call('startQueueHead');
+            $this->finishJob();
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertStringContainsString('could not tell what this run changed (git status failed: ', $this->allText());
+        self::assertStringContainsString('Failed to start git', $this->allText());
+    }
+
     public function testReplyAdmitsAnUnknownChangeListWhenTheDiffFails(): void
     {
         $this->autoCommit = false;

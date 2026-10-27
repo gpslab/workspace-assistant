@@ -1787,11 +1787,10 @@ final class Bot
         if (!$this->config->autoCommit) {
             try {
                 $this->runTreeSnapshot = $this->git->treeSnapshot();
-            } catch (GitStatusException $e) {
-                // Unknown, not "none": what the run changes cannot be told afterwards.
-                $this->runTreeSnapshotError = $e->getMessage();
-                Log::line('tree snapshot failed: '.$e->getMessage());
             } catch (\RuntimeException $e) {
+                // Unknown, not "none": what the run changes cannot be told afterwards
+                // (git failing to run or to report its status alike).
+                $this->runTreeSnapshotError = $e->getMessage();
                 Log::line('tree snapshot failed: '.$e->getMessage());
             }
         }
@@ -2055,7 +2054,7 @@ final class Bot
                     if (!$this->git->hasChanges()) {
                         $this->db->clearDirtyOwner();
                     }
-                } catch (GitStatusException $e) {
+                } catch (\RuntimeException $e) {
                     // Unknown state: the owner stays, and this must not replace an exception in flight.
                     Log::line('git status failed after the run, dirty owner kept: '.$e->getMessage());
                 }
