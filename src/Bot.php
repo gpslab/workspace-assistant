@@ -65,6 +65,24 @@ final class Bot
     /** Commands registered with Telegram; descriptions are the `command.<name>` texts. */
     private const array BOT_COMMANDS = ['new', 'compact', 'cancel', 'queue', 'stats', 'verbose', 'mode', 'lang', 'epic', 'restart', 'help'];
 
+    /** Emoji prefixed to each command description in the menu; the same in every locale, not part of the catalogs. */
+    private const array COMMAND_EMOJI = [
+        'new' => '🆕',
+        'compact' => '🗜️',
+        'cancel' => '⛔',
+        'queue' => '📋',
+        'stats' => '📊',
+        'verbose' => '🔍',
+        'mode' => '🎭',
+        'lang' => '🌐',
+        'epic' => '🗺️',
+        'restart' => '🔄',
+        'help' => '❓',
+    ];
+
+    /** Telegram limit for a command description, in characters. */
+    private const int COMMAND_DESCRIPTION_MAX = 256;
+
     private int $offset = 0;
     private ?Orchestrator $orchestrator = null;
     private readonly Card $epicCard;
@@ -287,7 +305,9 @@ final class Bot
     {
         $commands = [];
         foreach (self::BOT_COMMANDS as $command) {
-            $commands[] = ['command' => $command, 'description' => $locale->t("command.{$command}")];
+            $emoji = self::COMMAND_EMOJI[$command];
+            $text = mb_substr($locale->t("command.{$command}"), 0, self::COMMAND_DESCRIPTION_MAX - mb_strlen($emoji) - 1);
+            $commands[] = ['command' => $command, 'description' => "{$emoji} {$text}"];
         }
 
         return $commands;

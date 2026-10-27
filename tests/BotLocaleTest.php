@@ -200,8 +200,10 @@ final class BotLocaleTest extends TestCase
     private static function expectedCommands(array $texts, array $english): array
     {
         $expected = [];
-        foreach (['new', 'compact', 'cancel', 'queue', 'stats', 'verbose', 'mode', 'lang', 'epic', 'restart', 'help'] as $command) {
-            $expected[] = ['command' => $command, 'description' => $texts["command.{$command}"] ?? $english["command.{$command}"]];
+        $emoji = ['new' => '🆕', 'compact' => '🗜️', 'cancel' => '⛔', 'queue' => '📋', 'stats' => '📊', 'verbose' => '🔍',
+            'mode' => '🎭', 'lang' => '🌐', 'epic' => '🗺️', 'restart' => '🔄', 'help' => '❓'];
+        foreach ($emoji as $command => $icon) {
+            $expected[] = ['command' => $command, 'description' => $icon.' '.($texts["command.{$command}"] ?? $english["command.{$command}"])];
         }
 
         return $expected;
@@ -246,5 +248,52 @@ final class BotLocaleTest extends TestCase
         self::assertIsArray($last);
         self::assertNull($last['language_code']);
         self::assertCount(1, array_filter($tg->commandLists, static fn (array $l): bool => $l['language_code'] === null));
+    }
+
+    public function testEmojiMapCoversExactlyTheBotCommands(): void
+    {
+        $commands = (new \ReflectionClassConstant(Bot::class, 'BOT_COMMANDS'))->getValue();
+        $emoji = (new \ReflectionClassConstant(Bot::class, 'COMMAND_EMOJI'))->getValue();
+        self::assertIsArray($commands);
+        self::assertIsArray($emoji);
+        $keys = array_map('strval', array_keys($emoji));
+        sort($keys);
+        sort($commands);
+        self::assertSame($commands, $keys);
+    }
+
+    public function testEveryDescriptionStartsWithItsOwnEmojiAndNoCatalogTextHasOne(): void
+    {
+        $emoji = (new \ReflectionClassConstant(Bot::class, 'COMMAND_EMOJI'))->getValue();
+        self::assertIsArray($emoji);
+        $tg = new FakeTelegram();
+        (new \ReflectionMethod(Bot::class, 'registerCommands'))->invoke($this->makeBot($tg, 'en'));
+        foreach ($tg->commandLists as $list) {
+            foreach ($list['commands'] as $entry) {
+                self::assertStringStartsWith($emoji[$entry['command']].' ', $entry['description']);
+                self::assertNotSame('', trim(substr($entry['description'], strlen($emoji[$entry['command']]))));
+            }
+        }
+        foreach (self::builtinDescriptions() as $code => $texts) {
+            foreach (array_keys($emoji) as $command) {
+                self::assertSame(0, preg_match('/\p{Extended_Pictographic}/u', $texts["command.{$command}"]), "{$code}: command.{$command}");
+            }
+        }
+    }
+
+    public function testLongDescriptionIsCutToTelegramLimit(): void
+    {
+        file_put_contents($this->dir.'/locales/tlh.json', json_encode(['_language' => 'Klingon', 'command.help' => str_repeat('я', 300)], JSON_THROW_ON_ERROR));
+        $tg = new FakeTelegram();
+        (new \ReflectionMethod(Bot::class, 'registerCommands'))->invoke($this->makeBot($tg, 'tlh', 'locales'));
+        $help = null;
+        foreach ($tg->commandLists as $list) {
+            if ($list['language_code'] === 'tlh') {
+                $help = end($list['commands']);
+            }
+        }
+        self::assertIsArray($help);
+        self::assertSame(256, mb_strlen($help['description']));
+        self::assertStringStartsWith('❓ яяя', $help['description']);
     }
 }

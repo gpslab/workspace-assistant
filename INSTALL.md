@@ -176,6 +176,9 @@ A locale file is a flat `"key": "text"` object plus three service fields:
 - `_flag`: the flag emoji on the `/lang` button;
 - `_native`: the self-name of the language on the `/lang` button.
 
+The bot adds the emoji of each command to its `command.*` description in the command menu itself, so
+a `command.*` text in a catalog (including one in `LOCALES_DIR`) must not contain an emoji: it would be shown twice.
+
 Placeholders are named: `{name}`. The service fields are not interface texts, so they are not
 checked against `en.json` for keys and placeholders.
 
