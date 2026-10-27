@@ -97,6 +97,7 @@ final class LocaleTest extends TestCase
 
     public function testCommandTextWithEmojiProducesWarning(): void
     {
+        $this->write($this->builtin, 'en', ['_language' => 'English', 'hello' => 'Hello, {name}!', 'command.new' => 'New']);
         $this->write($this->instance, 'de', ['command.new' => '🆕 Neu', 'hello' => 'Hallo ❓, {name}!']);
 
         $warnings = (new Locale('de', $this->instance, $this->builtin))->warnings();
