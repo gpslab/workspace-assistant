@@ -14,8 +14,10 @@ php bin/bot.php
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) and keep the token.
 2. Find your Telegram user id with [@userinfobot](https://t.me/userinfobot).
-3. Clone the workspace repository, make sure `git pull` and `git push` work there without prompts,
-   and note its absolute path.
+3. Clone the managed repository, make sure `git pull` and `git push` work there without prompts,
+   and note its absolute path. It should be a knowledge base, not a code project: the bot commits
+   everything after each successful run with the message `tg: <start of the request>` and pushes the
+   current branch, see [the managed repository: commit and push](README.md#the-managed-repository-commit-and-push).
 
 The list of changes between versions is on the
 [GitHub Releases](https://github.com/gpslab/workspace-assistant/releases) page; read it before updating.
@@ -156,7 +158,9 @@ from the `.env` next to it and stays silent when everything is fine. Run it from
 
 `SUBREPOS_DIR` is a directory of git clones inside `REPO_PATH`. When set, before each run the bot does
 `git pull --rebase` in every clone there, snapshots their HEAD and adds links to their new commits to
-the reply. `TIMEZONE` is used for `date()` and log lines; an unknown value fails the startup.
+the reply. `SUBREPOS_DIR` must be listed in the managed repository's `.gitignore`: otherwise
+`git add -A` records the clones as gitlinks. The bot only pulls the clones; it does not commit them.
+`TIMEZONE` is used for `date()` and log lines; an unknown value fails the startup.
 
 ### Interface language
 
