@@ -241,8 +241,9 @@ so `0` never collides.
 - **Forum privacy mode:** by default a bot in a group sees only commands, mentions and replies to itself.
   For "just write in the topic" turn privacy off in @BotFather (`/setprivacy` → Disable) and re-add the
   bot to the group. 1:1 chats are unaffected; the whitelist stays the only access control.
-- **Commands carry `@botusername` in groups** (`/new@MyBot`). `handleCommand` cuts any `@` tail before
-  `match`; without it every command in a topic hits `default` while plain text works. The bot name is not
+- **Commands carry `@botusername` in groups** (`/new@MyBot`). `Command\Router::handle` cuts any `@` tail
+  before the command lookup; without it every command in a topic is answered with `command.unknown` while
+  plain text works. The bot name is not
   compared (`getUpdates` returns only updates addressed to this token).
 
 ---
