@@ -65,7 +65,8 @@ epic run asks nothing: its changes are saved as `dirty-<timestamp>.patch` next t
 not point the bot at a code project.
 
 With `AUTO_COMMIT=0` the bot neither commits, pushes nor pulls the managed repository: there is no
-clean-tree check, no commit/discard buttons and no commit link, and the changes of every run stay in
+clean-tree check, no commit/discard buttons and no commit link for the managed repository (links to
+sub-repository commits can still appear), and the changes of every run stay in
 the working tree for you to commit. All topics share one working tree, so the changes of one topic are
 visible in the next run of another. Sub-repositories under `SUBREPOS_DIR` are still pulled.
 

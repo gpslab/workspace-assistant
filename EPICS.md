@@ -195,8 +195,9 @@ be in the `REPO_PATH` working tree at the time of `/epic start`.
 
 `<EPICS_DIR>/<slug>.journal.md` in `REPO_PATH`. The journal is the epic's only memory between runs;
 the Claude runs maintain it themselves (commit and push right after every external action). With
-`AUTO_COMMIT=0` they write it to disk without committing or pushing it, and links to the journal on
-GitHub may return 404 until the operator pushes it.
+`AUTO_COMMIT=0` they write it to disk without committing or pushing it. The bot then shows the journal
+as a local path, while the plan link still points to GitHub and may return 404 until the operator
+pushes the plan.
 
 ## Epic run: input and signal
 
