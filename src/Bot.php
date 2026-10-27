@@ -2343,7 +2343,7 @@ final class Bot
      *
      * @return list<string>
      *
-     * @throws GitStatusException when the tree state is unknown (no snapshot, or git status failed)
+     * @throws \RuntimeException when the tree state is unknown (no snapshot, git status failed or git could not start)
      */
     private function compactChangedPaths(): array
     {
@@ -2378,8 +2378,8 @@ final class Bot
         try {
             $changed = $this->compactChangedPaths();
             $changes = $changed === [] ? '' : ($this->config->autoCommit ? $this->git->changesSummary() : implode("\n", $changed));
-        } catch (GitStatusException $e) {
-            // Unknown tree state: no guard verdict, so no phase 2 and no buttons.
+        } catch (\RuntimeException $e) {
+            // Unknown tree state (git status failed, or git could not start): no guard verdict, so no phase 2 and no buttons.
             Log::line('compact: git status failed, not reseeding: '.$e->getMessage());
             $this->delivery->deliver($chatId, $threadId, $this->t('compact.status_failed', ['error' => $e->getMessage()]));
 
@@ -2515,11 +2515,9 @@ final class Bot
                     throw new GitStatusException($this->runTreeSnapshotError);
                 }
                 $changed = $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot) : [];
-            } catch (GitStatusException $e) {
-                Log::line('tree snapshot diff failed: '.$e->getMessage());
-                $text .= "\n\n".$this->t('result.changes_unknown', ['error' => $e->getMessage()]);
             } catch (\RuntimeException $e) {
                 Log::line('tree snapshot diff failed: '.$e->getMessage());
+                $text .= "\n\n".$this->t('result.changes_unknown', ['error' => $e->getMessage()]);
             }
             if ($changed !== []) {
                 $text .= "\n\n".$this->t('result.changed_files', ['count' => count($changed)]);
@@ -2587,9 +2585,8 @@ final class Bot
                     continue;
                 }
                 $files = array_merge($files, $this->git->changedPathsIn($dir));
-            } catch (GitStatusException $e) {
+            } catch (\RuntimeException $e) {
                 $statusError ??= $e->getMessage();
-            } catch (\RuntimeException) {
             }
         }
 

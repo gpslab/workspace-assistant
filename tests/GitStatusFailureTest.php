@@ -520,7 +520,7 @@ final class GitStatusFailureTest extends TestCase
         mkdir($bin);
         $realGit = trim((string) shell_exec('command -v git'));
         $count = $this->root.'/statuscalls';
-        file_put_contents($bin.'/git', "#!/bin/sh\nfor a in \"\$@\"; do if [ \"\$a\" = status ]; then echo x >> $count; [ \$(wc -l < $count) -ge 2 ] && { echo 'fatal: boom' >&2; exit 128; }; fi; done\nexec $realGit \"\$@\"\n");
+        file_put_contents($bin.'/git', "#!/bin/sh\nfor a in \"\$@\"; do if [ \"\$a\" = status ]; then echo \"\$*\" >> $count; fi; if [ \"\$a\" = --short ]; then echo 'fatal: boom' >&2; exit 128; fi; done\nexec $realGit \"\$@\"\n");
         chmod($bin.'/git', 0755);
         $this->db->recordRun(100, 1, 's-old', 0, 0);
         file_put_contents($this->root.'/out.json', '{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}'."\n");
@@ -539,6 +539,8 @@ final class GitStatusFailureTest extends TestCase
         self::assertStringContainsString('Compaction stopped: git status failed: ', $this->allText());
         self::assertStringContainsString('boom', $this->allText());
         self::assertSame([], $this->buttons());
+        self::assertStringContainsString('status --short', (string) file_get_contents($count), 'the failure must come from changesSummary()');
+        self::assertStringContainsString('status --porcelain', (string) file_get_contents($count));
     }
 
     public function testNewStringsExistInEveryCatalog(): void
