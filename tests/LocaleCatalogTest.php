@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\Bot;
+use GpsLab\WorkspaceAssistant\Command\Command;
 use GpsLab\WorkspaceAssistant\Command\Router;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
@@ -51,8 +52,12 @@ final class LocaleCatalogTest extends TestCase
         return $source;
     }
 
-    /** The command router of a bot built the way the bot tests build it. */
-    private static function router(): Router
+    /**
+     * Names of the commands of a bot built the way the bot tests build it.
+     *
+     * @return list<string>
+     */
+    private static function commandNames(): array
     {
         $dir = sys_get_temp_dir().'/tgcatalog_'.uniqid('', true);
         mkdir($dir, 0777, true);
@@ -78,11 +83,15 @@ final class LocaleCatalogTest extends TestCase
         $bot = new Bot($config, $db, new FakeTelegram(), new GitManager($tmp, 30), new SessionFiles($tmp));
         $router = (new \ReflectionProperty(Bot::class, 'commandRouter'))->getValue($bot);
         self::assertInstanceOf(Router::class, $router);
-        unset($db);
-        @unlink($dir.'/state.sqlite');
+        $names = array_map(static fn (Command $command): string => $command->name(), $router->commands());
+        // The router's closures hold the bot, which holds the database: drop them all before cleanup.
+        unset($router, $bot, $db);
+        foreach (['state.sqlite', 'state.sqlite-wal', 'state.sqlite-shm'] as $file) {
+            @unlink($dir.'/'.$file);
+        }
         @rmdir($dir);
 
-        return $router;
+        return $names;
     }
 
     /**
@@ -95,8 +104,8 @@ final class LocaleCatalogTest extends TestCase
         preg_match_all("/->t\\(\\s*'([a-z0-9_.]+)'/", self::sources(), $m);
         $keys = $m[1];
 
-        foreach (self::router()->commands() as $command) {
-            $keys[] = 'command.'.$command->name();
+        foreach (self::commandNames() as $name) {
+            $keys[] = 'command.'.$name;
         }
 
         $keys = array_values(array_unique($keys));
