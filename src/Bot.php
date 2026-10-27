@@ -726,7 +726,21 @@ final class Bot
     /** Queue is non-empty, no job, tree is dirty. */
     private function isPausedByDirtyTree(): bool
     {
-        return $this->config->autoCommit && $this->activeJob === null && $this->db->queueHead() !== null && $this->git->hasChanges();
+        if ($this->activeJob !== null || ($head = $this->db->queueHead()) === null) {
+            return false;
+        }
+
+        return $this->guardsTree($head['kind']) && $this->git->hasChanges();
+    }
+
+    /**
+     * Whether a queue item of this kind must not start on a dirty tree. With AUTO_COMMIT=0 the
+     * tree is the operator's, except for epic runs: their success path still commits and pushes
+     * everything, which would publish the operator's uncommitted work.
+     */
+    private function guardsTree(string $itemKind): bool
+    {
+        return $this->config->autoCommit || $itemKind === self::ITEM_EPIC;
     }
 
     private function topicLabel(int $chatId, int $threadId): string
@@ -1128,16 +1142,19 @@ final class Bot
 
         // 2. Tree cleanliness: dirty -> pause (derived from state). The commit/discard
         //    buttons are issued on entering the pause; manual cleanup lifts it.
-        //    With AUTO_COMMIT=0 the tree is the operator's: no check, no pause.
-        if ($this->config->autoCommit) {
+        //    With AUTO_COMMIT=0 the tree is the operator's: no check, no pause, except for
+        //    epic runs (see guardsTree()), which wait for the operator to clean the tree.
+        if ($this->guardsTree($head['kind'])) {
             if ($this->git->hasChanges()) {
                 $this->treePaused = true;
                 $this->ensureDecision($chatId, $threadId);
 
                 return;
             }
-            $this->db->clearDecision();
-            $this->db->clearDirtyOwner();
+            if ($this->config->autoCommit) {
+                $this->db->clearDecision();
+                $this->db->clearDirtyOwner();
+            }
         }
 
         if ($head['kind'] === self::ITEM_NEW) {
@@ -2212,6 +2229,28 @@ final class Bot
      * further, hand the decision to the user (commit/discard) and leave the
      * session untouched.
      */
+    /**
+     * Paths the summarize run changed: the whole dirty tree with AUTO_COMMIT=1, the per-run diff with 0.
+     *
+     * @return list<string>
+     */
+    private function compactChangedPaths(): array
+    {
+        if ($this->config->autoCommit) {
+            return $this->git->hasChanges() ? ['*'] : [];
+        }
+        if ($this->runTreeSnapshot === null) {
+            return [];
+        }
+        try {
+            return $this->git->changedSince($this->runTreeSnapshot);
+        } catch (\RuntimeException $e) {
+            Log::line('compact: tree snapshot diff failed: '.$e->getMessage());
+
+            return [];
+        }
+    }
+
     private function finishCompactSummarize(int $chatId, int $threadId, ClaudeResult $claude, ?string $compactOldSessionId, int $queueId, string $localeCode): void
     {
         $summary = trim($claude->text);
@@ -2221,11 +2260,12 @@ final class Bot
             return;
         }
 
-        if ($this->git->hasChanges()) {
+        $changed = $this->compactChangedPaths();
+        if ($changed !== []) {
             $this->delivery->deliver(
                 $chatId,
                 $threadId,
-                $this->t('compact.dirty', ['changes' => $this->git->changesSummary()]),
+                $this->t('compact.dirty', ['changes' => $this->config->autoCommit ? $this->git->changesSummary() : implode("\n", $changed)]),
             );
             $this->offerDecisionIfDirty($chatId, $threadId);
 
@@ -2349,7 +2389,12 @@ final class Bot
         $commitLinks = [];
 
         if (!$this->config->autoCommit) {
-            $changed = $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot) : [];
+            try {
+                $changed = $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot) : [];
+            } catch (\RuntimeException $e) {
+                Log::line('tree snapshot diff failed: '.$e->getMessage());
+                $changed = [];
+            }
             if ($changed !== []) {
                 $text .= "\n\n".$this->t('result.changed_files', ['count' => count($changed)]);
             }

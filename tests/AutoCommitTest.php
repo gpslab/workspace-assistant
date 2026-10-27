@@ -412,6 +412,50 @@ final class AutoCommitTest extends TestCase
         self::assertCount(1, $this->buttons());
     }
 
+    public function testEpicRunDoesNotStartOnDirtyOperatorTree(): void
+    {
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
+        $this->dirtyOperatorTree();
+        $head = $this->head();
+        $origin = $this->originHead();
+
+        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        $this->call('startQueueHead');
+
+        self::assertFalse($this->activeJob());
+        self::assertSame([], $this->buttons());
+        self::assertSame($head, $this->head());
+        self::assertSame($origin, $this->originHead());
+        self::assertStringContainsString('operator edit', (string) file_get_contents($this->work.'/a.txt'));
+    }
+
+    public function testEpicRunStartsOnCleanTree(): void
+    {
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
+
+        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        $this->call('startQueueHead');
+
+        self::assertTrue($this->activeJob());
+        $this->finishJob();
+    }
+
+    public function testCompactOnDirtyOperatorTreeReseedsWhenSummarizeChangedNothing(): void
+    {
+        $this->dirtyOperatorTree();
+        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $this->finishJob(); // summarize
+        $this->finishJob(); // reseed, launched by the summarize completion
+
+        self::assertStringNotContainsString('Compaction stopped', $this->allText());
+        self::assertSame(2, substr_count((string) file_get_contents($this->root.'/calls.log'), 'x'));
+        self::assertSame([], $this->buttons());
+    }
+
     public function testSnapshotDiffSeesNewGoneAndRewrittenPaths(): void
     {
         $git = new GitManager($this->work, 30);
