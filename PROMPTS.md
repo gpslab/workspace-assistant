@@ -85,6 +85,11 @@ prompt is the one above. The message is built in code by `Epic\Run::prompt()`, n
 pointer to `epic_runbook` (Claude reads the file itself), the text of `PROMPTS_DIR/epic.md` if present,
 the PM runbook line, and the paths and data of the run.
 
+With `AUTO_COMMIT=0` the journal line reads "write it to disk right after each external action; do not
+commit or push it" instead of "commit and push it right after each external action", and one more line
+overrides, for this run, the runbook rules that commit: "Journal — immediately", the commit of decision
+documents and the commit of the report. `epic_runbook` itself is the same in both modes.
+
 ### `/compact`
 
 Phase 1 sends `compact_summarize_prompt` into the current session. Phase 2 starts a new session with

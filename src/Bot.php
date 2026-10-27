@@ -730,17 +730,7 @@ final class Bot
             return false;
         }
 
-        return $this->guardsTree($head['kind']) && $this->git->hasChanges();
-    }
-
-    /**
-     * Whether a queue item of this kind must not start on a dirty tree. With AUTO_COMMIT=0 the
-     * tree is the operator's, except for epic runs: their success path still commits and pushes
-     * everything, which would publish the operator's uncommitted work.
-     */
-    private function guardsTree(string $itemKind): bool
-    {
-        return $this->config->autoCommit || $itemKind === self::ITEM_EPIC;
+        return $this->config->autoCommit && $this->git->hasChanges();
     }
 
     private function topicLabel(int $chatId, int $threadId): string
@@ -1142,19 +1132,16 @@ final class Bot
 
         // 2. Tree cleanliness: dirty -> pause (derived from state). The commit/discard
         //    buttons are issued on entering the pause; manual cleanup lifts it.
-        //    With AUTO_COMMIT=0 the tree is the operator's: no check, no pause, except for
-        //    epic runs (see guardsTree()), which wait for the operator to clean the tree.
-        if ($this->guardsTree($head['kind'])) {
+        //    With AUTO_COMMIT=0 the tree is the operator's: no check and no pause.
+        if ($this->config->autoCommit) {
             if ($this->git->hasChanges()) {
                 $this->treePaused = true;
                 $this->ensureDecision($chatId, $threadId);
 
                 return;
             }
-            if ($this->config->autoCommit) {
-                $this->db->clearDecision();
-                $this->db->clearDirtyOwner();
-            }
+            $this->db->clearDecision();
+            $this->db->clearDirtyOwner();
         }
 
         if ($head['kind'] === self::ITEM_NEW) {
@@ -1296,6 +1283,7 @@ final class Bot
             $this->config->outboxDir,
             Run::addition($this->absolutePromptsDir()),
             PmRunbook::line($this->absolutePromptsDir()),
+            $this->config->autoCommit,
         );
         $this->startJobOfItem($head, self::KIND_EPIC, $prompt, null, [], null, $slug, ['run' => $run, 'pr' => $pr]);
     }
@@ -2058,7 +2046,10 @@ final class Bot
         $this->epicCard->update($slug);
 
         // A successful run with leftover dirt is auto-committed, like a regular request.
-        if ($this->git->hasChanges()) {
+        // With AUTO_COMMIT=0 the leftovers stay in the tree; only the prompt-files warning is given.
+        if (!$this->config->autoCommit) {
+            $this->deliverPromptFilesWarning($chatId, $threadId);
+        } elseif ($this->git->hasChanges()) {
             $this->deliverPromptFilesWarning($chatId, $threadId);
             try {
                 $this->git->commitAndPush($this->commitMessage("epic {$slug}"));

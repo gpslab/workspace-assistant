@@ -87,7 +87,7 @@ final class Run
      * @param list<array{id: string, source: string, path: ?string, line: ?int, body: string}>|null                           $coldFindings cold reviewer findings for a review run; null — not collected
      * @param list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>}> $master       master CI events for the tick: a confirmed breakage and flakiness
      */
-    public static function prompt(string $slug, string $run, string $planPath, string $journalPath, string $signalPath, string $failuresPath, ?string $pr = null, ?array $coldFindings = null, array $master = [], string $outboxDir = '', string $addition = '', string $pmRunbookLine = ''): string
+    public static function prompt(string $slug, string $run, string $planPath, string $journalPath, string $signalPath, string $failuresPath, ?string $pr = null, ?array $coldFindings = null, array $master = [], string $outboxDir = '', string $addition = '', string $pmRunbookLine = '', bool $autoCommit = true): string
     {
         $marker = self::marker($slug);
         $lines = [
@@ -101,13 +101,19 @@ final class Run
             $lines[] = 'Instance additions to the runbook (they follow it and take precedence over it where they are more specific):';
             $lines[] = $addition;
         }
+        if (!$autoCommit) {
+            $lines[] = 'AUTO_COMMIT=0: the working tree belongs to the operator. For this run, nothing is committed or pushed, and this overrides the runbook rules "Journal — immediately" (including "A crashed run loses everything uncommitted"), the commit of decision documents and the commit of the report: write those files to disk and leave them uncommitted.';
+        }
+        $journalRule = $autoCommit
+            ? 'commit and push it right after each external action'
+            : 'write it to disk right after each external action; do not commit or push it';
         array_push(
             $lines,
             '',
             "Epic slug: {$slug}",
             "Run kind: {$run}",
             "Plan: {$planPath}",
-            "Journal: {$journalPath} (the only memory between runs; keep it up to date, commit and push it right after each external action)",
+            "Journal: {$journalPath} (the only memory between runs; keep it up to date, {$journalRule})",
             "Signal file: {$signalPath} (also in the environment variable ".self::SIGNAL_ENV.')',
         );
         $lines[] = "Failures log: {$failuresPath} (one line per failed earlier run of this epic; empty or missing means none)";
