@@ -266,5 +266,15 @@
     "verbose.off": "Показ статистики токенов: выключен",
     "verbose.on": "Показ статистики токенов: включён",
     "result.pm_gate_skipped": "При создании issue пропущены стадии конвейера. Причина: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Эпик {slug}, прогон {run}: issue создан без всех стадий конвейера. Причина: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Эпик {slug}, прогон {run}: issue создан без всех стадий конвейера. Причина: {reason}",
+    "git.status_timeout": "таймаут",
+    "subrepo.status_failed": "• {name}: git status упал: {error} — pull пропущен",
+    "pause.status_failed": "git status упал: {error}",
+    "restart.status_failed": "⚠️ git status упал: {error} — git pull пропущен.",
+    "queue.status_failed": "git status упал: {error}\n\nClaude не запущен.",
+    "epicrun.status_failed": "⚠️ Прогон эпика {slug} упал, рабочее дерево не откатывалось: git status упал: {error}",
+    "result.status_failed": "не удалось прочитать рабочее дерево (git status упал: {error}); ничего не закоммичено",
+    "prompt_files.check_failed": "не удалось проверить PROMPTS_DIR / LOCALES_DIR: {error}",
+    "decision.status_failed_toast": "git status упал: {error}",
+    "decision.status_failed": "git status упал: {error}\n\nКнопки commit/discard не выдаются, пока рабочее дерево нельзя прочитать."
 }

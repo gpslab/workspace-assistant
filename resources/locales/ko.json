@@ -266,5 +266,15 @@
     "verbose.off": "토큰 통계 표시: 꺼짐",
     "verbose.on": "토큰 통계 표시: 켜짐",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "시간 초과",
+    "subrepo.status_failed": "• {name}: git status 실패: {error} — pull 건너뜀",
+    "pause.status_failed": "git status 실패: {error}",
+    "restart.status_failed": "⚠️ git status 실패: {error} — git pull 건너뜀.",
+    "queue.status_failed": "git status 실패: {error}\n\nClaude가 시작되지 않았습니다.",
+    "epicrun.status_failed": "⚠️ 에픽 실행 {slug}이(가) 실패했고 작업 트리는 롤백되지 않았습니다: git status 실패: {error}",
+    "result.status_failed": "작업 트리를 읽을 수 없습니다(git status 실패: {error}). 커밋된 것이 없습니다",
+    "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR을 확인할 수 없습니다: {error}",
+    "decision.status_failed_toast": "git status 실패: {error}",
+    "decision.status_failed": "git status 실패: {error}\n\n작업 트리를 읽을 수 있을 때까지 commit/discard 버튼은 제공되지 않습니다."
 }

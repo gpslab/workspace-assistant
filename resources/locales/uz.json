@@ -266,5 +266,15 @@
     "verbose.off": "Token statistikasini ko'rsatish: o'chirilgan",
     "verbose.on": "Token statistikasini ko'rsatish: yoqilgan",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "vaqt tugadi",
+    "subrepo.status_failed": "• {name}: git status bajarilmadi: {error} — pull o'tkazib yuborildi",
+    "pause.status_failed": "git status bajarilmadi: {error}",
+    "restart.status_failed": "⚠️ git status bajarilmadi: {error} — git pull o'tkazib yuborildi.",
+    "queue.status_failed": "git status bajarilmadi: {error}\n\nClaude ishga tushirilmadi.",
+    "epicrun.status_failed": "⚠️ {slug} epik ishga tushirilishi muvaffaqiyatsiz tugadi, ishchi daraxt qaytarilmadi: git status bajarilmadi: {error}",
+    "result.status_failed": "ishchi daraxtni o'qib bo'lmadi (git status bajarilmadi: {error}); hech narsa commit qilinmadi",
+    "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR ni tekshirib bo'lmadi: {error}",
+    "decision.status_failed_toast": "git status bajarilmadi: {error}",
+    "decision.status_failed": "git status bajarilmadi: {error}\n\nIshchi daraxtni o'qib bo'lmaguncha commit/discard tugmalari berilmaydi."
 }

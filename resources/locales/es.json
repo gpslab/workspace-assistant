@@ -266,5 +266,15 @@
     "verbose.off": "Estadísticas de tokens: desactivadas",
     "verbose.on": "Estadísticas de tokens: activadas",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "tiempo de espera agotado",
+    "subrepo.status_failed": "• {name}: git status falló: {error} — pull omitido",
+    "pause.status_failed": "git status falló: {error}",
+    "restart.status_failed": "⚠️ git status falló: {error} — git pull omitido.",
+    "queue.status_failed": "git status falló: {error}\n\nClaude no se inició.",
+    "epicrun.status_failed": "⚠️ La ejecución del epic {slug} falló y el árbol de trabajo no se revirtió: git status falló: {error}",
+    "result.status_failed": "no se pudo leer el árbol de trabajo (git status falló: {error}); no se confirmó nada",
+    "prompt_files.check_failed": "no se pudo comprobar PROMPTS_DIR / LOCALES_DIR: {error}",
+    "decision.status_failed_toast": "git status falló: {error}",
+    "decision.status_failed": "git status falló: {error}\n\nLos botones commit/discard no se ofrecen hasta que se pueda leer el árbol de trabajo."
 }

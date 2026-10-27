@@ -266,5 +266,15 @@
     "verbose.off": "Affichage des statistiques de tokens : désactivé",
     "verbose.on": "Affichage des statistiques de tokens : activé",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "délai dépassé",
+    "subrepo.status_failed": "• {name}: git status a échoué: {error} — pull ignoré",
+    "pause.status_failed": "git status a échoué: {error}",
+    "restart.status_failed": "⚠️ git status a échoué: {error} — git pull ignoré.",
+    "queue.status_failed": "git status a échoué: {error}\n\nClaude n'a pas été lancé.",
+    "epicrun.status_failed": "⚠️ Le run de l'epic {slug} a échoué et l'arbre de travail n'a pas été annulé: git status a échoué: {error}",
+    "result.status_failed": "impossible de lire l'arbre de travail (git status a échoué: {error}) ; rien n'a été commité",
+    "prompt_files.check_failed": "impossible de vérifier PROMPTS_DIR / LOCALES_DIR: {error}",
+    "decision.status_failed_toast": "git status a échoué: {error}",
+    "decision.status_failed": "git status a échoué: {error}\n\nLes boutons commit/discard ne sont pas proposés tant que l'arbre de travail est illisible."
 }

@@ -266,5 +266,15 @@
     "verbose.off": "トークン統計の表示：無効",
     "verbose.on": "トークン統計の表示：有効",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "タイムアウト",
+    "subrepo.status_failed": "• {name}: git status が失敗しました: {error} — pull をスキップしました",
+    "pause.status_failed": "git status が失敗しました: {error}",
+    "restart.status_failed": "⚠️ git status が失敗しました: {error} — git pull をスキップしました.",
+    "queue.status_failed": "git status が失敗しました: {error}\n\nClaude は起動しませんでした。",
+    "epicrun.status_failed": "⚠️ エピック実行 {slug} が失敗し、作業ツリーはロールバックされていません: git status が失敗しました: {error}",
+    "result.status_failed": "作業ツリーを読み取れませんでした（git status が失敗しました: {error}）。何もコミットされていません",
+    "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR を確認できませんでした: {error}",
+    "decision.status_failed_toast": "git status が失敗しました: {error}",
+    "decision.status_failed": "git status が失敗しました: {error}\n\n作業ツリーを読み取れるようになるまで commit/discard ボタンは表示されません。"
 }

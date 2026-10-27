@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\Epic\Orchestrator;
 use GpsLab\WorkspaceAssistant\Epic\PollSchedule;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Epic\Signal;
+use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
 use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
 use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
 
@@ -144,6 +145,7 @@ final class Bot
         private readonly SessionFiles $sessionFiles,
         private readonly ?GitHub $github = null,
         ?Locale $locale = null,
+        private readonly ?string $selfRepoPath = null,
     ) {
         $this->locale = $locale ?? Locale::fromConfig($config);
         $this->claudeErrorText = new ClaudeErrorText($this->locale);
@@ -752,7 +754,12 @@ final class Bot
             return $this->t('pause.limit', ['until' => date('H:i d.m', $limitUntil)]);
         }
 
-        if ($this->isPausedByDirtyTree()) {
+        $statusError = null;
+        $dirtyPause = $this->isPausedByDirtyTree($statusError);
+        if ($statusError !== null) {
+            return $this->t('pause.status_failed', ['error' => $statusError]);
+        }
+        if ($dirtyPause) {
             $decision = $this->db->getDecision();
 
             return $decision !== null
@@ -768,14 +775,23 @@ final class Bot
         return null;
     }
 
-    /** AUTO_COMMIT=1, queue is non-empty, no job, tree is dirty. */
-    private function isPausedByDirtyTree(): bool
+    /**
+     * AUTO_COMMIT=1, queue is non-empty, no job, tree is dirty. A tree whose status cannot be read is
+     * not a dirty-tree pause: false, and $statusError carries the reason.
+     */
+    private function isPausedByDirtyTree(?string &$statusError = null): bool
     {
         if ($this->activeJob !== null || ($head = $this->db->queueHead()) === null) {
             return false;
         }
 
-        return $this->config->autoCommit && $this->git->hasChanges();
+        try {
+            return $this->config->autoCommit && $this->git->hasChanges();
+        } catch (GitStatusException $e) {
+            $statusError = $e->getMessage();
+
+            return false;
+        }
     }
 
     private function topicLabel(int $chatId, int $threadId): string
@@ -875,18 +891,26 @@ final class Bot
      */
     private function cmdRestart(int $chatId, int $threadId): void
     {
-        $selfGit = GitManager::forPath(dirname(__DIR__), $this->config->gitTimeout);
+        $selfGit = GitManager::forPath($this->selfRepoPath ?? dirname(__DIR__), $this->config->gitTimeout);
         $pullNote = '';
 
         if ($selfGit === null) {
             $pullNote = "\n".$this->t('restart.no_repo');
-        } elseif ($selfGit->hasChanges()) {
-            $pullNote = "\n".$this->t('restart.dirty');
         } else {
-            $error = '';
-            $pullNote = $selfGit->pullRebase($error)
-                ? "\n".$this->t('restart.updated', ['hash' => $selfGit->headHash()])
-                : "\n".$this->t('restart.pull_failed', ['error' => $error]);
+            try {
+                $dirty = $selfGit->hasChanges();
+            } catch (GitStatusException $e) {
+                $dirty = null;
+                $pullNote = "\n".$this->t('restart.status_failed', ['error' => $e->getMessage()]);
+            }
+            if ($dirty === true) {
+                $pullNote = "\n".$this->t('restart.dirty');
+            } elseif ($dirty === false) {
+                $error = '';
+                $pullNote = $selfGit->pullRebase($error)
+                    ? "\n".$this->t('restart.updated', ['hash' => $selfGit->headHash()])
+                    : "\n".$this->t('restart.pull_failed', ['error' => $error]);
+            }
         }
 
         $this->tg->sendText($chatId, $this->t('restart.restarting').$pullNote, null, $threadId);
@@ -1138,7 +1162,15 @@ final class Bot
         if (!$this->config->autoCommit || ($this->db->getDirtyOwner() === null && $this->db->getDecision() === null)) {
             return;
         }
-        if (!$this->git->hasChanges()) {
+        try {
+            $dirty = $this->git->hasChanges();
+        } catch (GitStatusException $e) {
+            // Unknown state: neither clean nor dirty, so nothing is released.
+            Log::line('git status failed, dirty state kept: '.$e->getMessage());
+
+            return;
+        }
+        if (!$dirty) {
             $this->db->clearDecision();
             $this->db->clearDirtyOwner();
         }
@@ -1179,7 +1211,14 @@ final class Bot
         //    buttons are issued on entering the pause; manual cleanup lifts it.
         //    With AUTO_COMMIT=0 the tree is the operator's: no check and no pause.
         if ($this->config->autoCommit) {
-            if ($this->git->hasChanges()) {
+            try {
+                $dirty = $this->git->hasChanges();
+            } catch (GitStatusException $e) {
+                $this->scheduleRetry($head, $this->t('queue.status_failed', ['error' => $e->getMessage()]));
+
+                return;
+            }
+            if ($dirty) {
                 $this->treePaused = true;
                 $this->ensureDecision($chatId, $threadId);
 
@@ -2003,10 +2042,15 @@ final class Bot
             // The run ended with a clean tree (including via auto-commit), so there is
             // no dirt owner; otherwise external dirt would later be attributed to this
             // topic.
-            if ($this->activeJob === null && !$this->git->hasChanges()) {
-                $this->db->clearDirtyOwner();
-            }
             if ($this->activeJob === null) {
+                try {
+                    if (!$this->git->hasChanges()) {
+                        $this->db->clearDirtyOwner();
+                    }
+                } catch (GitStatusException $e) {
+                    // Unknown state: the owner stays, and this must not replace an exception in flight.
+                    Log::line('git status failed after the run, dirty owner kept: '.$e->getMessage());
+                }
                 $this->runTreeSnapshot = null;
             }
         }
@@ -2070,7 +2114,7 @@ final class Bot
         } catch (\InvalidArgumentException $e) {
             Log::line("epic {$slug}: run failed: ".$e->getMessage());
             $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.signal_invalid', ['slug' => $slug, 'error' => $e->getMessage()]));
-            $this->failEpicRun($slug, 'invalid signal: '.$e->getMessage());
+            $this->failEpicRun($chatId, $threadId, $slug, 'invalid signal: '.$e->getMessage());
 
             return;
         }
@@ -2096,13 +2140,23 @@ final class Bot
         // With AUTO_COMMIT=0 the leftovers stay in the tree; only the prompt-files warning is given.
         if (!$this->config->autoCommit) {
             $this->deliverPromptFilesWarning($chatId, $threadId);
-        } elseif ($this->git->hasChanges()) {
-            $this->deliverPromptFilesWarning($chatId, $threadId);
+        } else {
             try {
-                $this->git->commitAndPush($this->commitMessage("epic {$slug}"));
-            } catch (\RuntimeException $e) {
+                $dirty = $this->git->hasChanges();
+            } catch (GitStatusException $e) {
+                Log::line("epic {$slug}: git status failed, leftovers not committed: ".$e->getMessage());
                 $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
-                $this->offerDecisionIfDirty($chatId, $threadId);
+
+                return;
+            }
+            if ($dirty) {
+                $this->deliverPromptFilesWarning($chatId, $threadId);
+                try {
+                    $this->git->commitAndPush($this->commitMessage("epic {$slug}"));
+                } catch (\RuntimeException $e) {
+                    $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
+                    $this->offerDecisionIfDirty($chatId, $threadId);
+                }
             }
         }
     }
@@ -2125,7 +2179,7 @@ final class Bot
         if ($cold === null) {
             $reason = $this->t('epicrun.no_cold_list', ['pr' => $pr]);
             $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.failed', ['slug' => $slug, 'reason' => $reason]));
-            $this->failEpicRun($slug, $reason);
+            $this->failEpicRun($chatId, $threadId, $slug, $reason);
 
             return false;
         }
@@ -2141,7 +2195,7 @@ final class Bot
 
         $reason = implode('; ', $result['problems']);
         $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.coverage_incomplete', ['slug' => $slug, 'pr' => $pr, 'reason' => $reason]));
-        $this->failEpicRun($slug, "findings coverage {$pr}: {$reason}");
+        $this->failEpicRun($chatId, $threadId, $slug, "findings coverage {$pr}: {$reason}");
 
         $counters = [];
         foreach ($this->db->epicTasks($slug) as $task) {
@@ -2204,7 +2258,7 @@ final class Bot
 
             return;
         }
-        $this->failEpicRun($epicSlug, $reason);
+        $this->failEpicRun($chatId, $threadId, $epicSlug, $reason);
         $this->orchestrator?->rememberAfterRun($epicSlug);
     }
 
@@ -2216,7 +2270,7 @@ final class Bot
      * There are no buttons or queue pause, and the failure is not committed to the
      * repository. The epic continues.
      */
-    private function failEpicRun(string $slug, string $reason): void
+    private function failEpicRun(int $chatId, int $threadId, string $slug, string $reason): void
     {
         $dir = $this->config->stateDir.'/epics/'.$slug;
         if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
@@ -2227,7 +2281,20 @@ final class Bot
 
         // AUTO_COMMIT=0: the tree is the operator's, so there is no patch and no rollback.
         $patchName = null;
-        if ($this->config->autoCommit && $this->git->hasChanges()) {
+        $dirty = false;
+        if ($this->config->autoCommit) {
+            try {
+                $dirty = $this->git->hasChanges();
+            } catch (GitStatusException $e) {
+                // Unknown state: no patch, no rollback, and the dirty-tree owner stays.
+                Log::line("epic {$slug}: git status failed, not rolling back the tree: ".$e->getMessage());
+                $this->failLog($dir, $reason.' (git status failed: '.$e->getMessage().', tree not rolled back)', null);
+                $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.status_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
+
+                return;
+            }
+        }
+        if ($dirty) {
             try {
                 $patch = $this->git->dirtyPatch();
                 if ($patch === '') {
@@ -2269,13 +2336,14 @@ final class Bot
      */
     private function compactChangedPaths(): array
     {
-        if ($this->config->autoCommit) {
-            return $this->git->hasChanges() ? ['*'] : [];
-        }
-        if ($this->runTreeSnapshot === null) {
-            return [];
-        }
         try {
+            if ($this->config->autoCommit) {
+                return $this->git->hasChanges() ? ['*'] : [];
+            }
+            if ($this->runTreeSnapshot === null) {
+                return [];
+            }
+
             return $this->git->changedSince($this->runTreeSnapshot);
         } catch (\RuntimeException $e) {
             Log::line('compact: tree snapshot diff failed: '.$e->getMessage());
@@ -2423,7 +2491,7 @@ final class Bot
             $text .= "\n\n".$this->t('result.review_verdicts_missing', ['ids' => implode(', ', $missingIds)]);
         }
 
-        $text .= $this->promptFilesWarning($this->changedPromptFiles());
+        $text .= $this->promptFilesNote();
 
         $commitLinks = [];
 
@@ -2437,12 +2505,21 @@ final class Bot
             if ($changed !== []) {
                 $text .= "\n\n".$this->t('result.changed_files', ['count' => count($changed)]);
             }
-        } elseif ($this->git->hasChanges()) {
+        } else {
             try {
-                $hash = $this->git->commitAndPush($this->commitMessage($prompt));
-                $commitLinks[] = $this->commitUrl($hash);
-            } catch (\RuntimeException $e) {
-                $text .= "\n\n".$this->t('result.git_failed', ['error' => $e->getMessage()]);
+                $dirty = $this->git->hasChanges();
+            } catch (GitStatusException $e) {
+                Log::line('git status failed, nothing committed: '.$e->getMessage());
+                $text .= "\n\n".$this->t('result.status_failed', ['error' => $e->getMessage()]);
+                $dirty = false;
+            }
+            if ($dirty) {
+                try {
+                    $hash = $this->git->commitAndPush($this->commitMessage($prompt));
+                    $commitLinks[] = $this->commitUrl($hash);
+                } catch (\RuntimeException $e) {
+                    $text .= "\n\n".$this->t('result.git_failed', ['error' => $e->getMessage()]);
+                }
             }
         }
 
@@ -2469,9 +2546,11 @@ final class Bot
      * labels of the commit/discard buttons), so they are reported. A directory outside the
      * repository is not tracked, so nothing is reported for it.
      *
+     * @param string|null $statusError set to the first `git status` failure; the files of that directory are unknown
+     *
      * @return list<string>
      */
-    private function changedPromptFiles(): array
+    private function changedPromptFiles(?string &$statusError = null): array
     {
         $files = [];
         foreach ([$this->config->promptsDir, $this->config->localesDir] as $dir) {
@@ -2486,6 +2565,8 @@ final class Bot
                     continue;
                 }
                 $files = array_merge($files, $this->git->changedPathsIn($dir));
+            } catch (GitStatusException $e) {
+                $statusError ??= $e->getMessage();
             } catch (\RuntimeException) {
             }
         }
@@ -2499,11 +2580,23 @@ final class Bot
      */
     private function deliverPromptFilesWarning(int $chatId, int $threadId): void
     {
-        $warning = trim($this->promptFilesWarning($this->changedPromptFiles()));
+        $warning = trim($this->promptFilesNote());
         if ($warning !== '') {
             Log::line('prompt: '.$warning);
             $this->delivery->deliver($chatId, $threadId, $warning);
         }
+    }
+
+    /** The changed-prompt-files warning, or a warning that they could not be checked. */
+    private function promptFilesNote(): string
+    {
+        $statusError = null;
+        $note = $this->promptFilesWarning($this->changedPromptFiles($statusError));
+        if ($statusError !== null) {
+            $note .= "\n\n⚠️ ".$this->t('prompt_files.check_failed', ['error' => $statusError]);
+        }
+
+        return $note;
     }
 
     /**
@@ -2590,7 +2683,15 @@ final class Bot
         }
 
         // The tree was cleaned manually while the buttons were hanging.
-        if (!$this->git->hasChanges()) {
+        try {
+            $dirty = $this->git->hasChanges();
+        } catch (GitStatusException $e) {
+            // Unknown state: the decision stays.
+            $this->tg->answerCallback($callbackId, $this->t('decision.status_failed_toast', ['error' => $e->getMessage()]));
+
+            return;
+        }
+        if (!$dirty) {
             $this->db->clearDecision();
             $this->db->clearDirtyOwner();
             $this->tg->answerCallback($callbackId, $this->t('decision.stale'));
@@ -2643,7 +2744,14 @@ final class Bot
         if (!$this->config->autoCommit) {
             return;
         }
-        if (!$this->git->hasChanges()) {
+        try {
+            $dirty = $this->git->hasChanges();
+        } catch (GitStatusException $e) {
+            $this->reportDecisionStatusFailure($chatId, $threadId, $e);
+
+            return;
+        }
+        if (!$dirty) {
             // The run left a clean tree — there is no owner of the dirt;
             // otherwise later external dirt would be attributed to this topic.
             $this->db->clearDirtyOwner();
@@ -2653,6 +2761,13 @@ final class Bot
 
         $this->db->clearDecision();
         $this->ensureDecision($chatId, $threadId);
+    }
+
+    /** The tree state is unknown, so no buttons: the failure goes to the topic instead. */
+    private function reportDecisionStatusFailure(int $chatId, int $threadId, GitStatusException $e): void
+    {
+        Log::line('git status failed, no decision offered: '.$e->getMessage());
+        $this->delivery->safeDeliver($chatId, $threadId, $this->t('decision.status_failed', ['error' => $e->getMessage()]));
     }
 
     /**
@@ -2687,7 +2802,13 @@ final class Bot
         // without reply_markup, the decision would be left without buttons and the
         // queue on an eternal pause. So the summary in it is truncated (with a
         // margin for HTML escaping), and the full list goes as a separate message below.
-        $summary = $this->git->changesSummary();
+        try {
+            $summary = $this->git->changesSummary();
+        } catch (GitStatusException $e) {
+            $this->reportDecisionStatusFailure($chatId, $threadId, $e);
+
+            return;
+        }
         $short = $this->delivery->truncateSummary($summary);
         $text = ($owner === null ? $this->t('decision.external')."\n\n" : '')
             .$this->t('decision.uncommitted')."\n\n".$short."\n\n".$this->t('decision.question');
