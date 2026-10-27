@@ -200,6 +200,8 @@ final class Gates
 
                 continue;
             }
+            // Whatever the outcome, the base branch may have changed (a merge can land behind an error).
+            $touched[$repo] = true;
             try {
                 if ($decision['action'] === MergeGate::MERGE) {
                     $this->github->merge($task['task'], $s->prNumber);
@@ -225,7 +227,6 @@ final class Gates
             if ($failures >= 1) {
                 $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_failures', '0');
             }
-            $touched[$repo] = true;
             $acted = true;
         }
 

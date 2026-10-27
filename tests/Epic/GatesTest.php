@@ -661,14 +661,26 @@ final class GatesTest extends TestCase
     {
         $this->gh->mergeFails = true;
         $states = ['a#1' => self::pr('a#1'), 'a#2' => self::pr('a#2')];
-        $this->runGates($states);
-        $this->runGates($states);
+        // one attempt per repository per pass: a#1 fails twice, then a#2 twice
+        for ($i = 0; $i < 4; ++$i) {
+            $this->runGates($states);
+        }
         $blocked = static fn (array $t): bool => $t['status'] === 'blocked';
         self::assertCount(2, array_filter($this->db->epicTasks('epic'), $blocked));
         self::assertSame(2, $this->notifiedCount());
-        // second pass: blocked ones are untouched, no more messages
+        // next pass: blocked ones are untouched, no more messages
         $this->runGates($states);
         self::assertSame(2, $this->notifiedCount());
+    }
+
+    public function testFailedMergeStillTouchesRepoSoSecondPrWaits(): void
+    {
+        $this->gh->mergeFails = true;
+        $states = ['a#1' => self::pr('a#1'), 'a#2' => self::pr('a#2')];
+        $this->runGates($states);
+        self::assertSame('1', $this->mergeFailures('a#1'));
+        self::assertSame('', $this->mergeFailures('a#2'));
+        self::assertSame([], $this->gh->merged);
     }
 
     private function mergeFailures(string $task = 'a#1'): string
