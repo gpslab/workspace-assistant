@@ -1025,6 +1025,45 @@ final class OrchestratorTest extends TestCase
         self::assertSame([], $this->enqueued);
     }
 
+    public function testResumeAfterStagnationDoesNotBlockAgain(): void
+    {
+        $c = $this->orchestrator(tick: 100, stall: 2);
+        $this->settle($c);
+        for ($i = 0; $i < 3; ++$i) {
+            $this->now += 100;
+            $c->poll();
+        }
+        self::assertSame(1, $this->blockedCount());
+
+        $this->db->epicResume('epic');
+        self::assertSame(0, $this->epic()['stale_ticks']);
+        $this->enqueued = [];
+        // Database::epicResume() stamps the wall clock: the next timer tick comes one interval after it.
+        $this->now = time();
+        $c->poll();
+        self::assertSame(1, $this->blockedCount());
+        self::assertSame([], $this->enqueued);
+        $this->now += 100;
+        $c->poll();
+        self::assertSame(1, $this->blockedCount());
+        self::assertSame([['epic', 'tick', null]], $this->enqueued);
+    }
+
+    public function testPassThatMergesIsProgressEvenWithExhaustedStallBudget(): void
+    {
+        $this->gh->states['a#1'] = new TaskState('a#1', [], 'open', 5, 'h1', 'green', 'true', 1, 0, $this->now - 3600, null, true, null, epicVerdict: 'APPROVED', epicReviewHead: 'h1');
+        $c = $this->orchestrator(tick: 100, stall: 2);
+        $this->settle($c);
+        $this->db->epicSetTaskCounter('epic', 'a#1', 'coverage_head', 'h1');
+        $this->db->epicTickQueued('epic', $this->now, 2);
+        $this->now += 100;
+        $c->poll();
+        self::assertSame(['a#1 5'], $this->gh->merged);
+        self::assertSame(0, $this->blockedCount());
+        self::assertSame(0, $this->epic()['stale_ticks']);
+        self::assertSame([], $this->enqueued);
+    }
+
     public function testInProgressNoTimerTickNoStallButBlocksWhenStuck(): void
     {
         $this->gh->states['a#1'] = new TaskState('a#1', ['openronin:in-progress']);

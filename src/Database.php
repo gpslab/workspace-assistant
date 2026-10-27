@@ -947,7 +947,8 @@ final class Database
     /**
      * `/epic resume`: the epic is running again, the blocked reason and blocked status of tasks are cleared.
      * For the tasks being cleared, the REQUEST_CHANGES cap count (the `epic_changes_since` mark)
-     * and the post-merge gate's `conflict_head` are reset.
+     * and the post-merge gate's `conflict_head` are reset. The stagnation counter restarts, and
+     * the merge failure counter of every task is reset.
      *
      * @return list<string> tasks whose blocked status was cleared
      */
@@ -958,11 +959,16 @@ final class Database
             $unblocked = [];
             $now = time();
             foreach ($this->epicTasks($slug) as $task) {
+                $counters = $task['counters'];
+                if (($counters['merge_failures'] ?? '') !== '' && $counters['merge_failures'] !== '0') {
+                    $counters['merge_failures'] = '0';
+                    $this->pdo->prepare('UPDATE epic_tasks SET counters = :c WHERE slug = :slug AND task = :task')
+                        ->execute(['c' => json_encode($counters, JSON_THROW_ON_ERROR), 'slug' => $slug, 'task' => $task['task']]);
+                }
                 if ($task['status'] !== 'blocked') {
                     continue;
                 }
                 $unblocked[] = $task['task'];
-                $counters = $task['counters'];
                 $counters['epic_changes'] = '0';
                 $counters['epic_changes_since'] = (string) $now;
                 $counters['conflict_head'] = '';
@@ -974,7 +980,8 @@ final class Database
                 $this->pdo->prepare('UPDATE epic_tasks SET counters = :c WHERE slug = :slug AND task = :task')
                     ->execute(['c' => json_encode($counters, JSON_THROW_ON_ERROR), 'slug' => $slug, 'task' => $task['task']]);
             }
-            $this->pdo->prepare("UPDATE epics SET status = 'running', blocked_reason = NULL, final_retries = 0 WHERE slug = :slug")->execute(['slug' => $slug]);
+            $this->pdo->prepare("UPDATE epics SET status = 'running', blocked_reason = NULL, final_retries = 0, stale_ticks = 0, last_tick_at = :now WHERE slug = :slug")
+                ->execute(['now' => $now, 'slug' => $slug]);
             $this->pdo->prepare("UPDATE epic_tasks SET status = 'open' WHERE slug = :slug AND status = 'blocked'")->execute(['slug' => $slug]);
             $this->pdo->commit();
 

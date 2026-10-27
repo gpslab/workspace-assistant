@@ -7,6 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Epic;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\Log;
 
 /**
  * Epic orchestrator, part 4: irreversible and counted steps — merge, post-merge actions,
@@ -162,7 +163,7 @@ final class Gates
     /**
      * Merge or update-branch — one PR per repository per pass: after the first one
      * the snapshot of the repository's other PRs (behind, mergeable, CI) is stale.
-     * A `gh` failure on a task blocks the task, not the poll of the whole epic.
+     * The first `gh` failure on a task is retried on the next pass, the second in a row blocks the task, not the poll of the whole epic.
      *
      * @param array<string, TaskState> $states
      * @param array<string, true>      $paused    repositories paused because of a red master
@@ -175,6 +176,15 @@ final class Gates
         foreach ($this->db->epicTasks($slug) as $task) {
             $s = $states[$task['task']] ?? null;
             $repo = $this->owners->repoKey($task['task']);
+            if ($s !== null && $s->prState === TaskState::MERGED && ($task['counters']['merge_error'] ?? '') === '1') {
+                // The merge went through behind an error (even if the task was blocked or resumed since):
+                // the post-merge master watch must cover it, no retry.
+                $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_unverified', '1');
+                $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_error', '0');
+                $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_failures', '0');
+
+                continue;
+            }
             if ($s === null || $task['status'] === 'blocked' || $s->prNumber === null || isset($touched[$repo])
                 || in_array($repo.'#'.$s->prNumber, $reviewPrs, true)) {
                 continue;
@@ -182,26 +192,48 @@ final class Gates
             if (isset($paused[$repo]) && !$this->isFixTask($slug, $repo, $task)) {
                 continue;
             }
+            $failures = (int) ($task['counters']['merge_failures'] ?? 0);
             $coverage = (string) ($task['counters']['coverage_head'] ?? '');
             $decision = MergeGate::decide($s, $coverage, $this->locale);
             if ($decision['action'] === MergeGate::WAIT) {
+                if ($failures >= 1) {
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_failures', '0');
+                }
+
                 continue;
             }
+            // Whatever the outcome, the base branch may have changed (a merge can land behind an error).
+            $touched[$repo] = true;
             try {
                 if ($decision['action'] === MergeGate::MERGE) {
                     $this->github->merge($task['task'], $s->prNumber);
                     $states[$task['task']] = $s->withPrState(TaskState::MERGED);
                     $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_unverified', '1');
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_error', '0');
                 } else {
                     $this->github->updateBranch($task['task'], $s->prNumber);
                 }
             } catch (\RuntimeException $e) {
+                if ($decision['action'] === MergeGate::MERGE) {
+                    // Not cleared by blocking, WAIT or resume: the merge may have landed behind the error.
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_error', '1');
+                }
+                if ($failures < 1) {
+                    // One retry: a transient `gh` error must not block the task.
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_failures', '1');
+                    Log::line(sprintf('Epic %s: %s of %s failed, will retry: %s', $slug, $decision['action'], $task['task'], $e->getMessage()));
+
+                    continue;
+                }
+                $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_failures', '0');
                 $this->db->epicSetTaskStatus($slug, $task['task'], 'blocked');
                 $this->say($slug, $this->locale->t('gate.merge_failed', ['task' => $task['task'], 'action' => $decision['action'], 'error' => $e->getMessage()]));
 
                 continue;
             }
-            $touched[$repo] = true;
+            if ($failures >= 1) {
+                $this->db->epicSetTaskCounter($slug, $task['task'], 'merge_failures', '0');
+            }
             $acted = true;
         }
 

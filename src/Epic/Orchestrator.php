@@ -251,15 +251,16 @@ final class Orchestrator
             $acted ??= 'other';
         }
 
+        $after = $this->fingerprint($states, $snap['master']);
         if (!$busy) {
             if ($stored === null || $forceTick || $this->attentionRaised($storedAttention, $snap['attention'])) {
                 $this->tick($slug, 0, $now);
 
                 return $states;
             }
-            if ($snap['fingerprint'] !== $stored || $snap['attention'] !== $storedAttention) {
-                // What changed does not call for judgement (or attention subsided): progress, not a reason for a tick.
-                $this->db->epicProgress($slug, $snap['fingerprint'], $snap['attention'], $now);
+            if ($snap['fingerprint'] !== $stored || $after !== $stored || $snap['attention'] !== $storedAttention) {
+                // What changed (including by this pass's own actions) does not call for judgement (or attention subsided): progress, not a reason for a tick.
+                $this->db->epicProgress($slug, $after, $snap['attention'], $now);
                 $lastTickAt = $now;
                 $staleTicks = 0;
             }
@@ -285,7 +286,7 @@ final class Orchestrator
         }
         if ($acted !== null && !$busy) {
             // Our own actions must not wake the next tick: remember the state after them.
-            $this->db->epicSetFingerprint($slug, $this->fingerprint($states, $snap['master']), $this->attentionHash($states, false, $gates->masterEvents($slug, $snap['master'])));
+            $this->db->epicSetFingerprint($slug, $after, $this->attentionHash($states, false, $gates->masterEvents($slug, $snap['master'])));
         }
 
         return $states;
