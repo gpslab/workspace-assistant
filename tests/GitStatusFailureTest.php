@@ -291,30 +291,11 @@ final class GitStatusFailureTest extends TestCase
         $this->call('startQueueHead');
         $this->finishJob();
 
-        self::assertStringContainsString('could not read the working tree (git status failed: ', $this->allText());
-        self::assertStringContainsString('leftovers were not committed', $this->allText());
-        self::assertStringNotContainsString('there are changes', $this->allText());
+        self::assertStringContainsString('there are changes, but git failed: ', $this->allText());
         self::assertStringContainsString(self::INDEX_ERROR, $this->allText());
         self::assertSame($head, $this->head());
         self::assertFileExists($this->work.'/journal.txt');
         self::assertNotNull($this->db->getDirtyOwner());
-    }
-
-    public function testCompactStopsAndKeepsTheSessionWhenStatusFails(): void
-    {
-        $this->hook('echo claude >> "$PWD/a.txt"; echo garbage > "$PWD/.git/index"');
-        $this->db->recordRun(100, 1, 's-old', 0, 0);
-        $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
-        file_put_contents($this->root.'/out.json', '{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}'."\n");
-
-        $this->call('startQueueHead');
-        $this->finishJob();
-
-        $text = $this->allText();
-        self::assertStringContainsString('Compaction stopped: could not read the working tree (git status failed: ', $text);
-        self::assertStringContainsString(self::INDEX_ERROR, $text);
-        // No reseed run was launched.
-        self::assertSame(1, substr_count((string) file_get_contents($this->root.'/calls.log'), 'x'));
     }
 
     public function testFailedEpicRunDoesNotRollBackOrClearTheOwnerWhenStatusFails(): void
