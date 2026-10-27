@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 use GpsLab\WorkspaceAssistant\TelegramClient;
+use GpsLab\WorkspaceAssistant\TelegramMessage;
 
 /**
  * The commit/discard decision on a dirty tree: offering the buttons when a job ends or is cancelled,
@@ -48,7 +49,7 @@ final readonly class DirtyTreeDecision implements Handler
             return;
         }
 
-        $threadId = self::threadIdOf($message);
+        $threadId = TelegramMessage::threadIdOf($message);
 
         // A decision belongs to a specific topic (chat_id, thread_id): in a forum
         // all topics share chat_id, so the topic is checked too, otherwise a button
@@ -209,23 +210,6 @@ final readonly class DirtyTreeDecision implements Handler
             $notified[$key] = true;
             $this->delivery->safeDeliver($item['chat_id'], $item['thread_id'], $this->t('decision.queue_waits', ['topic' => $this->queueTexts->topicLabel($chatId, $landed['thread_id'])]));
         }
-    }
-
-    /**
-     * The forum topic of an incoming message. A real topic is flagged is_topic_message
-     * AND carries message_thread_id. The General topic and a 1:1 chat arrive without that flag
-     * → session 0 (the chat's default session). Replies outside topics may also carry
-     * message_thread_id, so we check precisely is_topic_message.
-     *
-     * @param array<string, mixed> $message
-     */
-    public static function threadIdOf(array $message): int
-    {
-        if (($message['is_topic_message'] ?? false) === true && isset($message['message_thread_id'])) {
-            return (int) $message['message_thread_id'];
-        }
-
-        return 0;
     }
 
     /** The tree state is unknown, so no buttons: the failure goes to the topic instead. */

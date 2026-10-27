@@ -228,7 +228,7 @@ so `0` never collides.
 - **`0`, not `NULL`:** in SQLite `NULL != NULL` in keys and in `WHERE thread_id = ?`; `INSERT OR IGNORE`
   would silently duplicate rows and `UPDATE … WHERE thread_id = NULL` would never match. Do not make it
   nullable.
-- **Topic detection** requires `is_topic_message === true` AND `message_thread_id` (`Bot::threadIdOf`).
+- **Topic detection** requires `is_topic_message === true` AND `message_thread_id` (`TelegramMessage::threadIdOf`).
   Replies outside topics may also carry `message_thread_id`.
 - **Orphan rows for deleted topics are expected and harmless:** Telegram sends no deletion update and the
   Bot API cannot list topics, but `thread_id` is never reused. Bulk cleanup, if ever needed:

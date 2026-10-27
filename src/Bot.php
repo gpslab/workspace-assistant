@@ -429,7 +429,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
      */
     private function threadIdOf(array $message): int
     {
-        return DirtyTreeDecision::threadIdOf($message);
+        return TelegramMessage::threadIdOf($message);
     }
 
     /**
