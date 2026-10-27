@@ -30,8 +30,8 @@ keep `ctl.sh` for local development (`bin/ctl.sh fg`) or for hosts without a ser
 
 **The bot never restarts itself through `systemctl`/`kill`.** This is the self-preservation rule in the
 system prompt: the bot process hosts the current Claude session, so stopping the bot from inside it kills
-the session before the reply is delivered. `/restart` is handled by `Bot::cmdRestart()` outside the Claude
-context: it pulls the code and ends the polling loop (`$this->running = false`), the same path as
+the session before the reply is delivered. `/restart` is handled by `Command\RestartCommand` outside the Claude
+context: it pulls the code and ends the polling loop (`RunControl::requestStop()`, which sets `Bot::$running = false`), the same path as
 `SIGTERM`, including the notice about an active run in `Bot::run()`; the service manager starts it again.
 
 ---

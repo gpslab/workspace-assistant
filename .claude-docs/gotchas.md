@@ -87,7 +87,7 @@ tokens" in `/stats` is the **total** input including cache, not raw input.
 
 ## `/compact` is a two-phase job; the counter reset is deferred to phase 2
 
-`-p` mode has no slash commands, so `Bot::cmdCompact` emulates `/compact` with two consecutive runs
+`-p` mode has no slash commands, so `Command\CompactCommand` emulates `/compact` with two consecutive runs
 distinguished by `jobContext['kind']`:
 
 1. `KIND_COMPACT_SUMMARIZE`: `--resume` of the old session, asking for a summary without file edits;
