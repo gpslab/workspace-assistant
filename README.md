@@ -10,9 +10,11 @@
 </p>
 
 A Telegram bot that turns chat messages into Claude Code
-runs inside a git repository (the *workspace*, typically a knowledge base). You write to the bot from
-your phone; the message goes to `claude -p` in the context of the workspace, the changes are committed
-and pushed automatically, and the reply contains a link to the commit.
+runs inside a git repository, the *managed repository*. It is meant to be a knowledge base: a repository
+of documents that you edit through chat, not a code base. You write to the bot from your phone; the
+message goes to `claude -p` in the context of the managed repository, the changes are committed and
+pushed automatically, and the reply contains a link to the commit. See
+[How it works](#how-it-works) for what exactly is committed and pushed.
 
 ```
 Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
@@ -33,13 +35,13 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
 > of the system user that runs the bot and with that user's `gh` token**.
 >
 > Anyone who gets into `ALLOWED_USER_IDS` (or takes over such a Telegram account), and anyone who can
-> influence the text Claude reads (workspace files, issues, pull requests), can make the bot act as
+> influence the text Claude reads (managed repository files, issues, pull requests), can make the bot act as
 > that user. Read [Security](#security) and isolate the process **before** you start the bot.
 
 ## Features
 
 - Per-chat Claude sessions that continue between messages (`--resume`).
-- Before each run: clean-tree check and `git pull --rebase`; after a successful run: commit and push.
+- Before each run: clean-tree check and `git pull --rebase`; after a successful run: commit and push of the managed repository.
 - A request that arrives while the bot is busy is queued, not rejected.
 - Live progress: the "Thinking..." message is updated with what Claude says and which tools it calls.
 - Files in both directions: files sent to the bot are handed to Claude (inbox); files Claude puts
@@ -49,6 +51,30 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
   tasks run in parallel, dependent ones start once everything they depend on is merged.
 
 ## How it works
+
+### The managed repository: commit and push
+
+The managed repository is a **knowledge base**: a repository of documents that you edit through chat,
+not the code base of a project. After every successful run that changed files the bot commits all
+changes (`git add -A`) with the message `tg: <first line of the request, up to 60 chars>` (epic runs:
+`tg: epic <slug>`) and pushes the current branch with a plain `git push`. A run that changed nothing
+produces no commit and no push. Changes left by an interrupted run, a failed regular request, or by
+someone else are not committed automatically: the bot asks whether to commit or discard them. A failed
+epic run asks nothing: its changes are saved as `dirty-<timestamp>.patch` next to `failures.log` in
+`<STATE_DIR>/epics/<slug>/`, and the tree is rolled back. Nothing else is reviewed before a push, so do
+not point the bot at a code project.
+
+- If the push fails, the reply reports the error and has no link to the managed repository commit
+  (links to sub-repository commits can still be there). The commit stays local and goes out with the
+  next run that changes files, or push it by hand. On a protected branch every push fails, so local
+  commits pile up.
+- Code lives in separate repositories, and changes there go through pull requests:
+  - sub-repositories under `SUBREPOS_DIR`: the bot pulls them before a run and links their new commits
+    in the reply. Whether they are committed and pushed is up to Claude, following the managed
+    repository's own instructions. The bot does not commit them.
+  - epics: their tasks are implemented as pull requests.
+
+### Epics and the pipeline
 
 Besides chatting with a repository, the bot can carry work from an idea to a merged pull request. Claude
 handles the steps that need judgement, the `Orchestrator` (the bot's own code) handles the
@@ -193,7 +219,7 @@ plan format, the `/epic` commands, the status card and the merge and release gat
 
 ## Security
 
-The bot is built for a **trusted workspace and a trusted, short whitelist of users**. Treat it like a
+The bot is built for a **trusted managed repository and a trusted, short whitelist of users**. Treat it like a
 remote shell for everyone in `ALLOWED_USER_IDS`.
 
 - The whitelist `ALLOWED_USER_IDS` is the only authentication; protect those Telegram accounts.
@@ -202,7 +228,8 @@ remote shell for everyone in `ALLOWED_USER_IDS`.
 - **`--dangerously-skip-permissions` is the default** of `CLAUDE_EXTRA_ARGS`. Claude can run any command
   as the bot's system user and use that user's `gh` token and git credentials. Content Claude reads
   (files, issues, PR text) can steer it too (prompt injection).
-- Changes are committed and pushed automatically, including edits to persona and locale files.
+- Every successful run is committed and pushed to the current branch automatically with no review (see
+  [How it works](#how-it-works)), including edits to persona and locale files.
 
 To report a vulnerability privately, see [SECURITY.md](SECURITY.md).
 
