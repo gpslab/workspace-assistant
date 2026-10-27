@@ -10,8 +10,8 @@ file. The settings are in [INSTALL.md](INSTALL.md), the built-in agents in
 
 There are three kinds of file:
 
-- *contract*: the rules the bot relies on. A local `prompts/<name>.md` replaces the `.dist`, and the
-  checked ones (see Overrides) warn about it in the reply.
+- *contract*: the rules the bot relies on. A local `prompts/<name>.md` replaces the `.dist`, and
+  every contract file warns about it in the reply of every run (see Overrides).
 - *persona*: the character of a mode. The `PROMPTS_DIR` layer (`common.md`, `<mode>.md`) sits on top of
   `prompts/<name>.md` and the `.dist`. No warning.
 - *setting*: a local `prompts/<name>.md` replaces the `.dist` silently. There is no `PROMPTS_DIR` layer.
@@ -107,13 +107,18 @@ phase.
   `prompts/<name>.md.dist` as a whole. A missing `.dist` is a broken installation.
 - **Contract names.** The 14 names of `PromptFiles::CONTRACT` can be overridden. After an update, diff your
   overrides against the `.dist`.
-- **Checks and warnings.** Only the files of the system prompt (`common`, `common_limits`,
-  `contract_review`, `language_line`, the persona files), `session_update`, `pm_runbook` and the agent files are checked, and
-  a run that uses them adds a warning to the reply for: an empty or unreadable local file (the `.dist` is
-  used instead), a contract file overridden locally, a placeholder that differs from the `.dist` and a
-  placeholder the code does not fill. The other files (`review_status_reason*`,
-  `compact_*`, `default_file_prompt`, `epic_runbook`) are used as written, with no warning: an override that
-  drops or misspells a placeholder fails silently, so keep the placeholders of the `.dist` exactly.
+- **Checks and warnings.** Two separate things happen:
+  - *Override warning.* A local override of any of the 14 contract names is reported in the reply of every
+    run, whatever the mode or kind of run. `default_file_prompt` is a setting and gets no warning.
+  - *Content checks.* Only the files of the system prompt (`common`, `common_limits`, `contract_review`,
+    `language_line`, the persona files), `session_update` and `pm_runbook` are checked, and a run that
+    uses them adds a warning for: an empty or unreadable local file (the `.dist` is used instead), a
+    placeholder that differs from the `.dist` and a placeholder the code does not fill. For
+    `review_status_reason*`, `compact_*` and `epic_runbook` a placeholder mistake passes silently (only the
+    override warning appears), and `default_file_prompt` gets no checks, so keep the placeholders of the
+    `.dist` exactly.
+  - *Agent files.* Agent bodies are loaded, not rendered, so there are no placeholder warnings; only an
+    empty or unreadable local file and a missing `name:` are reported.
 - **`PROMPTS_DIR` persona layer.** The directory is set in `.env`, relative to `REPO_PATH`, for example
   `context/prompts`. First found wins:
   - common block: `PROMPTS_DIR/common.md` → `prompts/persona_common.md` → `prompts/persona_common.md.dist`;
