@@ -184,6 +184,13 @@ the tasks to completion, independent ones in parallel. The stages of a run, the 
 plan format, the `/epic` commands, the status card and the merge and release gates are in
 [EPICS.md](EPICS.md).
 
+<p align="center">
+  <img src="assets/screenshot-epic.jpg" width="320"
+       alt="The epic card in a forum topic: eight tasks with their state — merged, in review, CI is running, waiting for other tasks — and the last journal entry">
+  <br>
+  <em>The epic card is one message the bot keeps up to date: each task's state, what it waits for, and the last journal entry.</em>
+</p>
+
 ## Security
 
 The bot is built for a **trusted workspace and a trusted, short whitelist of users**. Treat it like a
