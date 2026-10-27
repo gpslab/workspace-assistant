@@ -50,7 +50,7 @@ final class AutoCommitTest extends TestCase
         mkdir($this->root.'/state');
         mkdir($this->root.'/outbox');
         mkdir($this->root.'/inbox');
-        file_put_contents($this->root.'/claude', "#!/bin/sh\necho x >> \"$(dirname \"\$0\")/calls.log\"\n[ -f \"$(dirname \"\$0\")/hook.sh\" ] && sh \"$(dirname \"\$0\")/hook.sh\"\ncat \"$(dirname \"\$0\")/out.json\"\n");
+        file_put_contents($this->root.'/claude', "#!/bin/sh\nprintf '%s\\n' \"\$@\" >> \"$(dirname \"\$0\")/args.log\"\n[ -t 0 ] || cat >> \"$(dirname \"\$0\")/args.log\"\necho x >> \"$(dirname \"\$0\")/calls.log\"\n[ -f \"$(dirname \"\$0\")/hook.sh\" ] && sh \"$(dirname \"\$0\")/hook.sh\"\ncat \"$(dirname \"\$0\")/out.json\"\n");
         chmod($this->root.'/claude', 0755);
         $this->claudeOutput('{"type":"result","is_error":false,"result":"done","session_id":"s-1","usage":{}}');
 
@@ -412,32 +412,109 @@ final class AutoCommitTest extends TestCase
         self::assertCount(1, $this->buttons());
     }
 
-    public function testEpicRunDoesNotStartOnDirtyOperatorTree(): void
+    public function testEpicRunStartsOnDirtyTreeWithOverrideInPrompt(): void
     {
         $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
         $this->dirtyOperatorTree();
+
+        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $args = (string) file_get_contents($this->root.'/args.log');
+        self::assertStringContainsString('write it to disk right after each external action; do not commit or push it', $args);
+        self::assertStringContainsString('nothing is committed or pushed', $args);
+        self::assertStringContainsString('A crashed run loses everything uncommitted', $args);
+        self::assertStringNotContainsString('commit and push it right after', $args);
+    }
+
+    public function testEpicRunWithAutoCommitOnKeepsCommitInstruction(): void
+    {
+        $this->bot = $this->makeBot(true);
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
+
+        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $args = (string) file_get_contents($this->root.'/args.log');
+        self::assertStringContainsString('commit and push it right after each external action', $args);
+        self::assertStringNotContainsString('nothing is committed or pushed', $args);
+    }
+
+    public function testEpicRunLeftoversAreNeitherCommittedNorPushed(): void
+    {
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
+        $this->dirtyOperatorTree();
+        $this->hook('echo j > "$PWD/journal.txt"; echo \'{}\' > "$WORKSPACE_ASSISTANT_EPIC_SIGNAL"');
         $head = $this->head();
         $origin = $this->originHead();
 
         self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
         $this->call('startQueueHead');
+        $this->finishJob();
 
-        self::assertFalse($this->activeJob());
-        self::assertSame([], $this->buttons());
         self::assertSame($head, $this->head());
         self::assertSame($origin, $this->originHead());
+        self::assertFileExists($this->work.'/journal.txt');
+        self::assertSame([], $this->buttons());
+        // The run took the success path of finishEpicRun, not the failure one.
+        self::assertFileDoesNotExist($this->root.'/state/epics/demo/failures.log');
+        self::assertStringNotContainsString('signal', $this->allText());
         self::assertStringContainsString('operator edit', (string) file_get_contents($this->work.'/a.txt'));
     }
 
-    public function testEpicRunStartsOnCleanTree(): void
+    public function testEpicStatusLinksJournalOnlyWhenItIsPushed(): void
+    {
+        $this->git('remote set-url origin https://github.com/gpslab/demo.git');
+        $this->git('remote set-url --push origin '.escapeshellarg($this->origin));
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
+        $journal = '.workspace-assistant/epics/demo.journal.md';
+        mkdir(dirname($this->work.'/'.$journal), 0777, true);
+        file_put_contents($this->work.'/'.$journal, "journal\n");
+
+        $this->bot = $this->makeBot(true);
+        $this->call('handleCommand', [100, 1, '/epic status', 30, self::USER]);
+        self::assertStringContainsString('(https://github.com/gpslab/demo/blob/', $this->allText());
+
+        $this->tg->sent = [];
+        $this->bot = $this->makeBot(false);
+        $this->call('handleCommand', [100, 1, '/epic status', 30, self::USER]);
+        self::assertStringContainsString('Journal: '.$journal, $this->allText());
+        self::assertStringNotContainsString('demo.journal.md](', $this->allText());
+    }
+
+    public function testEpicPromptFilesWarningCountsOnlyFilesTheRunChanged(): void
     {
         $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
+        file_put_contents($this->work.'/prompts/pm.md', "operator\n");
+        file_put_contents($this->work.'/prompts/other.md', "operator\n");
+        $this->hook('echo claude >> "$PWD/prompts/other.md"; echo \'{}\' > "$WORKSPACE_ASSISTANT_EPIC_SIGNAL"');
 
         self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
         $this->call('startQueueHead');
-
-        self::assertTrue($this->activeJob());
         $this->finishJob();
+
+        $text = $this->allText();
+        self::assertStringContainsString('prompts/other.md', $text);
+        self::assertStringNotContainsString('prompts/pm.md', $text);
+    }
+
+    public function testCompactEditOfAlreadyDirtyFileDuringSummarizeStopsIt(): void
+    {
+        $this->dirtyOperatorTree();
+        $this->hook('echo claude >> "$PWD/a.txt"');
+        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame(1, substr_count((string) file_get_contents($this->root.'/calls.log'), 'x'));
+        self::assertStringContainsString('a.txt', $this->allText());
+        self::assertSame([], $this->buttons());
+        self::assertNull($this->db->getDecision());
     }
 
     public function testCompactOnDirtyOperatorTreeReseedsWhenSummarizeChangedNothing(): void
