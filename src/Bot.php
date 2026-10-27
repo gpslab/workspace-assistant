@@ -2145,7 +2145,7 @@ final class Bot
                 $dirty = $this->git->hasChanges();
             } catch (GitStatusException $e) {
                 Log::line("epic {$slug}: git status failed, leftovers not committed: ".$e->getMessage());
-                $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
+                $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.leftovers_status_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
 
                 return;
             }
@@ -2333,6 +2333,8 @@ final class Bot
      * Paths the summarize run changed: the whole dirty tree with AUTO_COMMIT=1, the per-run diff with 0.
      *
      * @return list<string>
+     *
+     * @throws GitStatusException when the tree state is unknown: the caller must not treat it as clean
      */
     private function compactChangedPaths(): array
     {
@@ -2345,6 +2347,8 @@ final class Bot
             }
 
             return $this->git->changedSince($this->runTreeSnapshot);
+        } catch (GitStatusException $e) {
+            throw $e;
         } catch (\RuntimeException $e) {
             Log::line('compact: tree snapshot diff failed: '.$e->getMessage());
 
@@ -2367,13 +2371,17 @@ final class Bot
             return;
         }
 
-        $changed = $this->compactChangedPaths();
+        try {
+            $changed = $this->compactChangedPaths();
+            $changes = $changed === [] ? '' : ($this->config->autoCommit ? $this->git->changesSummary() : implode("\n", $changed));
+        } catch (GitStatusException $e) {
+            Log::line('compact: git status failed, session left untouched: '.$e->getMessage());
+            $this->delivery->deliver($chatId, $threadId, $this->t('compact.status_failed', ['error' => $e->getMessage()]));
+
+            return;
+        }
         if ($changed !== []) {
-            $this->delivery->deliver(
-                $chatId,
-                $threadId,
-                $this->t('compact.dirty', ['changes' => $this->config->autoCommit ? $this->git->changesSummary() : implode("\n", $changed)]),
-            );
+            $this->delivery->deliver($chatId, $threadId, $this->t('compact.dirty', ['changes' => $changes]));
             $this->offerDecisionIfDirty($chatId, $threadId);
 
             return;
