@@ -533,8 +533,8 @@ Then:
   (`git add -A && git diff --cached --binary`), then the tree is rolled back. There are no
   commit/discard buttons and the queue is not paused. A failure record is appended to
   `state/epics/<slug>/failures.log`; the bot does not commit it to the repository — the next tick
-  moves it into the epic journal. The epic continues. Regular requests behave as before: commit/discard
-  buttons and a paused queue.
+  moves it into the epic journal. The epic continues. Regular requests behave as before: with `1` there are commit/discard
+  buttons and a paused queue; with `0` there are neither.
 - **A successful epic run with residual dirt** — an auto-commit, as for a regular request; with
   `AUTO_COMMIT=0` leftover changes are not committed.
 - **`done`**: the HTML report from the outbox goes to the epic topic at once, at any time of day; the

@@ -48,10 +48,10 @@ Telegram getUpdates (long poll)
             ▼                                                        │
    Bot::pollJob (every tick) ──► RunnerState                         │
         ├─ Running ──► keep waiting ─────────────────────────────────┘
-        ├─ Timeout ──► kill, "process killed", offer a decision if the tree is dirty
+        ├─ Timeout ──► kill, "process killed", offer a decision if the tree is dirty (AUTO_COMMIT=1 only)
         └─ Done    ──► result()
                          ├─ recordRun (session_id, tokens, counter)
-                         ├─ error ──► "Claude error", offer a decision if dirty
+                         ├─ error ──► "Claude error", offer a decision if dirty (AUTO_COMMIT=1 only)
                          └─ ok ──► sendResult: commit + push (AUTO_COMMIT=1), commit link, optional token usage, reply
 ```
 
@@ -93,7 +93,7 @@ sendResult(...) | "Claude error"
 
 ### Commit / discard decision
 
-After `/cancel`, a timeout or a Claude error the tree may stay dirty. `Bot` then stores a decision and
+With `AUTO_COMMIT=1` (the default), after `/cancel`, a timeout or a Claude error the tree may stay dirty. `Bot` then stores a decision and
 sends inline buttons "Commit / Discard"; the queue is paused while the tree is dirty.
 
 - **commit** → `git add -A && commit && push`, commit link;

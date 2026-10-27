@@ -1208,7 +1208,7 @@ final class Database
         return is_array($decoded) ? array_map('intval', $decoded) : null;
     }
 
-    /** Topic of the last job that touched the tree (owner of the commit/discard decision). */
+    /** Topic of the last job that touched the tree (owner of the commit/discard decision, AUTO_COMMIT=1). */
     public function setDirtyOwner(int $chatId, int $threadId): void
     {
         $this->kvSet('dirty_owner', json_encode(['chat_id' => $chatId, 'thread_id' => $threadId], JSON_THROW_ON_ERROR));
@@ -1229,7 +1229,7 @@ final class Database
         $this->kvDelete('dirty_owner');
     }
 
-    /** Awaiting a commit/discard decision: the topic where the buttons went and the message_id of the message with them. */
+    /** Awaiting a commit/discard decision (AUTO_COMMIT=1 only): the topic where the buttons went and the message_id of the message with them. */
     public function setDecision(int $chatId, int $threadId, int $messageId): void
     {
         $this->kvSet('decision', json_encode(['chat_id' => $chatId, 'thread_id' => $threadId, 'message_id' => $messageId], JSON_THROW_ON_ERROR));

@@ -574,8 +574,8 @@ final class Bot
      * /cancel from topic X: kills X's active job and removes ALL pending
      * items of X (otherwise the topic's next request would start in the context the
      * person just rejected). Other topics and chats are
-     * never affected. There is no auto-commit/auto-rollback: the decision on a dirty
-     * tree is made by the person with buttons.
+     * never affected. There is no auto-commit/auto-rollback: with AUTO_COMMIT=1 the decision on a dirty
+     * tree is made by the person with buttons (with 0 there is none).
      */
     private function cmdCancel(int $chatId, int $threadId): void
     {
@@ -692,7 +692,7 @@ final class Bot
 
     /**
      * The queue pause reason or null. A pause on a dirty tree is DERIVED from
-     * state (queue is non-empty, no job, tree is dirty), not stored as
+     * state (AUTO_COMMIT=1, queue is non-empty, no job, tree is dirty), not stored as
      * an in-memory flag.
      */
     private function pauseReason(): ?string
@@ -723,7 +723,7 @@ final class Bot
         return null;
     }
 
-    /** Queue is non-empty, no job, tree is dirty. */
+    /** AUTO_COMMIT=1, queue is non-empty, no job, tree is dirty. */
     private function isPausedByDirtyTree(): bool
     {
         if ($this->activeJob !== null || ($head = $this->db->queueHead()) === null) {
@@ -1537,7 +1537,7 @@ final class Bot
      * Bot start: pending items survive /restart; a job killed
      * by the restart (the item remained marked as running) is dropped with a request to
      * retry and is not restarted. A message goes to every topic with a queue.
-     * The dirty-tree decision is issued again (entering the pause), but only if the
+     * With AUTO_COMMIT=1 the dirty-tree decision is issued again (entering the pause), but only if the
      * queue is not empty - otherwise the old buttons are still alive.
      */
     private function recoverQueueOnStart(): void
@@ -2148,8 +2148,8 @@ final class Bot
     }
 
     /**
-     * A failed regular request gets the commit/discard buttons and a queue
-     * pause; an epic run failure is handled without a human, see
+     * With AUTO_COMMIT=1 a failed regular request gets the commit/discard buttons and a queue
+     * pause (with 0 it gets neither); an epic run failure is handled without a human, see
      * {@see failEpicRun()}.
      */
     private function afterFailedRun(int $chatId, int $threadId, ?string $epicSlug, string $reason): void
@@ -2164,10 +2164,11 @@ final class Bot
     }
 
     /**
-     * Epic run failure: the whole dirty tree (including untracked and binary
-     * files) is saved as a patch to `state/epics/<slug>/dirty-<ts>.patch`, then
-     * the tree is rolled back; a record goes to `failures.log`. There are no
-     * buttons or queue pause, and the failure is not committed to the
+     * Epic run failure: with AUTO_COMMIT=1 the whole dirty tree (including
+     * untracked and binary files) is saved as a patch to
+     * `state/epics/<slug>/dirty-<ts>.patch`, then the tree is rolled back; with 0
+     * there is no patch and the tree is left as is. A record goes to `failures.log`.
+     * There are no buttons or queue pause, and the failure is not committed to the
      * repository. The epic continues.
      */
     private function failEpicRun(string $slug, string $reason): void
@@ -2217,12 +2218,6 @@ final class Bot
     }
 
     /**
-     * Phase 1 of /compact finished: we got the summary of the old session. If
-     * Claude disobeyed and changed something in the repository, we go no
-     * further, hand the decision to the user (commit/discard) and leave the
-     * session untouched.
-     */
-    /**
      * Paths the summarize run changed: the whole dirty tree with AUTO_COMMIT=1, the per-run diff with 0.
      *
      * @return list<string>
@@ -2244,6 +2239,12 @@ final class Bot
         }
     }
 
+    /**
+     * Phase 1 of /compact finished: we got the summary of the old session. If
+     * Claude disobeyed and changed something in the repository, we go no
+     * further, hand the decision to the user (commit/discard, with AUTO_COMMIT=1)
+     * and leave the session untouched.
+     */
     private function finishCompactSummarize(int $chatId, int $threadId, ClaudeResult $claude, ?string $compactOldSessionId, int $queueId, string $localeCode): void
     {
         $summary = trim($claude->text);
@@ -2588,8 +2589,9 @@ final class Bot
 
     /**
      * Entering the pause when a job ends/is cancelled: if the tree is dirty, the
-     * commit/discard buttons go to the owner topic (the topic of this job). The
-     * decision record is stored in SQLite; there is no auto-commit or auto-rollback.
+     * commit/discard buttons go to the owner topic (the topic of this job), only with
+     * AUTO_COMMIT=1. The decision record is stored in SQLite; there is no
+     * auto-commit or auto-rollback.
      */
     private function offerDecisionIfDirty(int $chatId, int $threadId): void
     {
@@ -2609,7 +2611,8 @@ final class Bot
     }
 
     /**
-     * Issues the commit/discard buttons if no decision is pending yet. The owner
+     * Issues the commit/discard buttons if no decision is pending yet (only with
+     * AUTO_COMMIT=1). The owner
      * is the topic of the last job that touched the tree (stored in the DB). If
      * the owner is unknown ("external" dirt), the buttons go to the head topic
      * ($fallback*) with a note "changes not from this request". Topics with
