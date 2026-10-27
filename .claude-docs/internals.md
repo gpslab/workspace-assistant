@@ -35,7 +35,7 @@ Telegram getUpdates (long poll)
         ▼
    Bot::dispatch ──► whitelist (ALLOWED_USER_IDS)? ──no──► access denied
         │ yes
-        ├─ "/..." ──► handleCommand (/new /compact /cancel /queue /stats /verbose /mode /lang /epic /restart /help)
+        ├─ "/..." ──► handleCommand → Command\Router (/new /compact /cancel /queue /stats /verbose /mode /lang /epic /restart /help)
         │
         └─ text or files ──► enqueue (FIFO in SQLite) ──► startQueueHead (each tick, when no job is active)
                                 │

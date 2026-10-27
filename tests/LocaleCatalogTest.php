@@ -5,7 +5,14 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\Bot;
+use GpsLab\WorkspaceAssistant\Command\Command;
+use GpsLab\WorkspaceAssistant\Command\Router;
+use GpsLab\WorkspaceAssistant\Config;
+use GpsLab\WorkspaceAssistant\Database;
+use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\SessionFiles;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 
@@ -31,15 +38,60 @@ final class LocaleCatalogTest extends TestCase
         return $catalogs;
     }
 
-    /** Source of every class in `src/` and `src/Epic/` as one string. */
+    /** Source of every class under `src/` as one string. */
     private static function sources(): string
     {
         $source = '';
-        foreach (array_merge(glob(__DIR__.'/../src/*.php') ?: [], glob(__DIR__.'/../src/Epic/*.php') ?: []) as $file) {
-            $source .= (string) file_get_contents($file)."\n";
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(__DIR__.'/../src', \FilesystemIterator::SKIP_DOTS));
+        foreach ($files as $file) {
+            if ($file instanceof \SplFileInfo && $file->getExtension() === 'php') {
+                $source .= (string) file_get_contents($file->getPathname())."\n";
+            }
         }
 
         return $source;
+    }
+
+    /**
+     * Names of the commands of a bot built the way the bot tests build it.
+     *
+     * @return list<string>
+     */
+    private static function commandNames(): array
+    {
+        $dir = sys_get_temp_dir().'/tgcatalog_'.uniqid('', true);
+        mkdir($dir, 0777, true);
+        $db = new Database($dir);
+        $tmp = sys_get_temp_dir();
+        $config = new Config(
+            botToken: 't',
+            allowedUserIds: [1],
+            repoPath: $dir,
+            githubRepo: '',
+            claudeBin: 'claude',
+            claudeTimeout: 0,
+            claudeStallTimeout: 900,
+            claudeExtraArgs: [],
+            claudeAppendSystemPrompt: '',
+            stateDir: $tmp,
+            outboxDir: $tmp,
+            inboxDir: $tmp,
+            pollTimeout: 30,
+            gitTimeout: 30,
+            githubOwners: new GithubOwners(['anime-db']),
+        );
+        $bot = new Bot($config, $db, new FakeTelegram(), new GitManager($tmp, 30), new SessionFiles($tmp));
+        $router = (new \ReflectionProperty(Bot::class, 'commandRouter'))->getValue($bot);
+        self::assertInstanceOf(Router::class, $router);
+        $names = array_map(static fn (Command $command): string => $command->name(), $router->commands());
+        // The router's closures hold the bot, which holds the database: drop them all before cleanup.
+        unset($router, $bot, $db);
+        foreach (['state.sqlite', 'state.sqlite-wal', 'state.sqlite-shm'] as $file) {
+            @unlink($dir.'/'.$file);
+        }
+        @rmdir($dir);
+
+        return $names;
     }
 
     /**
@@ -52,10 +104,8 @@ final class LocaleCatalogTest extends TestCase
         preg_match_all("/->t\\(\\s*'([a-z0-9_.]+)'/", self::sources(), $m);
         $keys = $m[1];
 
-        $commands = (new \ReflectionClassConstant(Bot::class, 'BOT_COMMANDS'))->getValue();
-        self::assertIsArray($commands);
-        foreach ($commands as $command) {
-            $keys[] = 'command.'.$command;
+        foreach (self::commandNames() as $name) {
+            $keys[] = 'command.'.$name;
         }
 
         $keys = array_values(array_unique($keys));

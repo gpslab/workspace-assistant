@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\Bot;
+use GpsLab\WorkspaceAssistant\Command\Menu;
+use GpsLab\WorkspaceAssistant\Command\Router;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\GithubOwners;
@@ -65,6 +67,22 @@ final class BotLocaleTest extends TestCase
         );
 
         return new Bot($config, $this->db, $tg, new GitManager($tmp, 30), new SessionFiles($tmp));
+    }
+
+    private function router(Bot $bot): Router
+    {
+        $router = (new \ReflectionProperty(Bot::class, 'commandRouter'))->getValue($bot);
+        self::assertInstanceOf(Router::class, $router);
+
+        return $router;
+    }
+
+    private function menu(Bot $bot): Menu
+    {
+        $menu = (new \ReflectionProperty(Bot::class, 'commandMenu'))->getValue($bot);
+        self::assertInstanceOf(Menu::class, $menu);
+
+        return $menu;
     }
 
     private function command(Bot $bot, string $text): void
@@ -218,7 +236,7 @@ final class BotLocaleTest extends TestCase
 
         $tg = new FakeTelegram();
         $bot = $this->makeBot($tg, 'ru');
-        (new \ReflectionMethod(Bot::class, 'registerCommands'))->invoke($bot);
+        $this->menu($bot)->register();
 
         $expected = [];
         foreach ($codes as $code) {
@@ -235,7 +253,7 @@ final class BotLocaleTest extends TestCase
 
         $tg = new FakeTelegram();
         $bot = $this->makeBot($tg, 'tlh', 'locales');
-        (new \ReflectionMethod(Bot::class, 'registerCommands'))->invoke($bot);
+        $this->menu($bot)->register();
 
         $byCode = [];
         foreach ($tg->commandLists as $list) {
@@ -250,24 +268,23 @@ final class BotLocaleTest extends TestCase
         self::assertCount(1, array_filter($tg->commandLists, static fn (array $l): bool => $l['language_code'] === null));
     }
 
-    public function testEmojiMapCoversExactlyTheBotCommands(): void
+    public function testEveryRegisteredCommandHasANonEmptyEmoji(): void
     {
-        $commands = (new \ReflectionClassConstant(Bot::class, 'BOT_COMMANDS'))->getValue();
-        $emoji = (new \ReflectionClassConstant(Bot::class, 'COMMAND_EMOJI'))->getValue();
-        self::assertIsArray($commands);
-        self::assertIsArray($emoji);
-        $keys = array_map('strval', array_keys($emoji));
-        sort($keys);
-        sort($commands);
-        self::assertSame($commands, $keys);
+        $commands = $this->router($this->makeBot(new FakeTelegram()))->commands();
+        self::assertNotSame([], $commands);
+        foreach ($commands as $command) {
+            self::assertNotSame('', trim($command->emoji()), $command->name());
+        }
     }
 
     public function testEveryDescriptionStartsWithItsOwnEmojiAndNoCatalogTextHasOne(): void
     {
-        $emoji = (new \ReflectionClassConstant(Bot::class, 'COMMAND_EMOJI'))->getValue();
-        self::assertIsArray($emoji);
+        $emoji = [];
+        foreach ($this->router($this->makeBot(new FakeTelegram(), 'en'))->commands() as $command) {
+            $emoji[$command->name()] = $command->emoji();
+        }
         $tg = new FakeTelegram();
-        (new \ReflectionMethod(Bot::class, 'registerCommands'))->invoke($this->makeBot($tg, 'en'));
+        $this->menu($this->makeBot($tg, 'en'))->register();
         foreach ($tg->commandLists as $list) {
             foreach ($list['commands'] as $entry) {
                 self::assertStringStartsWith($emoji[$entry['command']].' ', $entry['description']);
@@ -285,7 +302,7 @@ final class BotLocaleTest extends TestCase
     {
         file_put_contents($this->dir.'/locales/tlh.json', json_encode(['_language' => 'Klingon', 'command.help' => str_repeat('я', 300)], JSON_THROW_ON_ERROR));
         $tg = new FakeTelegram();
-        (new \ReflectionMethod(Bot::class, 'registerCommands'))->invoke($this->makeBot($tg, 'tlh', 'locales'));
+        $this->menu($this->makeBot($tg, 'tlh', 'locales'))->register();
         $help = null;
         foreach ($tg->commandLists as $list) {
             if ($list['language_code'] === 'tlh') {
@@ -301,7 +318,7 @@ final class BotLocaleTest extends TestCase
     {
         file_put_contents($this->dir.'/locales/tlh.json', json_encode(['_language' => 'Klingon', 'command.compact' => str_repeat('😀', 300), 'command.epic' => str_repeat('😀', 300)], JSON_THROW_ON_ERROR));
         $tg = new FakeTelegram();
-        (new \ReflectionMethod(Bot::class, 'registerCommands'))->invoke($this->makeBot($tg, 'tlh', 'locales'));
+        $this->menu($this->makeBot($tg, 'tlh', 'locales'))->register();
         $checked = 0;
         foreach ($tg->commandLists as $list) {
             if ($list['language_code'] !== 'tlh') {
