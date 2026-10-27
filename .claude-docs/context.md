@@ -29,7 +29,7 @@ passed it is trusted. Treat the bot as a remote shell for everyone on the whitel
 What is protected:
 
 - **The whitelist** is the only barrier on input. It is checked for messages and for callback buttons
-  (commit/discard with `AUTO_COMMIT=1`, mode).
+  (commit/discard, mode).
 - **No shell injection.** Every claude, git and `gh` call goes through `proc_open` with an **argument
   array**; user text is a separate argv element, never part of a command line.
 - **Secrets stay out of git.** `.env` (bot token) and `state/` are in `.gitignore`.

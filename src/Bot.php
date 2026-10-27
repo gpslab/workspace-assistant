@@ -2164,11 +2164,11 @@ final class Bot
     }
 
     /**
-     * Epic run failure: the whole dirty tree (including untracked and binary
-     * files) is saved as a patch to `state/epics/<slug>/dirty-<ts>.patch`, then
-     * the tree is rolled back (only with AUTO_COMMIT=1; with 0 the tree is left as is);
-     * a record goes to `failures.log`. There are no
-     * buttons or queue pause, and the failure is not committed to the
+     * Epic run failure: with AUTO_COMMIT=1 the whole dirty tree (including
+     * untracked and binary files) is saved as a patch to
+     * `state/epics/<slug>/dirty-<ts>.patch`, then the tree is rolled back; with 0
+     * there is no patch and the tree is left as is. A record goes to `failures.log`.
+     * There are no buttons or queue pause, and the failure is not committed to the
      * repository. The epic continues.
      */
     private function failEpicRun(string $slug, string $reason): void
