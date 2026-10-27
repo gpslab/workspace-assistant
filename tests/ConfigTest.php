@@ -44,6 +44,29 @@ final class ConfigTest extends TestCase
         file_put_contents($this->envFile, $base."\n".$extra);
     }
 
+    public function testAutoCommitDefaultsToOn(): void
+    {
+        $this->writeEnv();
+        self::assertTrue(Config::load($this->envFile)->autoCommit);
+
+        $this->writeEnv('AUTO_COMMIT=1');
+        self::assertTrue(Config::load($this->envFile)->autoCommit);
+    }
+
+    public function testAutoCommitZeroTurnsItOff(): void
+    {
+        $this->writeEnv('AUTO_COMMIT=0');
+        self::assertFalse(Config::load($this->envFile)->autoCommit);
+    }
+
+    public function testInvalidAutoCommitFailsTheStart(): void
+    {
+        $this->writeEnv('AUTO_COMMIT=yes');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Invalid AUTO_COMMIT=yes');
+        Config::load($this->envFile);
+    }
+
     public function testEpicQuietMinutesDefaultsToTen(): void
     {
         $this->writeEnv();

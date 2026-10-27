@@ -142,6 +142,7 @@ from the `.env` next to it and stays silent when everything is fine. Run it from
 | `STATE_DIR` | `./state` | State directory (SQLite, inbox, outbox, epic signals) |
 | `POLL_TIMEOUT` | `30` | Long-polling timeout, seconds |
 | `GIT_TIMEOUT` | `120` | Timeout of `git pull`/`push`, seconds |
+| `AUTO_COMMIT` | `1` | `1`: the bot pulls, commits and pushes in the managed repository. `0`: it does not touch git there (changes stay in the working tree); epic runs still wait for a clean tree. Needs a restart |
 | `SUBREPOS_DIR` | empty | Directory of git clones inside `REPO_PATH` that are pulled before a run |
 | `TIMEZONE` | `UTC` | PHP timezone identifier for logs and dates |
 | `BOT_LOCALE` | `en` | Interface locale |

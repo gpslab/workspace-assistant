@@ -43,6 +43,7 @@ final class Config
         public readonly string $localesDir = '',
         /** @var list<string> */
         public readonly array $openroninLogins = [],
+        public readonly bool $autoCommit = true,
     ) {
     }
 
@@ -110,6 +111,14 @@ final class Config
             throw new \RuntimeException("Invalid TIMEZONE={$timezone} in .env.");
         }
 
+        $autoCommit = trim((string) $env->get('AUTO_COMMIT', '1'));
+        if ($autoCommit === '') {
+            $autoCommit = '1';
+        }
+        if (!in_array($autoCommit, ['0', '1'], true)) {
+            throw new \RuntimeException("Invalid AUTO_COMMIT={$autoCommit} in .env: expected 1 or 0.");
+        }
+
         $epicsDir = trim((string) $env->get('EPICS_DIR', '.workspace-assistant/epics'), '/') ?: '.workspace-assistant/epics';
 
         return new self(
@@ -141,6 +150,7 @@ final class Config
             botLocale: trim((string) $env->get('BOT_LOCALE', '')) ?: Locale::DEFAULT,
             localesDir: trim((string) $env->get('LOCALES_DIR', ''), '/'),
             openroninLogins: array_values($env->list('OPENRONIN_LOGINS')),
+            autoCommit: $autoCommit === '1',
         );
     }
 

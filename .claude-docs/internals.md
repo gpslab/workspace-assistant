@@ -246,6 +246,7 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/`       | `./state`                        |
 | `POLL_TIMEOUT`          | idle long-poll timeout, seconds                                | `30`                             |
 | `GIT_TIMEOUT`           | network git timeout, seconds                                   | `120`                            |
+| `AUTO_COMMIT`           | `1` commit/push after runs; `0` leave changes in the tree        | `1`                              |
 | `SUBREPOS_DIR`          | directory of clones inside the managed repository              | empty (off)                      |
 | `TIMEZONE`              | PHP time zone for logs and dates                               | `UTC`                            |
 | `BOT_LOCALE` / `LOCALES_DIR` | interface language / extra locale files (relative to `REPO_PATH`) | `en` / empty             |
