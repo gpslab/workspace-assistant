@@ -4,6 +4,15 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Command\CallbackCommand;
+use GpsLab\WorkspaceAssistant\Command\CommandRequest;
+use GpsLab\WorkspaceAssistant\Command\EpicCommand;
+use GpsLab\WorkspaceAssistant\Command\HelpCommand;
+use GpsLab\WorkspaceAssistant\Command\LangCommand;
+use GpsLab\WorkspaceAssistant\Command\Menu;
+use GpsLab\WorkspaceAssistant\Command\ModeCommand;
+use GpsLab\WorkspaceAssistant\Command\Router;
+use GpsLab\WorkspaceAssistant\Command\VerboseCommand;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ChatSurface;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
@@ -63,27 +72,6 @@ final class Bot
     /** Bot API getFile download limit. */
     private const int MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 
-    /** Commands registered with Telegram; descriptions are the `command.<name>` texts. */
-    private const array BOT_COMMANDS = ['new', 'compact', 'cancel', 'queue', 'stats', 'verbose', 'mode', 'lang', 'epic', 'restart', 'help'];
-
-    /** Emoji prefixed to each command description in the menu; the same in every locale, not part of the catalogs. */
-    private const array COMMAND_EMOJI = [
-        'new' => '🆕',
-        'compact' => '🗜️',
-        'cancel' => '⛔',
-        'queue' => '📋',
-        'stats' => '📊',
-        'verbose' => '🔍',
-        'mode' => '🎭',
-        'lang' => '🌐',
-        'epic' => '🗺️',
-        'restart' => '🔄',
-        'help' => '❓',
-    ];
-
-    /** Telegram limit for a command description, in UTF-16 code units. */
-    private const int COMMAND_DESCRIPTION_MAX = 256;
-
     private int $offset = 0;
     private ?Orchestrator $orchestrator = null;
     private readonly Card $epicCard;
@@ -139,6 +127,8 @@ final class Bot
     private readonly Inbox $inbox;
     private readonly ChatSurface $epicChat;
     private readonly ModeAndLang $modeAndLang;
+    private readonly Router $commandRouter;
+    private readonly Menu $commandMenu;
 
     public function __construct(
         private readonly Config $config,
@@ -166,6 +156,8 @@ final class Bot
             $this->localeFor(...),
             $this->userLocale(...),
         );
+        $this->commandRouter = $this->buildCommandRouter();
+        $this->commandMenu = new Menu($this->commandRouter, $tg, $this->locale);
         if ($github !== null) {
             $this->orchestrator = new Orchestrator(
                 $db,
@@ -184,6 +176,25 @@ final class Bot
                 locale: $this->locale,
             );
         }
+    }
+
+    /** Menu order = registration order; commands not moved out of `Bot` yet go through temporary adapters. */
+    private function buildCommandRouter(): Router
+    {
+        $router = new Router($this->tg, $this->locale);
+        $router->register(new CallbackCommand('new', '🆕', fn (CommandRequest $r) => $this->cmdNew($r->chatId, $r->threadId, $r->messageId, $r->userId)));
+        $router->register(new CallbackCommand('compact', '🗜️', fn (CommandRequest $r) => $this->cmdCompact($r->chatId, $r->threadId, $r->messageId, $r->userId)));
+        $router->register(new CallbackCommand('cancel', '⛔', fn (CommandRequest $r) => $this->cmdCancel($r->chatId, $r->threadId)));
+        $router->register(new CallbackCommand('queue', '📋', fn (CommandRequest $r) => $this->cmdQueue($r->chatId, $r->threadId)));
+        $router->register(new CallbackCommand('stats', '📊', fn (CommandRequest $r) => $this->cmdStats($r->chatId, $r->threadId)));
+        $router->register(new VerboseCommand($this->db, $this->tg, $this->locale));
+        $router->register(new ModeCommand($this->modeAndLang));
+        $router->register(new LangCommand($this->modeAndLang));
+        $router->register(new EpicCommand($this->epicChat));
+        $router->register(new CallbackCommand('restart', '🔄', fn (CommandRequest $r) => $this->cmdRestart($r->chatId, $r->threadId)));
+        $router->register(new HelpCommand($this->tg, $this->locale));
+
+        return $router;
     }
 
     /**
@@ -222,7 +233,7 @@ final class Bot
             Log::line('locale: '.$warning);
         }
         ClaudeRunner::purgeRunFiles($this->config->stateDir);
-        $this->registerCommands();
+        $this->commandMenu->register();
         $this->recoverQueueOnStart();
         Log::line('started, listening to Telegram...');
 
@@ -284,63 +295,6 @@ final class Bot
 
         $this->activeJob?->kill();
         Log::line('stopped.');
-    }
-
-    /**
-     * Registers the command descriptions for every available locale (with its `language_code`)
-     * and once without a code, in the `BOT_LOCALE` language.
-     */
-    private function registerCommands(): void
-    {
-        foreach ($this->locale->codes() as $code) {
-            try {
-                $this->tg->setMyCommands($this->commandList($this->locale->with($code)), $code);
-            } catch (\Throwable $e) {
-                // A locale code Telegram does not accept must not stop the bot.
-                Log::line("setMyCommands for locale {$code} failed: ".$e->getMessage());
-            }
-        }
-        $this->tg->setMyCommands($this->commandList($this->locale));
-    }
-
-    /**
-     * @return list<array{command: string, description: string}>
-     */
-    private function commandList(Locale $locale): array
-    {
-        $commands = [];
-        foreach (self::BOT_COMMANDS as $command) {
-            $emoji = self::COMMAND_EMOJI[$command];
-            $text = self::cutUtf16($locale->t("command.{$command}"), self::COMMAND_DESCRIPTION_MAX - self::utf16Length($emoji) - 1);
-            $commands[] = ['command' => $command, 'description' => "{$emoji} {$text}"];
-        }
-
-        return $commands;
-    }
-
-    /** Length in UTF-16 code units, the way Telegram counts text length. */
-    private static function utf16Length(string $text): int
-    {
-        return intdiv(strlen(mb_convert_encoding($text, 'UTF-16LE', 'UTF-8')), 2);
-    }
-
-    /** Cuts the text to at most $max UTF-16 code units, dropping whole characters and any dangling joiner or selector. */
-    private static function cutUtf16(string $text, int $max): string
-    {
-        if (self::utf16Length($text) <= $max) {
-            return $text;
-        }
-        $cut = '';
-        $used = 0;
-        foreach (mb_str_split($text) as $char) {
-            $used += self::utf16Length($char);
-            if ($used > $max) {
-                break;
-            }
-            $cut .= $char;
-        }
-
-        return preg_replace('/[\x{200D}\x{FE0F}\x{FE0E}\x{1F3FB}-\x{1F3FF}]+$/u', '', $cut) ?? $cut;
     }
 
     private function tick(): void
@@ -547,34 +501,7 @@ final class Bot
 
     private function handleCommand(int $chatId, int $threadId, string $text, int $messageId = 0, int $userId = 0): void
     {
-        // /mode is the first command with an argument: we parse the tail separately from
-        // the command itself (lowercasing and trimming are done inside
-        // cmdMode — here we only split "/mode" from "review").
-        $parts = preg_split('/\s+/', $text, 2) ?: [$text];
-        $command = strtolower($parts[0]);
-        $argument = $parts[1] ?? '';
-        // In groups/forums the Telegram client appends the suffix
-        // @botusername to a command (/new@YourBot); in a 1:1 chat there is none. Without cutting it off,
-        // match fails and any command in a topic falls into default. Only our
-        // bot receives these updates, so we do not check the name — we cut any @-tail.
-        if (($at = strpos($command, '@')) !== false) {
-            $command = substr($command, 0, $at);
-        }
-
-        match ($command) {
-            '/start', '/help' => $this->tg->sendText($chatId, $this->helpText(), null, $threadId),
-            '/new' => $this->cmdNew($chatId, $threadId, $messageId, $userId),
-            '/compact' => $this->cmdCompact($chatId, $threadId, $messageId, $userId),
-            '/cancel' => $this->cmdCancel($chatId, $threadId),
-            '/queue' => $this->cmdQueue($chatId, $threadId),
-            '/stats' => $this->cmdStats($chatId, $threadId),
-            '/verbose' => $this->cmdVerbose($chatId, $threadId),
-            '/mode' => $this->modeAndLang->cmdMode($chatId, $threadId, $argument),
-            '/lang' => $this->modeAndLang->cmdLang($chatId, $threadId, $userId, $argument),
-            '/epic' => $this->epicChat->cmdEpic($chatId, $threadId, $argument),
-            '/restart' => $this->cmdRestart($chatId, $threadId),
-            default => $this->tg->sendText($chatId, $this->t('command.unknown', ['command' => $command]), null, $threadId),
-        };
+        $this->commandRouter->handle($chatId, $threadId, $text, $messageId, $userId);
     }
 
     /**
@@ -877,12 +804,6 @@ final class Bot
         ];
 
         $this->tg->sendText($chatId, implode("\n", $lines), null, $threadId);
-    }
-
-    private function cmdVerbose(int $chatId, int $threadId): void
-    {
-        $on = $this->db->toggleVerbose($chatId, $threadId);
-        $this->tg->sendText($chatId, $on ? $this->t('verbose.on') : $this->t('verbose.off'), null, $threadId);
     }
 
     /**
@@ -2879,10 +2800,5 @@ final class Bot
         }
 
         return "https://github.com/{$this->config->githubRepo}/commit/{$hash}";
-    }
-
-    private function helpText(): string
-    {
-        return $this->t('help');
     }
 }
