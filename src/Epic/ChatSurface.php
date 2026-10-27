@@ -277,9 +277,14 @@ final class ChatSurface
         $lines[] = $this->t('epic.status_plan', ['plan' => $this->repoFileLink($this->config->epicsDir.'/'.$epic['slug'].'.md')]);
         $journal = $this->config->epicsDir.'/'.$epic['slug'].'.journal.md';
         // The journal is created by the epic's first run; before that the link would 404.
-        // Best effort: the local copy is checked - until a run has pushed the
-        // journal, the GitHub link may still open a 404.
-        $lines[] = $this->t('epic.status_journal', ['journal' => is_file($this->config->repoPath.'/'.$journal) ? $this->repoFileLink($journal) : $this->t('epic.journal_missing', ['path' => $journal])]);
+        // Under AUTO_COMMIT=0 nothing is ever pushed, so the journal stays a local file and
+        // the GitHub link would always 404: show the plain path. Otherwise best effort: the
+        // local copy is checked - until a run has pushed the journal, the link may still 404.
+        $journalText = $this->t('epic.journal_missing', ['path' => $journal]);
+        if (is_file($this->config->repoPath.'/'.$journal)) {
+            $journalText = $this->config->autoCommit ? $this->repoFileLink($journal) : $journal;
+        }
+        $lines[] = $this->t('epic.status_journal', ['journal' => $journalText]);
 
         return implode("\n", $lines);
     }

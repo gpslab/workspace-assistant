@@ -1545,7 +1545,9 @@ final class Bot
         foreach ($this->db->queueRunning() as $item) {
             if ($item['kind'] === self::ITEM_EPIC) {
                 // An epic run is idempotent (the runbook is reconciled with GitHub, the
-                // journal is committed immediately): it goes back to the queue and restarts.
+                // journal is written to disk immediately - and committed immediately under
+                // AUTO_COMMIT=1, otherwise it just stays on disk): it goes back to the
+                // queue and restarts.
                 $this->db->queueRelease($item['id']);
 
                 continue;

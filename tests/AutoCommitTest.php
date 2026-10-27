@@ -458,7 +458,30 @@ final class AutoCommitTest extends TestCase
         self::assertSame($origin, $this->originHead());
         self::assertFileExists($this->work.'/journal.txt');
         self::assertSame([], $this->buttons());
+        // The run took the success path of finishEpicRun, not the failure one.
+        self::assertFileDoesNotExist($this->root.'/state/epics/demo/failures.log');
+        self::assertStringNotContainsString('signal', $this->allText());
         self::assertStringContainsString('operator edit', (string) file_get_contents($this->work.'/a.txt'));
+    }
+
+    public function testEpicStatusLinksJournalOnlyWhenItIsPushed(): void
+    {
+        $this->git('remote set-url origin https://github.com/gpslab/demo.git');
+        $this->git('remote set-url --push origin '.escapeshellarg($this->origin));
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
+        $journal = '.workspace-assistant/epics/demo.journal.md';
+        mkdir(dirname($this->work.'/'.$journal), 0777, true);
+        file_put_contents($this->work.'/'.$journal, "journal\n");
+
+        $this->bot = $this->makeBot(true);
+        $this->call('handleCommand', [100, 1, '/epic status', 30, self::USER]);
+        self::assertStringContainsString('(https://github.com/gpslab/demo/blob/', $this->allText());
+
+        $this->tg->sent = [];
+        $this->bot = $this->makeBot(false);
+        $this->call('handleCommand', [100, 1, '/epic status', 30, self::USER]);
+        self::assertStringContainsString('Journal: '.$journal, $this->allText());
+        self::assertStringNotContainsString('demo.journal.md](', $this->allText());
     }
 
     public function testEpicPromptFilesWarningCountsOnlyFilesTheRunChanged(): void
