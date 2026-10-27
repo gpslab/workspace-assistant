@@ -65,6 +65,24 @@ final class Bot
     /** Commands registered with Telegram; descriptions are the `command.<name>` texts. */
     private const array BOT_COMMANDS = ['new', 'compact', 'cancel', 'queue', 'stats', 'verbose', 'mode', 'lang', 'epic', 'restart', 'help'];
 
+    /** Emoji prefixed to each command description in the menu; the same in every locale, not part of the catalogs. */
+    private const array COMMAND_EMOJI = [
+        'new' => '🆕',
+        'compact' => '🗜️',
+        'cancel' => '⛔',
+        'queue' => '📋',
+        'stats' => '📊',
+        'verbose' => '🔍',
+        'mode' => '🎭',
+        'lang' => '🌐',
+        'epic' => '🗺️',
+        'restart' => '🔄',
+        'help' => '❓',
+    ];
+
+    /** Telegram limit for a command description, in UTF-16 code units. */
+    private const int COMMAND_DESCRIPTION_MAX = 256;
+
     private int $offset = 0;
     private ?Orchestrator $orchestrator = null;
     private readonly Card $epicCard;
@@ -287,10 +305,37 @@ final class Bot
     {
         $commands = [];
         foreach (self::BOT_COMMANDS as $command) {
-            $commands[] = ['command' => $command, 'description' => $locale->t("command.{$command}")];
+            $emoji = self::COMMAND_EMOJI[$command];
+            $text = self::cutUtf16($locale->t("command.{$command}"), self::COMMAND_DESCRIPTION_MAX - self::utf16Length($emoji) - 1);
+            $commands[] = ['command' => $command, 'description' => "{$emoji} {$text}"];
         }
 
         return $commands;
+    }
+
+    /** Length in UTF-16 code units, the way Telegram counts text length. */
+    private static function utf16Length(string $text): int
+    {
+        return intdiv(strlen(mb_convert_encoding($text, 'UTF-16LE', 'UTF-8')), 2);
+    }
+
+    /** Cuts the text to at most $max UTF-16 code units, dropping whole characters and any dangling joiner or selector. */
+    private static function cutUtf16(string $text, int $max): string
+    {
+        if (self::utf16Length($text) <= $max) {
+            return $text;
+        }
+        $cut = '';
+        $used = 0;
+        foreach (mb_str_split($text) as $char) {
+            $used += self::utf16Length($char);
+            if ($used > $max) {
+                break;
+            }
+            $cut .= $char;
+        }
+
+        return preg_replace('/[\x{200D}\x{FE0F}\x{FE0E}\x{1F3FB}-\x{1F3FF}]+$/u', '', $cut) ?? $cut;
     }
 
     private function tick(): void
