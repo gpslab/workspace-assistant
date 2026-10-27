@@ -34,6 +34,11 @@ new caller of these methods must catch it and do the same; in a `finally` it mus
 already in flight. Only the `status --short` call of `changesSummary()` counts: a failed `diff --stat HEAD` (an unborn branch)
 just drops the stat part.
 
+With `AUTO_COMMIT=0` the per-run snapshot has three states: known, unknown (`treeSnapshot()` threw; the error is kept in
+`Bot::$runTreeSnapshotError`) and none (not an `AUTO_COMMIT=0` run). Unknown never reads as "nothing changed": the reply says it
+could not tell what the run changed, the PROMPTS_DIR / LOCALES_DIR note says it could not check, and `/compact` stops after
+phase 1 with `git status failed: <error>` (also when `changesSummary()` fails in the `compact.dirty` message).
+
 ## Two different `proc_open` environments are intentional
 
 - `ClaudeRunner::start` passes `env = null` (or the bot's environment plus run variables): claude

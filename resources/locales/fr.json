@@ -106,6 +106,7 @@
     "common.off": "désactivé",
     "common.on": "activé",
     "compact.dirty": "Compactage arrêté : des modifications non validées sont apparues pendant le résumé :\n\n{changes}",
+    "compact.status_failed": "Compactage arrêté : git status a échoué: {error}\n\nLa session n'a pas été réamorcée et aucun bouton commit/discard n'est proposé.",
     "compact.done": "✅ La session a été compactée : le contexte a été reporté, les compteurs remis à zéro.\n\n{text}",
     "compact.no_session": "Aucune session active — rien à compacter.",
     "compact.no_summary": "Impossible d'obtenir le résumé — la session n'a pas été modifiée.",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status a échoué: {error}\n\nClaude n'a pas été lancé.",
     "epicrun.status_failed": "⚠️ Le run de l'epic {slug} a échoué et l'arbre de travail n'a pas été annulé: git status a échoué: {error}",
     "result.status_failed": "impossible de lire l'arbre de travail (git status a échoué: {error}) ; rien n'a été commité",
+    "result.changes_unknown": "impossible de savoir ce que cette exécution a modifié (git status a échoué: {error})",
     "prompt_files.check_failed": "impossible de vérifier PROMPTS_DIR / LOCALES_DIR: {error}",
     "decision.status_failed_toast": "git status a échoué: {error}",
     "decision.status_failed": "git status a échoué: {error}\n\nLes boutons commit/discard ne sont pas proposés tant que l'arbre de travail est illisible."

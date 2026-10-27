@@ -106,6 +106,7 @@
     "common.off": "выкл",
     "common.on": "вкл",
     "compact.dirty": "Сжатие остановлено: во время суммаризации появились незакоммиченные изменения:\n\n{changes}",
+    "compact.status_failed": "Сжатие остановлено: git status упал: {error}\n\nСессия не пересоздана, кнопки commit/discard не предлагаются.",
     "compact.done": "✅ Сессия сжата: контекст перенесён, счётчики обнулены.\n\n{text}",
     "compact.no_session": "Активной сессии нет — сжимать нечего.",
     "compact.no_summary": "Не удалось получить summary — сессия не тронута.",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status упал: {error}\n\nClaude не запущен.",
     "epicrun.status_failed": "⚠️ Прогон эпика {slug} упал, рабочее дерево не откатывалось: git status упал: {error}",
     "result.status_failed": "не удалось прочитать рабочее дерево (git status упал: {error}); ничего не закоммичено",
+    "result.changes_unknown": "не удалось определить, что изменил этот запуск (git status упал: {error})",
     "prompt_files.check_failed": "не удалось проверить PROMPTS_DIR / LOCALES_DIR: {error}",
     "decision.status_failed_toast": "git status упал: {error}",
     "decision.status_failed": "git status упал: {error}\n\nКнопки commit/discard не выдаются, пока рабочее дерево нельзя прочитать."

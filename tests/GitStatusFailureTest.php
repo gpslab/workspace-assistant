@@ -15,6 +15,7 @@ use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\SubRepoSync;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -36,6 +37,7 @@ final class GitStatusFailureTest extends TestCase
     private Database $db;
     private FakeTelegram $tg;
     private Bot $bot;
+    private bool $autoCommit = true;
 
     protected function setUp(): void
     {
@@ -113,7 +115,7 @@ final class GitStatusFailureTest extends TestCase
             githubOwners: new GithubOwners(['gpslab']),
             subreposDir: $subreposDir,
             botLocale: 'en',
-            autoCommit: true,
+            autoCommit: $this->autoCommit,
         );
     }
 
@@ -432,6 +434,145 @@ final class GitStatusFailureTest extends TestCase
         self::assertStringContainsString(self::FAILED, $notes[0]);
         self::assertStringContainsString(self::INDEX_ERROR, $notes[0]);
         self::assertStringContainsString('pull skipped', $notes[0]);
+    }
+
+    // ---- AUTO_COMMIT=0: the snapshot of the run is known, unknown or none ----
+
+    public function testReplyAdmitsAnUnknownChangeListWhenTheSnapshotFailedAtLaunch(): void
+    {
+        $this->autoCommit = false;
+        $this->bot = $this->makeBot();
+        $this->corruptIndex();
+
+        $this->say('hello');
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertStringContainsString('could not tell what this run changed (git status failed: ', $this->allText());
+        self::assertStringContainsString(self::INDEX_ERROR, $this->allText());
+        self::assertStringContainsString('could not check PROMPTS_DIR / LOCALES_DIR: ', $this->allText());
+    }
+
+    public function testReplyAdmitsAnUnknownChangeListWhenGitCannotBeStartedForTheSnapshot(): void
+    {
+        $this->autoCommit = false;
+        // git runs in a directory that does not exist: it cannot be started, which is a bare
+        // RuntimeException, not a GitStatusException.
+        $this->bot = new Bot($this->config(), $this->db, $this->tg, new GitManager($this->root.'/gone', 30), new SessionFiles($this->root), null, null, null);
+
+        $this->say('hello');
+        // proc_open() also raises a warning for the failed spawn.
+        set_error_handler(static fn (int $no, string $str): bool => str_contains($str, 'proc_open()'));
+        try {
+            $this->call('startQueueHead');
+            $this->finishJob();
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertStringContainsString('could not tell what this run changed (git status failed: ', $this->allText());
+        self::assertStringContainsString('Failed to start git', $this->allText());
+    }
+
+    public function testReplyAdmitsAnUnknownChangeListWhenTheDiffFails(): void
+    {
+        $this->autoCommit = false;
+        $this->bot = $this->makeBot();
+        $this->hook('echo new > "$PWD/created.txt"; echo garbage > "$PWD/.git/index"');
+
+        $this->say('hello');
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertStringContainsString('could not tell what this run changed (git status failed: ', $this->allText());
+        self::assertStringContainsString(self::INDEX_ERROR, $this->allText());
+    }
+
+    public function testReplyOfACleanRunSaysNothingAboutChangesWithAKnownSnapshot(): void
+    {
+        $this->autoCommit = false;
+        $this->bot = $this->makeBot();
+
+        $this->say('hello');
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertStringNotContainsString('could not tell', $this->allText());
+    }
+
+    /**
+     * @return iterable<string, array{bool, bool}> AUTO_COMMIT, whether the index is broken before the start
+     */
+    public static function compactFailures(): iterable
+    {
+        yield 'mode 1, status fails during phase 1' => [true, false];
+        yield 'mode 0, diff fails during phase 1' => [false, false];
+        yield 'mode 0, snapshot unknown from the start' => [false, true];
+    }
+
+    #[DataProvider('compactFailures')]
+    public function testCompactStopsAfterPhaseOneWhenTheTreeStateIsUnknown(bool $autoCommit, bool $brokenAtStart): void
+    {
+        $this->autoCommit = $autoCommit;
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        file_put_contents($this->root.'/out.json', '{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}'."\n");
+        if ($brokenAtStart) {
+            $this->corruptIndex();
+        } else {
+            $this->hook('echo garbage > "$PWD/.git/index"');
+        }
+        $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
+
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame(1, substr_count((string) file_get_contents($this->root.'/calls.log'), 'x'), 'phase 2 must not start');
+        self::assertStringContainsString('Compaction stopped: git status failed: ', $this->allText());
+        self::assertStringContainsString(self::INDEX_ERROR, $this->allText());
+        self::assertSame([], $this->buttons());
+        self::assertNull($this->db->getDecision());
+    }
+
+    public function testCompactDirtyMessageSurvivesAStatusFailureInChangesSummary(): void
+    {
+        // hasChanges() passes, then changesSummary() fails: the exception must not escape.
+        $bin = $this->root.'/fakebin';
+        mkdir($bin);
+        $realGit = trim((string) shell_exec('command -v git'));
+        $count = $this->root.'/statuscalls';
+        file_put_contents($bin.'/git', "#!/bin/sh\nfor a in \"\$@\"; do if [ \"\$a\" = status ]; then echo \"\$*\" >> $count; fi; if [ \"\$a\" = --short ]; then echo 'fatal: boom' >&2; exit 128; fi; done\nexec $realGit \"\$@\"\n");
+        chmod($bin.'/git', 0755);
+        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        file_put_contents($this->root.'/out.json', '{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}'."\n");
+        $this->hook('echo new > "$PWD/created.txt"');
+        $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
+
+        $path = (string) getenv('PATH');
+        putenv('PATH='.$bin.':'.$path);
+        try {
+            $this->call('startQueueHead');
+            $this->finishJob();
+        } finally {
+            putenv('PATH='.$path);
+        }
+
+        self::assertStringContainsString('Compaction stopped: git status failed: ', $this->allText());
+        self::assertStringContainsString('boom', $this->allText());
+        self::assertSame([], $this->buttons());
+        self::assertStringContainsString('status --short', (string) file_get_contents($count), 'the failure must come from changesSummary()');
+        self::assertStringContainsString('status --porcelain', (string) file_get_contents($count));
+    }
+
+    public function testNewStringsExistInEveryCatalog(): void
+    {
+        foreach (glob(dirname(__DIR__).'/resources/locales/*.json') ?: [] as $file) {
+            $catalog = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+            foreach (['compact.status_failed', 'result.changes_unknown'] as $key) {
+                self::assertArrayHasKey($key, $catalog, basename($file));
+                self::assertStringContainsString('{error}', $catalog[$key], basename($file).' '.$key);
+            }
+        }
     }
 
     private static function assertGlobEmpty(string $pattern): void

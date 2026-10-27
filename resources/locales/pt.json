@@ -106,6 +106,7 @@
     "common.off": "desligado",
     "common.on": "ligado",
     "compact.dirty": "Compactação interrompida: surgiram alterações não commitadas durante o resumo:\n\n{changes}",
+    "compact.status_failed": "Compactação interrompida: git status falhou: {error}\n\nA sessão não foi reiniciada e os botões commit/discard não são oferecidos.",
     "compact.done": "✅ A sessão foi compactada: o contexto foi transferido, os contadores foram zerados.\n\n{text}",
     "compact.no_session": "Não há sessão ativa — nada para compactar.",
     "compact.no_summary": "Não foi possível obter o resumo — a sessão não foi alterada.",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status falhou: {error}\n\nO Claude não foi iniciado.",
     "epicrun.status_failed": "⚠️ A execução do épico {slug} falhou e a árvore de trabalho não foi revertida: git status falhou: {error}",
     "result.status_failed": "não foi possível ler a árvore de trabalho (git status falhou: {error}); nada foi commitado",
+    "result.changes_unknown": "não foi possível saber o que esta execução alterou (git status falhou: {error})",
     "prompt_files.check_failed": "não foi possível verificar PROMPTS_DIR / LOCALES_DIR: {error}",
     "decision.status_failed_toast": "git status falhou: {error}",
     "decision.status_failed": "git status falhou: {error}\n\nOs botões commit/discard não são oferecidos até que a árvore de trabalho possa ser lida."

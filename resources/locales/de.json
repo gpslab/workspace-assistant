@@ -106,6 +106,7 @@
     "common.off": "aus",
     "common.on": "an",
     "compact.dirty": "Komprimierung gestoppt: Während der Zusammenfassung sind nicht committete Änderungen entstanden:\n\n{changes}",
+    "compact.status_failed": "Komprimierung gestoppt: git status ist fehlgeschlagen: {error}\n\nDie Sitzung wurde nicht neu aufgesetzt, Commit-/Verwerfen-Schaltflächen werden nicht angeboten.",
     "compact.done": "✅ Die Sitzung wurde komprimiert: Der Kontext wurde übernommen, die Zähler wurden zurückgesetzt.\n\n{text}",
     "compact.no_session": "Es gibt keine aktive Sitzung — nichts zu komprimieren.",
     "compact.no_summary": "Die Zusammenfassung konnte nicht erstellt werden — die Sitzung wurde nicht angetastet.",
@@ -274,6 +275,7 @@
     "queue.status_failed": "git status ist fehlgeschlagen: {error}\n\nClaude wurde nicht gestartet.",
     "epicrun.status_failed": "⚠️ Epic-Lauf {slug} ist fehlgeschlagen, der Arbeitsbaum wurde nicht zurückgesetzt: git status ist fehlgeschlagen: {error}",
     "result.status_failed": "der Arbeitsbaum konnte nicht gelesen werden (git status ist fehlgeschlagen: {error}); nichts wurde committet",
+    "result.changes_unknown": "es konnte nicht ermittelt werden, was dieser Lauf geändert hat (git status ist fehlgeschlagen: {error})",
     "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR konnten nicht geprüft werden: {error}",
     "decision.status_failed_toast": "git status ist fehlgeschlagen: {error}",
     "decision.status_failed": "git status ist fehlgeschlagen: {error}\n\nDie Schaltflächen commit/discard werden erst angeboten, wenn der Arbeitsbaum lesbar ist."
