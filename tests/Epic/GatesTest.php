@@ -662,12 +662,95 @@ final class GatesTest extends TestCase
         $this->gh->mergeFails = true;
         $states = ['a#1' => self::pr('a#1'), 'a#2' => self::pr('a#2')];
         $this->runGates($states);
+        $this->runGates($states);
         $blocked = static fn (array $t): bool => $t['status'] === 'blocked';
         self::assertCount(2, array_filter($this->db->epicTasks('epic'), $blocked));
         self::assertSame(2, $this->notifiedCount());
         // second pass: blocked ones are untouched, no more messages
         $this->runGates($states);
         self::assertSame(2, $this->notifiedCount());
+    }
+
+    private function mergeFailures(string $task = 'a#1'): string
+    {
+        return (string) (array_column($this->db->epicTasks('epic'), 'counters', 'task')[$task]['merge_failures'] ?? '');
+    }
+
+    public function testFirstMergeFailureRetriesAndSecondBlocks(): void
+    {
+        $this->gh->mergeFails = true;
+        $states = ['a#1' => self::pr('a#1')];
+        $this->runGates($states);
+        self::assertSame('open', $this->db->epicTasks('epic')[0]['status']);
+        self::assertSame('1', $this->mergeFailures());
+        self::assertSame(0, $this->notifiedCount());
+
+        $this->runGates($states);
+        self::assertSame('blocked', $this->db->epicTasks('epic')[0]['status']);
+        self::assertSame(1, $this->notifiedCount());
+        self::assertStringContainsString('a#1', $this->notified[0][1]);
+    }
+
+    public function testMergeSuccessResetsFailureCounter(): void
+    {
+        $this->gh->mergeFails = true;
+        $states = ['a#1' => self::pr('a#1')];
+        $this->runGates($states);
+        $this->gh->mergeFails = false;
+        $this->runGates($states);
+        self::assertSame(['a#1 7'], $this->gh->merged);
+        self::assertSame('0', $this->mergeFailures());
+
+        $this->gh->mergeFails = true;
+        $states = ['a#2' => self::pr('a#2')];
+        $this->runGates($states);
+        self::assertSame('open', array_column($this->db->epicTasks('epic'), 'status', 'task')['a#2']);
+    }
+
+    public function testWaitPassResetsFailureCounter(): void
+    {
+        $this->gh->mergeFails = true;
+        $states = ['a#1' => self::pr('a#1')];
+        $this->runGates($states);
+        $states = ['a#1' => self::pr('a#1', ['checks' => 'pending'])];
+        $this->runGates($states);
+        self::assertSame('0', $this->mergeFailures());
+
+        $states = ['a#1' => self::pr('a#1')];
+        $this->runGates($states);
+        self::assertSame('open', $this->db->epicTasks('epic')[0]['status']);
+        self::assertSame(0, $this->notifiedCount());
+    }
+
+    public function testResumeResetsFailureCounter(): void
+    {
+        $this->gh->mergeFails = true;
+        $states = ['a#1' => self::pr('a#1')];
+        $this->runGates($states);
+        self::assertSame('1', $this->mergeFailures());
+        $this->db->epicResume('epic');
+        self::assertSame('0', $this->mergeFailures());
+        $this->runGates($states);
+        self::assertSame('open', $this->db->epicTasks('epic')[0]['status']);
+    }
+
+    public function testMergeThatSucceededBehindErrorIsWatched(): void
+    {
+        $this->gh->mergeFails = true;
+        $states = ['a#1' => self::pr('a#1')];
+        $this->runGates($states);
+
+        // The PR turns out to be merged: marked unverified, no retry.
+        $states = ['a#1' => self::pr('a#1', ['prState' => 'merged'])];
+        $this->runGates($states, ['a' => 'FAILURE']);
+        self::assertSame([], $this->gh->merged);
+        self::assertSame('0', $this->mergeFailures());
+        $counters = array_column($this->db->epicTasks('epic'), 'counters', 'task')['a#1'];
+        self::assertSame('1', $counters['merge_unverified']);
+
+        // From the next pass the master watch covers it, as after a successful merge().
+        $this->runGates($states, ['a' => 'FAILURE']);
+        self::assertSame(['a 11'], $this->gh->reran);
     }
 
     public function testMasterCiGreenDoesNotBlock(): void

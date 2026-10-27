@@ -134,7 +134,7 @@ The forum topic is created by the author; the bot does not create topics and doe
 |----------------------|--------|
 | `/epic start <slug>` | Start the epic in this topic (status `running`). An invalid plan is rejected with the reason and no epic is created |
 | `/epic pause`        | Pause (`paused`) |
-| `/epic resume`       | Clears `paused` and `blocked` on the epic and `blocked` on tasks (including on a `running` epic when the reply names tasks). For the unblocked tasks the `REQUEST_CHANGES` ceiling counter and `conflict_head` are reset: the author answered in the topic (a chat run recorded the decision in the journal) and explicitly resumed the epic |
+| `/epic resume`       | Clears `paused` and `blocked` on the epic and `blocked` on tasks (including on a `running` epic when the reply names tasks). For the unblocked tasks the `REQUEST_CHANGES` ceiling counter and `conflict_head` are reset: the author answered in the topic (a chat run recorded the decision in the journal) and explicitly resumed the epic. It also resets the stagnation counter (`stale_ticks = 0`, the last-activity moment is set to now), so the next timer tick comes `EPIC_TICK_MINUTES` after the resume (ticks driven by attention are immediate), and the merge gate's `merge_failures` counters |
 | `/epic status`       | State of the topic's epic: status, tasks, hold, blocked, time of the last GitHub poll, journal path |
 | `/epic`              | Without an argument: a keyboard of the actions that apply to the topic's epic now, under the same conditions as the text commands: pause if the epic is neither `paused` nor `done`; resume if the epic is not `done` and is either not running or has blocked tasks; status whenever the topic has an epic (including `done`); start if the topic has no epic or it is `done`, and there are plans that can be started. Start takes two steps: a plan list, then a confirmation. The list holds `EPICS_DIR/*.md` files that are not journals, have a valid slug and have no epic yet, new ones first, at most 10; if the chosen plan is invalid, the bot shows the error and no start button. A button whose `callback_data` would exceed Telegram's 64 bytes is not shown; if it is a plan in the list, a hint is printed under the list; with a long slug such actions are available only as text commands. With no buttons left, `/epic` replies with `epic.nothing_to_do` and `epic.usage` below it. Every press re-reads the state: a stale keyboard gets only a toast when the topic no longer has that epic (none or another one), or when start is no longer possible at the list or plan-choice step; otherwise the reply is the same as for the matching text command |
 
@@ -309,7 +309,10 @@ needed:
   merged), head SHA, checks result, `mergeable` (`null` = "GitHub is still computing", not "no
   conflicts"), the number of comments and reviews; plus the `master` CI of each epic repository. Its
   change does **not** queue a tick by itself: it is progress — the fingerprint is remembered and the
-  stall counter (`stale_ticks`) is reset to 0.
+  stall counter (`stale_ticks`) is reset to 0. Stagnation is counted after the pass's own actions:
+  if the fingerprint of the state after them (a merge, say) differs from the stored one, the pass is
+  progress and neither the stagnation nor the stuck-`openronin:in-progress` block fires in it. An action
+  that changes nothing does not reset the counter.
 - **Attention fingerprint** (per task) — what requires judgement. A tick is queued only when
   something "bad" appeared in it (a label, red CI, a close, a new foreign comment); reverse
   transitions are progress. It includes: the labels `openronin:awaiting-answer` and
@@ -418,8 +421,14 @@ only when no epic run is queued or in progress.
 
 The merge is `gh pr merge --merge` (a merge commit, not squash or rebase). At most one merge or
 `update-branch` per repository per pass: the snapshot of the other PRs of that repository is stale
-after the first action. A `gh` failure on a merge or `update-branch` moves the task to `blocked` (the
-reason goes to the epic topic), not the whole epic.
+after the first action. The merge gate retries once: the first `gh` failure on a merge or
+`update-branch` is only logged (task counter `merge_failures = 1`, the task stays `open`, no message),
+and the next pass in which the decision for the task is not WAIT tries again. A second failure in a row
+moves the task to `blocked` (the reason goes to the epic topic), not the whole epic. The counter is reset
+by a success, by a pass where the decision is WAIT and by `/epic resume`; errors are not classified by
+text, so a permanent error blocks one pass later. If a task with `merge_failures >= 1` turns out to have
+its PR merged, it is marked `merge_unverified` (as after a successful merge) so the post-merge `master`
+watch covers it, and no retry happens.
 
 After a successful merge (the PR reports `merged`; a PR only queued in a merge queue is left alone) the bot deletes the PR's head branch (`gh api -X DELETE …/git/refs/heads/<ref>`),
 unless the PR comes from a fork or the branch is the default one. A failure of this step (including
