@@ -266,5 +266,15 @@
     "verbose.off": "टोकन आँकड़ों का प्रदर्शन: बंद",
     "verbose.on": "टोकन आँकड़ों का प्रदर्शन: चालू",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "टाइमआउट",
+    "subrepo.status_failed": "• {name}: git status विफल रहा: {error} — pull छोड़ा गया",
+    "pause.status_failed": "git status विफल रहा: {error}",
+    "restart.status_failed": "⚠️ git status विफल रहा: {error} — git pull छोड़ा गया.",
+    "queue.status_failed": "git status विफल रहा: {error}\n\nClaude शुरू नहीं हुआ।",
+    "epicrun.status_failed": "⚠️ एपिक रन {slug} विफल रहा और वर्किंग ट्री वापस नहीं किया गया: git status विफल रहा: {error}",
+    "result.status_failed": "वर्किंग ट्री पढ़ा नहीं जा सका (git status विफल रहा: {error}); कुछ भी commit नहीं हुआ",
+    "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR जाँचे नहीं जा सके: {error}",
+    "decision.status_failed_toast": "git status विफल रहा: {error}",
+    "decision.status_failed": "git status विफल रहा: {error}\n\nवर्किंग ट्री पढ़े जा सकने तक commit/discard बटन नहीं दिए जाएँगे।"
 }

@@ -266,5 +266,15 @@
     "verbose.off": "Token statistics display: disabled",
     "verbose.on": "Token statistics display: enabled",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "timeout",
+    "subrepo.status_failed": "• {name}: git status failed: {error} — pull skipped",
+    "pause.status_failed": "git status failed: {error}",
+    "restart.status_failed": "⚠️ git status failed: {error} — git pull skipped.",
+    "queue.status_failed": "git status failed: {error}\n\nClaude was not started.",
+    "epicrun.status_failed": "⚠️ Epic run {slug} failed and the working tree was not rolled back: git status failed: {error}",
+    "result.status_failed": "could not read the working tree (git status failed: {error}); nothing was committed",
+    "prompt_files.check_failed": "could not check PROMPTS_DIR / LOCALES_DIR: {error}",
+    "decision.status_failed_toast": "git status failed: {error}",
+    "decision.status_failed": "git status failed: {error}\n\nThe commit/discard buttons are not offered until the working tree can be read."
 }

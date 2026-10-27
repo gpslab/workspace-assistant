@@ -23,6 +23,17 @@ otherwise you edit stale code and get `! [rejected] (fetch first)`.
 
 ---
 
+## A failed `git status` is "unknown", never "clean"
+
+`GitManager::isClean()`, `hasChanges()`, `changedPathsIn()`, `treeSnapshot()`, `changedSince()` and `changesSummary()` throw
+`Exception\GitStatusException` when `git status` exits non-zero (exit 124 from the timeout included; the message is stderr, or
+"timeout"). Returning "clean" there would skip a commit silently and let the next run commit this work under its message. Every
+caller treats the exception as a third state that blocks the actions of both branches: no commit, no clearing of the decision
+or of the dirty-tree owner, no commit/discard buttons, no rollback, no pull. The user is told `git status failed: <error>`. A
+new caller of these methods must catch it and do the same; in a `finally` it must only log, so it never replaces an exception
+already in flight. Only the `status --short` call of `changesSummary()` counts: a failed `diff --stat HEAD` (an unborn branch)
+just drops the stat part.
+
 ## Two different `proc_open` environments are intentional
 
 - `ClaudeRunner::start` passes `env = null` (or the bot's environment plus run variables): claude

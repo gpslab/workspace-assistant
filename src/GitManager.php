@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
+
 /**
  * Synchronous git operations on the managed repository.
  *
@@ -246,7 +248,25 @@ final class GitManager
 
     public function isClean(): bool
     {
-        return trim($this->git(['status', '--porcelain'])['stdout']) === '';
+        return trim($this->status(['status', '--porcelain'])) === '';
+    }
+
+    /**
+     * Runs a `git status` call and returns its stdout.
+     *
+     * @param list<string> $args
+     *
+     * @throws GitStatusException when git exits non-zero (a timeout, exit 124, included)
+     */
+    private function status(array $args): string
+    {
+        $res = $this->git($args);
+        if ($res['exit'] === 0) {
+            return $res['stdout'];
+        }
+        $error = $res['exit'] === 124 ? $this->locale->t('git.status_timeout') : trim($res['stderr']);
+
+        throw new GitStatusException($error !== '' ? $error : 'exit '.$res['exit'], $res['exit']);
     }
 
     public function hasChanges(): bool
@@ -262,7 +282,7 @@ final class GitManager
      */
     public function changedPathsIn(string $subdir): array
     {
-        $out = $this->git(['status', '--porcelain', '-z', '--untracked-files=all', '--', $subdir])['stdout'];
+        $out = $this->status(['status', '--porcelain', '-z', '--untracked-files=all', '--', $subdir]);
 
         return array_keys($this->parseStatus($out));
     }
@@ -276,7 +296,7 @@ final class GitManager
      */
     public function treeSnapshot(): array
     {
-        $out = $this->git(['status', '--porcelain', '-z', '--untracked-files=all'])['stdout'];
+        $out = $this->status(['status', '--porcelain', '-z', '--untracked-files=all']);
         $snapshot = [];
         foreach ($this->parseStatus($out) as $path => $status) {
             $snapshot[$path] = $status.' '.$this->contentHash($path);
@@ -470,10 +490,12 @@ final class GitManager
 
     /**
      * Short summary of uncommitted changes (for confirmation before committing).
+     *
+     * @throws GitStatusException when `git status` fails; a failed `diff --stat` only drops the stat part
      */
     public function changesSummary(): string
     {
-        $short = trim($this->git(['status', '--short'])['stdout']);
+        $short = trim($this->status(['status', '--short']));
         $stat = trim($this->git(['diff', '--stat', 'HEAD'])['stdout']);
 
         $parts = [];

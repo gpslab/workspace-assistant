@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
+
 /**
  * Pulling, snapshotting and reporting of the nested repositories (clones under the
  * configured sub-repositories directory of the managed repository).
@@ -66,7 +68,14 @@ final class SubRepoSync
                 continue;
             }
             $name = basename($dir);
-            if ($mgr->hasChanges()) {
+            try {
+                $dirty = $mgr->hasChanges();
+            } catch (GitStatusException $e) {
+                $notes[] = $this->locale->t('subrepo.status_failed', ['name' => $name, 'error' => $e->getMessage()]);
+
+                continue;
+            }
+            if ($dirty) {
                 $notes[] = $this->locale->t('subrepo.dirty', ['name' => $name]);
 
                 continue;

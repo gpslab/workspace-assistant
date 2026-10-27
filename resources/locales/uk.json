@@ -266,5 +266,15 @@
     "verbose.off": "Показ статистики токенів: вимкнено",
     "verbose.on": "Показ статистики токенів: увімкнено",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "таймаут",
+    "subrepo.status_failed": "• {name}: git status впав: {error} — pull пропущено",
+    "pause.status_failed": "git status впав: {error}",
+    "restart.status_failed": "⚠️ git status впав: {error} — git pull пропущено.",
+    "queue.status_failed": "git status впав: {error}\n\nClaude не запущено.",
+    "epicrun.status_failed": "⚠️ Прогін епіка {slug} впав, робоче дерево не відкочувалося: git status впав: {error}",
+    "result.status_failed": "не вдалося прочитати робоче дерево (git status впав: {error}); нічого не закомічено",
+    "prompt_files.check_failed": "не вдалося перевірити PROMPTS_DIR / LOCALES_DIR: {error}",
+    "decision.status_failed_toast": "git status впав: {error}",
+    "decision.status_failed": "git status впав: {error}\n\nКнопки commit/discard не видаються, доки робоче дерево неможливо прочитати."
 }

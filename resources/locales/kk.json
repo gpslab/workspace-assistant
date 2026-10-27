@@ -266,5 +266,15 @@
     "verbose.off": "Токен статистикасын көрсету: өшірулі",
     "verbose.on": "Токен статистикасын көрсету: қосулы",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "күту уақыты аяқталды",
+    "subrepo.status_failed": "• {name}: git status орындалмады: {error} — pull өткізіп жіберілді",
+    "pause.status_failed": "git status орындалмады: {error}",
+    "restart.status_failed": "⚠️ git status орындалмады: {error} — git pull өткізіп жіберілді.",
+    "queue.status_failed": "git status орындалмады: {error}\n\nClaude іске қосылмады.",
+    "epicrun.status_failed": "⚠️ {slug} эпик жұмысы орындалмады, жұмыс ағашы кері қайтарылмады: git status орындалмады: {error}",
+    "result.status_failed": "жұмыс ағашын оқу мүмкін болмады (git status орындалмады: {error}); ештеңе коммиттелмеді",
+    "prompt_files.check_failed": "PROMPTS_DIR / LOCALES_DIR тексеру мүмкін болмады: {error}",
+    "decision.status_failed_toast": "git status орындалмады: {error}",
+    "decision.status_failed": "git status орындалмады: {error}\n\nЖұмыс ағашын оқуға болмайынша commit/discard батырмалары берілмейді."
 }

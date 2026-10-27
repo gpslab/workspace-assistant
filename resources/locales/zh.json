@@ -266,5 +266,15 @@
     "verbose.off": "token 统计显示：已关闭",
     "verbose.on": "token 统计显示：已开启",
     "result.pm_gate_skipped": "Issue creation went ahead without all pipeline stages. Reason given: {reason}",
-    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}"
+    "epicrun.pm_gate_skipped": "⚠️ Epic {slug}, run {run}: issue creation went ahead without all pipeline stages. Reason given: {reason}",
+    "git.status_timeout": "超时",
+    "subrepo.status_failed": "• {name}: git status 失败: {error} — 已跳过 pull",
+    "pause.status_failed": "git status 失败: {error}",
+    "restart.status_failed": "⚠️ git status 失败: {error} — 已跳过 git pull.",
+    "queue.status_failed": "git status 失败: {error}\n\nClaude 未启动。",
+    "epicrun.status_failed": "⚠️ 史诗运行 {slug} 失败，工作树未回滚: git status 失败: {error}",
+    "result.status_failed": "无法读取工作树（git status 失败: {error}）；未提交任何内容",
+    "prompt_files.check_failed": "无法检查 PROMPTS_DIR / LOCALES_DIR: {error}",
+    "decision.status_failed_toast": "git status 失败: {error}",
+    "decision.status_failed": "git status 失败: {error}\n\n在工作树可读之前，不提供 commit/discard 按钮。"
 }
