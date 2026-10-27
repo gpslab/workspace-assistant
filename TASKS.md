@@ -81,7 +81,7 @@ The bot hands five read-only sub-agents to every Claude run (except the two phas
 - if `CLAUDE_EXTRA_ARGS` already contains `--agents`, no built-in agents are passed and the reply carries
   a warning;
 - to change only the body, put a local `prompts/agents/<name>.md` next to the `.dist` (the
-  [`PromptFiles`](INSTALL.md#mode-personas) mechanism). It replaces the whole file and must keep `name:`.
+  [`PromptFiles`](PROMPTS.md#overrides) mechanism). It replaces the whole file and must keep `name:`.
 
 ## Pipeline config
 

@@ -84,7 +84,7 @@ The design stage runs a pipeline of read-only sub-agents shipped with the bot (`
 `editor`, `scope-check`, `acceptor`), and a gate refuses to create issues until the required stages ran:
 see [Working out a task](TASKS.md). Any of them can be replaced by your own Claude Code
 sub-agent with the same name, and the persona files and additions in `PROMPTS_DIR` change how the modes
-and epic runs behave, see [Mode personas](INSTALL.md#mode-personas). Details are in [EPICS.md](EPICS.md).
+and epic runs behave, see [PROMPTS.md](PROMPTS.md). Details are in [EPICS.md](EPICS.md).
 
 ## Requirements
 
@@ -120,7 +120,7 @@ php bin/bot.php
    and note its absolute path.
 
 The installer options and checks, running as a service, every `.env` key, the interface language and
-the mode personas are in [INSTALL.md](INSTALL.md). The list of changes between versions is on the
+the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.md](PROMPTS.md). The list of changes between versions is on the
 [GitHub Releases](https://github.com/gpslab/workspace-assistant/releases) page; read it before updating.
 
 ## Commands

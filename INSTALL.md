@@ -195,28 +195,9 @@ interface strings is in [CONTRIBUTING.md](CONTRIBUTING.md#interface-strings).
 
 ### Mode personas
 
-The system prompt of each mode (`arch`, `review`, `pm`) is a *contract* plus a *persona*. The contract
-(delivery rules, response-size limit, the review verdict rules the bot parses) and the persona both ship
-as `prompts/<name>.md.dist` files. Like `.env.dist` / `.env`, a local `prompts/<name>.md` (gitignored)
-overrides the `.dist` of the same name; if it is absent, the `.dist` is used. The persona has one more
-layer on top: files in `PROMPTS_DIR`, `common.md` (shared) and `arch.md`, `review.md`, `pm.md` (the role
-block of a mode). Layers, first found wins:
-
-- common block: `PROMPTS_DIR/common.md` → `prompts/persona_common.md` → `prompts/persona_common.md.dist`;
-- role block: `PROMPTS_DIR/<mode>.md` → `prompts/role_<mode>.md` → `prompts/role_<mode>.md.dist`.
-
-`epic.md` in `PROMPTS_DIR` is an optional addition to the epic runbook (`prompts/epic_runbook.md.dist`),
-used in epic runs only. `pm_runbook.md` in `PROMPTS_DIR` is an addition to the PM runbook
-(`prompts/pm_runbook.md.dist`), see [Working out a task](TASKS.md). Files are re-read on every run; an edit applies from the next run. A prompt file
-that is empty or unreadable is ignored in favour of the next layer, with a warning in the reply.
-
-Overriding a contract text (`common`, `common_limits`, `contract_review`, `language_line`,
-`session_update`, `review_status_reason*`, `compact_*`, `epic_runbook`, `pm_runbook`) is possible but never silent: every run adds a
-warning with the file name to the reply. Keep the `{name}` placeholders of the `.dist` in your override.
-After an update, diff your overrides against `.dist`.
-
-Persona files live in the managed repository, so a run can edit them and the auto-commit publishes the
-edit without review. When a run changes files under `PROMPTS_DIR`, the reply carries a warning listing them.
+The prompt files, how the prompt of a run is assembled and how to override a file (`prompts/<name>.md`,
+the `PROMPTS_DIR` persona layer, the additions `epic.md` and `pm_runbook.md`) are described in
+[PROMPTS.md](PROMPTS.md).
 
 ## Why polling, not webhooks
 

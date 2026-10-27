@@ -58,7 +58,7 @@ Which file to read for which task. Start here when unsure.
 | `src/Epic/Gates.php` / `MergeGate.php`           | Merge, post-merge actions, CHANGELOG release, review/tail ceilings                                                               |
 | `src/Epic/ColdFindings.php`                      | Cold reviewer findings: file, coverage check, prompt lines                                                                       |
 | `src/Epic/Card.php` / `src/EditStatus.php`       | Epic status card (one silent message, edited in place); `editMessageText` result                                                 |
-| `prompts/*.md.dist`                              | All prompt texts; `epic_runbook.md.dist`: instructions for an epic run                                                           |
+| `prompts/*.md.dist`                              | All prompt texts; `epic_runbook.md.dist`: instructions for an epic run; reference: [PROMPTS.md](../PROMPTS.md)                   |
 
 > When you find a new non-obvious trap, add it to [gotchas.md](gotchas.md); operational findings go to
 > [operations.md](operations.md).

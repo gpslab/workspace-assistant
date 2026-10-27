@@ -166,7 +166,8 @@ All texts are loaded by `PromptFiles` (`prompts/<name>.md`, else `prompts/<name>
 falls back to the next layer, and the warning names the file actually used (always in `bot.log`, in the
 chat with the reply). A local file for a contract name (`PromptFiles::CONTRACT`) adds a warning on every
 run. A missing `.dist` is a broken installation: the run fails with an error naming the file, the bot loop
-goes on. `epic.md` in `PROMPTS_DIR` is the epic-run persona.
+goes on. `epic.md` in `PROMPTS_DIR` is an addition to the epic runbook, inserted into the epic run message by
+`Epic\Run::prompt()`, not a persona. The user reference is [PROMPTS.md](../PROMPTS.md).
 
 ---
 
