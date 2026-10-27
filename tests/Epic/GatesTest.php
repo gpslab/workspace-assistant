@@ -780,6 +780,20 @@ final class GatesTest extends TestCase
         self::assertSame(['a 11'], $this->gh->reran);
     }
 
+    public function testMergeLandedBehindErrorOnBlockedTaskWithoutResumeIsStillWatched(): void
+    {
+        $this->gh->mergeFails = true;
+        $states = ['a#1' => self::pr('a#1')];
+        $this->runGates($states);
+        $this->runGates($states);
+        self::assertSame('blocked', $this->db->epicTasks('epic')[0]['status']);
+
+        $states = ['a#1' => self::pr('a#1', ['prState' => 'merged'])];
+        $this->runGates($states, ['a' => 'FAILURE']);
+        $this->runGates($states, ['a' => 'FAILURE']);
+        self::assertSame(['a 11'], $this->gh->reran);
+    }
+
     public function testMergeLandedBehindErrorAfterResumeIsStillWatched(): void
     {
         $this->gh->mergeFails = true;
