@@ -59,7 +59,7 @@ final class Delivery
      *   and rethrow.
      *
      * Returns the thread_id where the message ACTUALLY landed (0 on fallback).
-     * Whoever binds subsequent state to this message (the commit/discard decision
+     * Whoever binds subsequent state to this message (the commit/discard decision, AUTO_COMMIT=1
      * record) MUST key by the returned topic, not the requested one: otherwise a
      * callback from the fallback topic will not match the decision record.
      *

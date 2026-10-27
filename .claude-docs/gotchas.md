@@ -318,7 +318,7 @@ Decide by exception **type**:
   and `message_id` of the buttons message; one slot for the whole bot).
 
 The decision record is shared by all topics. The `/mode`, `/lang` and `/epic` keyboards live in the feed indefinitely, so if they
-went through the commit/discard branch a tap would overwrite a pending decision from another topic. Put a
+went through the commit/discard branch (`AUTO_COMMIT=1`) a tap would overwrite a pending decision from another topic. Put a
 new stateless branch **above** the decision check, a stateful one **below**.
 
 `threadIdOf()` is unreliable for `callback_query.message` of long-lived keyboards: Telegram sends a
@@ -358,7 +358,7 @@ working tree). No parallel runs, no `git worktree`, no priorities: the queue ser
 `Bot::startQueueHead()` is called by `tick()` whenever there is no job.
 
 - **A pause on a dirty tree is derived from state, not stored.** Rule: queue non-empty + no job + dirty
-  tree (`isPausedByDirtyTree()`). No in-memory flag: after `/restart` or a failed `git commit` a flag
+  tree + `AUTO_COMMIT=1` (`isPausedByDirtyTree()`). No in-memory flag: after `/restart` or a failed `git commit` a flag
   would leave the queue paused with no buttons forever. In the DB there is only the *awaiting decision*
   (`decision`) and the *owner* of the dirt (`dirty_owner`: topic of the last started job). Buttons are
   re-issued on every entry into the pause (`ensureDecision`); a manual cleanup over SSH lifts the pause by

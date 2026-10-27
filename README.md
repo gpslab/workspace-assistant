@@ -59,9 +59,9 @@ not the code base of a project. After every successful run that changed files th
 changes (`git add -A`) with the message `tg: <first line of the request, up to 60 chars>` (epic runs:
 `tg: epic <slug>`) and pushes the current branch with a plain `git push`. A run that changed nothing
 produces no commit and no push. Changes left by an interrupted run, a failed regular request, or by
-someone else are not committed automatically: the bot asks whether to commit or discard them. A failed
-epic run asks nothing: its changes are saved as `dirty-<timestamp>.patch` next to `failures.log` in
-`<STATE_DIR>/epics/<slug>/`, and the tree is rolled back. Nothing else is reviewed before a push, so do
+someone else are not committed automatically. With `AUTO_COMMIT=1` (the default) the bot asks whether to
+commit or discard them. A failed epic run asks nothing: with `AUTO_COMMIT=1` its changes are saved as
+`dirty-<timestamp>.patch` next to `failures.log` in `<STATE_DIR>/epics/<slug>/`, and the tree is rolled back. Nothing else is reviewed before a push, so do
 not point the bot at a code project.
 
 With `AUTO_COMMIT=0` the bot neither commits, pushes nor pulls the managed repository: there is no
@@ -177,12 +177,13 @@ the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.
 The bot runs at most one Claude process at a time in the working tree. Requests that arrive meanwhile
 go into a single FIFO queue stored in SQLite, keyed by `(chat_id, thread_id)`, so private chats and
 forum topics are independent. Consecutive pending messages of one topic in the same mode are merged
-into one request. The queue pauses when the working tree is dirty (commit/discard buttons appear) and
-when Claude reports a usage limit.
+into one request. With `AUTO_COMMIT=1` (the default) the queue pauses when the working tree is dirty (commit/discard
+buttons appear); with `AUTO_COMMIT=0` there is no such pause. The queue also pauses when Claude reports a usage limit.
 
 One run at a time is a supported property, not a temporary limitation, and it covers the bot's own
 Claude runs of every kind: chat requests and the isolated runs of epics alike. The managed repository
-has a single working tree, and a dirty tree has a single pending commit/discard decision. This does not
+has a single working tree (with `AUTO_COMMIT=1`, a dirty tree also has a single pending commit/discard
+decision). This does not
 contradict "independent tasks run in parallel" in epics: there the parallel work is done by the
 implementer (openronin), not by the bot's Claude runs.
 

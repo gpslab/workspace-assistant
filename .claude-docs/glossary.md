@@ -21,7 +21,7 @@ Terms and names that are easy to misread. The obvious is not duplicated.
 | **`activeJob`**               | The single current `ClaudeRunner` in `Bot`. One run at a time; others wait in the queue, they are not rejected.                                             |
 | **`jobContext`**              | Data of the active job: `chat_id`, `thread_id`, `thinking_id`, prompt, **`mode`** (the only source of the mode), `kind`, `queue_id`.                        |
 | **Queue**                     | The bot's single FIFO in SQLite: a topic request with its mode fixed, or a `/new`/`/compact` barrier. Unique key `(chat_id, message_id)`.                   |
-| **Decision**                  | SQLite record of the commit/discard buttons message. Queue pause on a dirty tree is derived from state, there is no in-memory flag.                         |
+| **Decision**                  | SQLite record of the commit/discard buttons message. With `AUTO_COMMIT=1`, the queue pause on a dirty tree is derived from state, there is no in-memory flag.                         |
 | **"Thinking…"**               | Placeholder message sent when a run starts and removed when it ends; its `message_id` is `thinking_id`.                                                     |
 | **`RunnerState`**             | `Running` / `Done` / `Timeout` of the claude process. `Timeout` covers both the overall and the stall timeout.                                              |
 | **Stall timeout**             | `CLAUDE_STALL_TIMEOUT`: no output for N seconds means hung. Separate from `CLAUDE_TIMEOUT`, the ceiling for the whole call.                                 |
