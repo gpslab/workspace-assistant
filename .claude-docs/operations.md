@@ -131,7 +131,7 @@ nothing to the parent's output for minutes. The stall timeout is the only safety
 
 ## Pull before a run
 
-Before every run the bot syncs the managed repository (`git pull --rebase`), then, when `SUBREPOS_DIR` is
+Before every run the bot syncs the managed repository (`git pull --rebase`; skipped with `AUTO_COMMIT=0`), then, when `SUBREPOS_DIR` is
 set, every clone under it (`SubRepoSync::pullSubRepos`), so Claude does not work on stale code.
 
 - **Best-effort for sub-repositories:** a failure in one clone does not cancel the run (the managed

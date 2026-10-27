@@ -39,8 +39,8 @@ Telegram getUpdates (long poll)
         │
         └─ text or files ──► enqueue (FIFO in SQLite) ──► startQueueHead (each tick, when no job is active)
                                 │
-                                ├─ dirty tree? ──► pause the queue, offer commit / discard
-                                ├─ git pull --rebase (+ sub-repositories) ──fail──► retry in 60 s
+                                ├─ dirty tree? ──► pause the queue, offer commit / discard (AUTO_COMMIT=1 only)
+                                ├─ git pull --rebase (+ sub-repositories) ──fail──► retry in 60 s (AUTO_COMMIT=1; with 0 only sub-repositories)
                                 ├─ download incoming files
                                 └─ ClaudeRunner::start (claude -p --resume <session>)
                                          │
@@ -52,7 +52,7 @@ Telegram getUpdates (long poll)
         └─ Done    ──► result()
                          ├─ recordRun (session_id, tokens, counter)
                          ├─ error ──► "Claude error", offer a decision if dirty
-                         └─ ok ──► sendResult: commit + push, commit link, optional token usage, reply
+                         └─ ok ──► sendResult: commit + push (AUTO_COMMIT=1), commit link, optional token usage, reply
 ```
 
 The key idea: **Claude runs asynchronously** and the loop keeps polling Telegram with a zero timeout,
@@ -100,6 +100,9 @@ sends inline buttons "Commit / Discard"; the queue is paused while the tree is d
 - **discard** → `git reset --hard && git clean -fd` (also removes untracked files).
 
 After a successful run (`Done`, no error) the commit is **automatic** in `sendResult`; no buttons.
+
+With `AUTO_COMMIT=0` none of this happens: there is no decision, no buttons, no pause of the queue and
+no commit in `sendResult`; changes stay in the working tree.
 
 ---
 
@@ -201,7 +204,7 @@ non-blocking reads with a deadline; on timeout SIGTERM → 300 ms → SIGKILL, `
 | `isClean`        | `status --porcelain` is empty?                                     | local (30 s)       |
 | `pullRebase`     | `pull --rebase`; on failure `rebase --abort`, returns false        | network (`GIT_TIMEOUT`) |
 | `changesSummary` | `status --short` + `diff --stat HEAD`                              | local              |
-| `commitAndPush`  | `add -A` → `commit -m` → `push`; returns the HEAD hash             | commit local, push network |
+| `commitAndPush`  | `add -A` → `commit -m` → `push`; returns the HEAD hash (not called with `AUTO_COMMIT=0`) | commit local, push network |
 | `discardChanges` | `reset --hard` + `clean -fd` (removes untracked files too)         | local              |
 
 ## `Database` — SQLite
@@ -246,7 +249,7 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/`       | `./state`                        |
 | `POLL_TIMEOUT`          | idle long-poll timeout, seconds                                | `30`                             |
 | `GIT_TIMEOUT`           | network git timeout, seconds                                   | `120`                            |
-| `AUTO_COMMIT`           | `1` commit/push after runs; `0` leave changes in the tree        | `1`                              |
+| `AUTO_COMMIT`           | `1` pull/commit/push around runs; `0` the bot does not touch git in the managed repository | `1`                              |
 | `SUBREPOS_DIR`          | directory of clones inside the managed repository              | empty (off)                      |
 | `TIMEZONE`              | PHP time zone for logs and dates                               | `UTC`                            |
 | `BOT_LOCALE` / `LOCALES_DIR` | interface language / extra locale files (relative to `REPO_PATH`) | `en` / empty             |

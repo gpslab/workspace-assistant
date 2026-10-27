@@ -134,6 +134,6 @@ phase.
 - **Re-reading.** Every file is read on every run: an edit applies from the next run, without a restart.
   The placeholders of a `.dist` change only by addition.
 - **Edits of `PROMPTS_DIR`.** The directory lives in the managed repository, so a run can edit it and the
-  auto-commit publishes the edit without review. When a run changes files under `PROMPTS_DIR`, the reply
+  auto-commit (`AUTO_COMMIT=1`) publishes the edit without review. When a run changes files under `PROMPTS_DIR`, the reply
   carries a warning listing them.
 - **Agents.** See [Built-in agents](TASKS.md#built-in-agents).

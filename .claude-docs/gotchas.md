@@ -12,7 +12,7 @@ The obvious is not written down. Operational traps (409, hangs, updates) are in
 
 ## The bot manages a repository that is NOT its own
 
-`REPO_PATH` points at the **managed repository**. All `git pull/commit/push` and all Claude work
+`REPO_PATH` points at the **managed repository**. All `git pull/commit/push` (unless `AUTO_COMMIT=0`) and all Claude work
 happen there, not in the bot's code. Editing `src/*.php` is not what the bot commits in response to
 Telegram messages. Do not mix up the "bot's repository" and the "managed repository"
 ([glossary.md](glossary.md)).
@@ -173,7 +173,7 @@ Traps:
 - **`role_review` has two independent axes:** fit to the task's intent, and cross-project scope (consumers
   in other components, recorded decisions, paired tasks, duplicated solutions). The second is mandatory:
   a cold CI reviewer sees one repository and one diff, the architect sees the whole system.
-- **Prompt files are not trusted input.** They live in the managed repository, which the bot edits and
+- **Prompt files are not trusted input.** They live in the managed repository, which the bot edits and (with `AUTO_COMMIT=1`)
   pushes. A run that changes them gets a warning on every commit path (`sendResult()`, epic runs, the
   manual "commit" button); see the accepted risk in [context.md](context.md). Temporary prompt files
   outside git are wiped by `reset --hard` and cause "file not found".
