@@ -281,7 +281,7 @@ request. So `ClaudeRunner` catches the id from the first stream event (`system/i
 
 ## `/cancel` cancels only its OWN topic
 
-There is one job for the whole bot, but `cmdCancel` kills it only if the caller's
+There is one job for the whole bot, but `Bot::cancelTopic()` (behind `/cancel`) kills it only if the caller's
 `(chat_id, thread_id)` owns it, and removes only that pair's queue items. Another topic's job and items
 are never touched. With no job and no items of its own while another topic runs, the reply is "work is in
 another session". `state/outbox` is cleaned only when the own job was killed or no job exists.
@@ -322,12 +322,12 @@ Decide by exception **type**:
   the loop becomes a busy loop against the Telegram API.
 - **Downloaded files live exactly one run** and are deleted from EVERY way out of a job: normal end and
   timeout in `pollJob()` (take the paths from `jobContext['inbox_files']` BEFORE `finishJobState()` clears
-  it) and manual cancel in `cmdCancel()`. If `launchJob()` fails to start the runner, `startJobOfItem()`
+  it) and manual cancel in `Bot::cancelTopic()`. If `launchJob()` fails to start the runner, `startJobOfItem()`
   deletes the files itself. `Inbox::sweepInbox()` removes leftovers older than an hour.
 
 ---
 
-## `handleCallback()`: stateless branches above the decision check, stateful below
+## Callback handlers: stateless ones before the decision handler, which is last
 
 - **Stateless** (`mode:<mode>:<thread_id>`, `lang:<code>`, `epic:<action>:<thread_id>[:<slug>]`): everything needed is in `callback_data`, the
   update survives a restart. Handled **before** the decision-record check and never reads or writes that record.
@@ -336,7 +336,9 @@ Decide by exception **type**:
 
 The decision record is shared by all topics. The `/mode`, `/lang` and `/epic` keyboards live in the feed indefinitely, so if they
 went through the commit/discard branch (`AUTO_COMMIT=1`) a tap would overwrite a pending decision from another topic. Put a
-new stateless branch **above** the decision check, a stateful one **below**.
+new stateless handler **before** `DirtyTreeDecision` in `Bot::$callbackHandlers` (the list is `mode:`, `lang:`, `epic:`,
+`DirtyTreeDecision`; `DirtyTreeDecision::supports()` accepts any data, so a handler after it never runs). `CallbackHandlerOrderTest`
+pins the order. Access control is a guard in `handleCallback()` before the list, not a handler.
 
 `threadIdOf()` is unreliable for `callback_query.message` of long-lived keyboards: Telegram sends a
 truncated message object without topic flags and the result silently becomes `0` (General). That is why
@@ -378,7 +380,7 @@ working tree). No parallel runs, no `git worktree`, no priorities: the queue ser
   tree + `AUTO_COMMIT=1` (`isPausedByDirtyTree()`). No in-memory flag: after `/restart` or a failed `git commit` a flag
   would leave the queue paused with no buttons forever. In the DB there is only the *awaiting decision*
   (`decision`) and the *owner* of the dirt (`dirty_owner`: topic of the last started job). Buttons are
-  re-issued on every entry into the pause (`ensureDecision`); a manual cleanup over SSH lifts the pause by
+  re-issued on every entry into the pause (`DirtyTreeDecision::ensureDecision`); a manual cleanup over SSH lifts the pause by
   itself. Unknown owner → buttons go to the head's topic marked "changes not from this request" with a
   neutral commit message.
 - **The mode is read only from `jobContext['mode']`.** It is fixed at enqueue (`queue.mode`) and used by

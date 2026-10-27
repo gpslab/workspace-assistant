@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
-use GpsLab\WorkspaceAssistant\Command\CallbackCommand;
-use GpsLab\WorkspaceAssistant\Command\CommandRequest;
+use GpsLab\WorkspaceAssistant\Callback\DecisionHost;
+use GpsLab\WorkspaceAssistant\Callback\DirtyTreeDecision;
+use GpsLab\WorkspaceAssistant\Callback\EpicHandler;
+use GpsLab\WorkspaceAssistant\Callback\Handler;
+use GpsLab\WorkspaceAssistant\Callback\LangHandler;
+use GpsLab\WorkspaceAssistant\Callback\ModeHandler;
+use GpsLab\WorkspaceAssistant\Command\CancelCommand;
+use GpsLab\WorkspaceAssistant\Command\CancelResult;
 use GpsLab\WorkspaceAssistant\Command\CompactCommand;
 use GpsLab\WorkspaceAssistant\Command\EpicCommand;
 use GpsLab\WorkspaceAssistant\Command\HelpCommand;
@@ -50,7 +56,7 @@ use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
  * bot — at most one task is active at a time (see $activeJob), which
  * serializes everything by construction.
  */
-final class Bot implements QueueControl, RunControl, LocaleResolver
+final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHost
 {
     private const string KIND_CHAT = 'chat';
     private const string KIND_COMPACT_SUMMARIZE = 'compact_summarize';
@@ -139,6 +145,15 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
     private readonly Router $commandRouter;
     private readonly Menu $commandMenu;
     private readonly QueueTexts $queueTexts;
+    private readonly DirtyTreeDecision $dirtyTree;
+
+    /**
+     * Callback handlers in the order they are tried: the stateless `mode:`, `lang:`, `epic:` first,
+     * the decision handler (it takes everything left) last.
+     *
+     * @var list<Handler>
+     */
+    private readonly array $callbackHandlers;
 
     public function __construct(
         private readonly Config $config,
@@ -166,6 +181,13 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             $this,
         );
         $this->queueTexts = new QueueTexts($this->locale);
+        $this->dirtyTree = new DirtyTreeDecision($config, $db, $tg, $git, $this->delivery, $this->locale, $this->queueTexts, $this);
+        $this->callbackHandlers = [
+            new ModeHandler($this->modeAndLang),
+            new LangHandler($this->modeAndLang),
+            new EpicHandler($this->epicChat),
+            $this->dirtyTree,
+        ];
         $this->commandRouter = $this->buildCommandRouter();
         $this->commandMenu = new Menu($this->commandRouter, $tg, $this->locale);
         if ($github !== null) {
@@ -194,7 +216,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         $router = new Router($this->tg, $this->locale);
         $router->register(new NewCommand($this->db, $this, $this));
         $router->register(new CompactCommand($this, $this));
-        $router->register(new CallbackCommand('cancel', '⛔', fn (CommandRequest $r) => $this->cmdCancel($r->chatId, $r->threadId)));
+        $router->register(new CancelCommand($this->db, $this->tg, $this->delivery, $this->locale, $this, $this->queueTexts, $this->dirtyTree));
         $router->register(new QueueCommand($this->tg, $this->locale, $this, $this, $this->queueTexts));
         $router->register(new StatsCommand($this->db, $this->tg, $this->locale, $this, $this));
         $router->register(new VerboseCommand($this->db, $this->tg, $this->locale));
@@ -407,11 +429,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
      */
     private function threadIdOf(array $message): int
     {
-        if (($message['is_topic_message'] ?? false) === true && isset($message['message_thread_id'])) {
-            return (int) $message['message_thread_id'];
-        }
-
-        return 0;
+        return DirtyTreeDecision::threadIdOf($message);
     }
 
     /**
@@ -524,96 +542,6 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             $this->sessionFiles->delete($old);
         }
         $this->tg->sendText($chatId, $this->t('session.new_started'), null, $threadId);
-    }
-
-    /**
-     * /cancel from topic X: kills X's active job and removes ALL pending
-     * items of X (otherwise the topic's next request would start in the context the
-     * person just rejected). Other topics and chats are
-     * never affected. There is no auto-commit/auto-rollback: with AUTO_COMMIT=1 the decision on a dirty
-     * tree is made by the person with buttons (with 0 there is none).
-     */
-    private function cmdCancel(int $chatId, int $threadId): void
-    {
-        $killed = false;
-        if ($this->activeJob !== null && $this->jobContext !== null
-            && $this->jobContext['chat_id'] === $chatId && $this->jobContext['thread_id'] === $threadId) {
-            $inboxFiles = $this->jobContext['inbox_files'];
-            $queueId = $this->jobContext['queue_id'];
-
-            $this->activeJob->kill();
-            $this->finishJobState($chatId, $threadId);
-            $this->inbox->deleteInboxFiles($inboxFiles);
-            if ($queueId > 0) {
-                $this->db->queueRemove($queueId);
-            }
-            $killed = true;
-        }
-
-        $removed = $this->db->queueCancelThread($chatId, $threadId);
-
-        // The topic's epic goes on pause: the epic's queue items were removed above (they are part of
-        // the topic's queue), and new ones will not appear without /epic resume.
-        $epic = $this->db->epicByThread($chatId, $threadId);
-        $pausedEpic = null;
-        if ($epic !== null && $epic['status'] === self::EPIC_RUNNING) {
-            $this->db->epicSetStatus($epic['slug'], self::EPIC_PAUSED);
-            $this->epicCard->update($epic['slug']);
-            $pausedEpic = $epic['slug'];
-        }
-
-        // Manual exit from the limit pause: /cancel clears it if anything of the topic
-        // was removed (otherwise the pause is shared and someone else's /cancel does not touch it).
-        $limitReset = false;
-        if (($killed || $removed !== []) && $this->db->getLimitPauseUntil() > time()) {
-            $this->db->setLimitPauseUntil(0);
-            $limitReset = true;
-        }
-
-        if (!$killed && $removed === []) {
-            $this->tg->sendText(
-                $chatId,
-                $pausedEpic !== null
-                    ? $this->t('cancel.epic_paused_queue_empty', ['slug' => $pausedEpic])
-                    : ($this->activeJob !== null
-                        ? $this->t('cancel.other_session_busy')
-                        : $this->t('cancel.nothing')),
-                null,
-                $threadId,
-            );
-
-            return;
-        }
-
-        // Files the cancelled run managed to put into the outbox must not
-        // go out with the next run's reply (possibly to another topic). Another topic's
-        // running job's outbox is not touched — those are its files.
-        if ($killed || $this->activeJob === null) {
-            $this->delivery->clearOutbox();
-        }
-
-        $lines = [];
-        foreach ($removed as $item) {
-            $this->tg->editMessageText($item['chat_id'], $item['placeholder_id'], $this->t('cancel.item_removed'));
-            $lines[] = '• '.$this->queueTexts->describeItem($item);
-        }
-
-        $text = $killed ? $this->t('cancel.process_stopped') : '';
-        if ($limitReset) {
-            $text .= ($text !== '' ? "\n" : '').$this->t('cancel.limit_pause_reset');
-        }
-        if ($lines !== []) {
-            $text .= ($text !== '' ? "\n" : '').$this->t('cancel.removed_from_queue', ['count' => count($lines)])."\n".implode("\n", $lines);
-        }
-        if ($pausedEpic !== null) {
-            $text .= ($text !== '' ? "\n" : '').$this->t('cancel.epic_paused', ['slug' => $pausedEpic]);
-        }
-        $this->delivery->deliver($chatId, $threadId, $text);
-
-        if ($killed) {
-            $this->db->clearDecision();
-            $this->offerDecisionIfDirty($chatId, $threadId);
-        }
     }
 
     /**
@@ -793,7 +721,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
      * (the caption applies to all files, an incomplete album must not go to
      * Claude). Files are downloaded when the run STARTS, not here - otherwise the inbox
      * accumulates the queue tail. Downloaded files are deleted after the run in
-     * pollJob()/cmdCancel().
+     * pollJob()/cancelTopic().
      *
      * @param list<array{file_id: string, extension: string|null, name: string|null, file_size: int|null}> $files
      * @param list<int>                                                                                    $messageIds
@@ -830,6 +758,53 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
     private function thinkingText(string $mode): string
     {
         return $mode === SystemPrompt::DEFAULT_MODE ? $this->t('thinking') : $this->t('thinking_mode', ['mode' => $mode]);
+    }
+
+    public function cancelTopic(int $chatId, int $threadId): CancelResult
+    {
+        $killed = false;
+        if ($this->activeJob !== null && $this->jobContext !== null
+            && $this->jobContext['chat_id'] === $chatId && $this->jobContext['thread_id'] === $threadId) {
+            $inboxFiles = $this->jobContext['inbox_files'];
+            $queueId = $this->jobContext['queue_id'];
+
+            $this->activeJob->kill();
+            $this->finishJobState($chatId, $threadId);
+            $this->inbox->deleteInboxFiles($inboxFiles);
+            if ($queueId > 0) {
+                $this->db->queueRemove($queueId);
+            }
+            $killed = true;
+        }
+
+        $removed = $this->db->queueCancelThread($chatId, $threadId);
+
+        // The topic's epic goes on pause: the epic's queue items were removed above (they are part of
+        // the topic's queue), and new ones will not appear without /epic resume.
+        $epic = $this->db->epicByThread($chatId, $threadId);
+        $pausedEpic = null;
+        if ($epic !== null && $epic['status'] === self::EPIC_RUNNING) {
+            $this->db->epicSetStatus($epic['slug'], self::EPIC_PAUSED);
+            $this->epicCard->update($epic['slug']);
+            $pausedEpic = $epic['slug'];
+        }
+
+        // Manual exit from the limit pause: /cancel clears it if anything of the topic
+        // was removed (otherwise the pause is shared and someone else's /cancel does not touch it).
+        $limitReset = false;
+        if (($killed || $removed !== []) && $this->db->getLimitPauseUntil() > time()) {
+            $this->db->setLimitPauseUntil(0);
+            $limitReset = true;
+        }
+
+        // Files the cancelled run managed to put into the outbox must not
+        // go out with the next run's reply (possibly to another topic). Another topic's
+        // running job's outbox is not touched — those are its files.
+        if (($killed || $removed !== []) && ($killed || $this->activeJob === null)) {
+            $this->delivery->clearOutbox();
+        }
+
+        return new CancelResult($killed, $removed, $pausedEpic, $limitReset, $this->activeJob !== null);
     }
 
     /** Whether the topic has an active job. */
@@ -1004,7 +979,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             }
             if ($dirty) {
                 $this->treePaused = true;
-                $this->ensureDecision($chatId, $threadId);
+                $this->dirtyTree->ensureDecision($chatId, $threadId);
 
                 return;
             }
@@ -1944,7 +1919,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
                     $this->git->commitAndPush($this->commitMessage("epic {$slug}"));
                 } catch (\RuntimeException $e) {
                     $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
-                    $this->offerDecisionIfDirty($chatId, $threadId);
+                    $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
                 }
             }
         }
@@ -2043,7 +2018,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
     private function afterFailedRun(int $chatId, int $threadId, ?string $epicSlug, string $reason): void
     {
         if ($epicSlug === null) {
-            $this->offerDecisionIfDirty($chatId, $threadId);
+            $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
 
             return;
         }
@@ -2167,7 +2142,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         }
         if ($changed !== []) {
             $this->delivery->deliver($chatId, $threadId, $this->t('compact.dirty', ['changes' => $changes]));
-            $this->offerDecisionIfDirty($chatId, $threadId);
+            $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
 
             return;
         }
@@ -2215,7 +2190,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
 
         $text = $claude->text !== '' ? $claude->text : $this->t('result.empty');
         $this->delivery->deliver($chatId, $threadId, $this->t('compact.done', ['text' => $text]));
-        $this->offerDecisionIfDirty($chatId, $threadId);
+        $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
     }
 
     /**
@@ -2377,7 +2352,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
      * Separate chat message for commit paths that do not go through sendResult()
      * (autonomous epic runs, the manual "commit" button).
      */
-    private function deliverPromptFilesWarning(int $chatId, int $threadId): void
+    public function deliverPromptFilesWarning(int $chatId, int $threadId): void
     {
         $warning = trim($this->promptFilesNote());
         if ($warning !== '') {
@@ -2431,206 +2406,14 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             return;
         }
 
-        // The mode branch is stateless (the topic is carried in data, not in the
-        // decision record) and must be handled BEFORE the decision check below,
-        // otherwise the /mode keyboard would either clobber a pending commit/discard
-        // decision or not work at all (the decision check would reject it first).
-        // This branch neither reads nor writes the decision record itself. Rule:
-        // .claude-docs/gotchas.md.
-        if (str_starts_with($data, 'mode:')) {
-            $this->modeAndLang->handleModeCallback($callbackId, $chatId, $message, $data);
+        // The order of $callbackHandlers is a safety rule (.claude-docs/gotchas.md): the stateless
+        // handlers go before the decision handler, which is the last one and takes everything left.
+        foreach ($this->callbackHandlers as $handler) {
+            if ($handler->supports($data)) {
+                $handler->handle($callbackId, $userId, $chatId, is_array($message) ? $message : [], $data);
 
-            return;
-        }
-
-        // The lang branch is stateless for the same reason: the language is stored per user.
-        if (str_starts_with($data, 'lang:')) {
-            $this->modeAndLang->handleLangCallback($callbackId, $userId, $chatId, is_array($message) ? $message : [], $data);
-
-            return;
-        }
-
-        // The epic branch is stateless too: the topic and the epic slug are carried in data.
-        if (str_starts_with($data, 'epic:')) {
-            $this->epicChat->handleEpicCallback($callbackId, $chatId, is_array($message) ? $message : [], $data);
-
-            return;
-        }
-
-        // Under AUTO_COMMIT=0 the bot never commits or resets the tree, so a button issued earlier is refused.
-        if (!$this->config->autoCommit && ($data === 'commit' || $data === 'discard')) {
-            $this->tg->answerCallback($callbackId, $this->t('decision.auto_commit_off'));
-
-            return;
-        }
-
-        $threadId = is_array($message) ? $this->threadIdOf($message) : 0;
-
-        // A decision belongs to a specific topic (chat_id, thread_id): in a forum
-        // all topics share chat_id, so the topic is checked too, otherwise a button
-        // from another topic would commit/discard someone else's tree. The check is
-        // against the SQLite record (survives /restart), not an in-memory field.
-        $decision = $this->db->getDecision();
-        $callbackMessageId = (int) ($message['message_id'] ?? 0);
-        if ($decision === null
-            || $decision['chat_id'] !== $chatId
-            || $decision['thread_id'] !== $threadId
-            || ($decision['message_id'] > 0 && $callbackMessageId > 0 && $decision['message_id'] !== $callbackMessageId)) {
-            $this->tg->answerCallback($callbackId, $this->t('decision.stale'));
-
-            return;
-        }
-
-        // The tree was cleaned manually while the buttons were hanging.
-        try {
-            $dirty = $this->git->hasChanges();
-        } catch (GitStatusException $e) {
-            // Unknown state: the decision stays.
-            $this->tg->answerCallback($callbackId, $this->t('decision.status_failed_toast', ['error' => $e->getMessage()]));
-
-            return;
-        }
-        if (!$dirty) {
-            $this->db->clearDecision();
-            $this->db->clearDirtyOwner();
-            $this->tg->answerCallback($callbackId, $this->t('decision.stale'));
-
-            return;
-        }
-
-        $external = $this->db->getDirtyOwner() === null;
-        $this->db->clearDecision();
-
-        if ($data === 'commit') {
-            $this->deliverPromptFilesWarning($chatId, $threadId);
-            try {
-                $hash = $this->git->commitAndPush($external
-                    ? $this->t('commit.external')
-                    : $this->t('commit.interrupted'));
-                $this->db->clearDirtyOwner();
-                $this->tg->answerCallback($callbackId, $this->t('decision.committed_toast'));
-                $this->delivery->deliver($chatId, $threadId, $this->t('decision.saved', ['url' => $this->commitUrl($hash)]));
-            } catch (\RuntimeException $e) {
-                $this->tg->answerCallback($callbackId, $this->t('decision.git_error_toast'));
-                $this->delivery->deliver($chatId, $threadId, $this->t('decision.git_failed', ['error' => $e->getMessage()]));
-                // A failed commit is a new entry into the pause: buttons are issued again.
-                $this->ensureDecision($chatId, $threadId);
+                return;
             }
-
-            return;
-        }
-
-        if ($data === 'discard') {
-            $this->git->discardChanges();
-            $this->db->clearDirtyOwner();
-            $this->tg->answerCallback($callbackId, $this->t('decision.discarded_toast'));
-            $this->delivery->deliver($chatId, $threadId, $this->t('decision.discarded'));
-
-            return;
-        }
-
-        $this->tg->answerCallback($callbackId);
-    }
-
-    /**
-     * Entering the pause when a job ends/is cancelled: if the tree is dirty, the
-     * commit/discard buttons go to the owner topic (the topic of this job), only with
-     * AUTO_COMMIT=1. The decision record is stored in SQLite; there is no
-     * auto-commit or auto-rollback.
-     */
-    private function offerDecisionIfDirty(int $chatId, int $threadId): void
-    {
-        if (!$this->config->autoCommit) {
-            return;
-        }
-        try {
-            $dirty = $this->git->hasChanges();
-        } catch (GitStatusException $e) {
-            $this->reportDecisionStatusFailure($chatId, $threadId, $e);
-
-            return;
-        }
-        if (!$dirty) {
-            // The run left a clean tree — there is no owner of the dirt;
-            // otherwise later external dirt would be attributed to this topic.
-            $this->db->clearDirtyOwner();
-
-            return;
-        }
-
-        $this->db->clearDecision();
-        $this->ensureDecision($chatId, $threadId);
-    }
-
-    /** The tree state is unknown, so no buttons: the failure goes to the topic instead. */
-    private function reportDecisionStatusFailure(int $chatId, int $threadId, GitStatusException $e): void
-    {
-        Log::line('git status failed, no decision offered: '.$e->getMessage());
-        $this->delivery->safeDeliver($chatId, $threadId, $this->t('decision.status_failed', ['error' => $e->getMessage()]));
-    }
-
-    /**
-     * Issues the commit/discard buttons if no decision is pending yet (only with
-     * AUTO_COMMIT=1). The owner
-     * is the topic of the last job that touched the tree (stored in the DB). If
-     * the owner is unknown ("external" dirt), the buttons go to the head topic
-     * ($fallback*) with a note "changes not from this request". Topics with
-     * pending items get a "waiting for a decision in topic X" notification.
-     */
-    private function ensureDecision(int $fallbackChatId, int $fallbackThreadId): void
-    {
-        if (!$this->config->autoCommit) {
-            return;
-        }
-        if ($this->db->getDecision() !== null) {
-            return;
-        }
-
-        $owner = $this->db->getDirtyOwner();
-        $chatId = $owner['chat_id'] ?? $fallbackChatId;
-        $threadId = $owner['thread_id'] ?? $fallbackThreadId;
-
-        $markup = [
-            'inline_keyboard' => [[
-                ['text' => $this->t('decision.button_commit'), 'callback_data' => 'commit'],
-                ['text' => $this->t('decision.button_discard'), 'callback_data' => 'discard'],
-            ]],
-        ];
-
-        // The message with buttons must go out as TEXT: a long one goes as a file
-        // without reply_markup, the decision would be left without buttons and the
-        // queue on an eternal pause. So the summary in it is truncated (with a
-        // margin for HTML escaping), and the full list goes as a separate message below.
-        try {
-            $summary = $this->git->changesSummary();
-        } catch (GitStatusException $e) {
-            $this->reportDecisionStatusFailure($chatId, $threadId, $e);
-
-            return;
-        }
-        $short = $this->delivery->truncateSummary($summary);
-        $text = ($owner === null ? $this->t('decision.external')."\n\n" : '')
-            .$this->t('decision.uncommitted')."\n\n".$short."\n\n".$this->t('decision.question');
-
-        // Key the decision by the topic where the buttons ACTUALLY landed: with a
-        // deleted topic deliver() falls back to General (0), and the callback will
-        // come with thread_id=0. Keeping the original (deleted) topic would make a
-        // click yield "decision is no longer relevant" and the dirty tree could not
-        // be resolved interactively.
-        $landed = $this->delivery->deliverMessage($chatId, $threadId, $text, $markup);
-        $this->db->setDecision($chatId, $landed['thread_id'], $landed['message_id']);
-        if ($short !== $summary) {
-            $this->delivery->safeDeliver($chatId, $landed['thread_id'], $this->t('decision.full_list')."\n\n".$summary);
-        }
-
-        $notified = [];
-        foreach ($this->db->queueWaiting() as $item) {
-            $key = $item['chat_id'].':'.$item['thread_id'];
-            if (isset($notified[$key]) || ($item['chat_id'] === $chatId && $item['thread_id'] === $landed['thread_id'])) {
-                continue;
-            }
-            $notified[$key] = true;
-            $this->delivery->safeDeliver($item['chat_id'], $item['thread_id'], $this->t('decision.queue_waits', ['topic' => $this->queueTexts->topicLabel($chatId, $landed['thread_id'])]));
         }
     }
 
@@ -2653,7 +2436,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         return "tg: {$firstLine}";
     }
 
-    private function commitUrl(string $hash): string
+    public function commitUrl(string $hash): string
     {
         if ($this->config->githubRepo === '') {
             return $hash;
