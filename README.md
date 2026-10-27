@@ -58,9 +58,11 @@ The managed repository is a **knowledge base**: a repository of documents that y
 not the code base of a project. After every successful run that changed files the bot commits all
 changes (`git add -A`) with the message `tg: <first line of the request, up to 60 chars>` (epic runs:
 `tg: epic <slug>`) and pushes the current branch with a plain `git push`. A run that changed nothing
-produces no commit and no push. Changes left by an interrupted or failed run, or by someone else, are
-not committed automatically: the bot asks whether to commit or discard them. Nothing else is reviewed
-before a push, so do not point the bot at a code project.
+produces no commit and no push. Changes left by an interrupted run, a failed regular request, or by
+someone else are not committed automatically: the bot asks whether to commit or discard them. A failed
+epic run asks nothing: its changes are saved as `dirty-<timestamp>.patch` next to `failures.log` in
+`<STATE_DIR>/epics/<slug>/`, and the tree is rolled back. Nothing else is reviewed before a push, so do
+not point the bot at a code project.
 
 - If the push fails, the reply reports the error and has no link to the managed repository commit
   (links to sub-repository commits can still be there). The commit stays local and goes out with the
