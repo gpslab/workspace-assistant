@@ -296,4 +296,24 @@ final class BotLocaleTest extends TestCase
         self::assertSame(256, mb_strlen($help['description']));
         self::assertStringStartsWith('❓ яяя', $help['description']);
     }
+
+    public function testAstralDescriptionIsCutInUtf16Units(): void
+    {
+        file_put_contents($this->dir.'/locales/tlh.json', json_encode(['_language' => 'Klingon', 'command.compact' => str_repeat('😀', 300), 'command.epic' => str_repeat('😀', 300)], JSON_THROW_ON_ERROR));
+        $tg = new FakeTelegram();
+        (new \ReflectionMethod(Bot::class, 'registerCommands'))->invoke($this->makeBot($tg, 'tlh', 'locales'));
+        $checked = 0;
+        foreach ($tg->commandLists as $list) {
+            if ($list['language_code'] !== 'tlh') {
+                continue;
+            }
+            foreach ($list['commands'] as $command) {
+                self::assertLessThanOrEqual(256, intdiv(strlen(mb_convert_encoding($command['description'], 'UTF-16LE', 'UTF-8')), 2));
+                if (in_array($command['command'], ['compact', 'epic'], true)) {
+                    ++$checked;
+                }
+            }
+        }
+        self::assertSame(2, $checked);
+    }
 }

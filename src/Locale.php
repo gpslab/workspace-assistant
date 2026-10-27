@@ -244,6 +244,9 @@ final class Locale
             if (self::placeholders($text) !== self::placeholders($reference[$key])) {
                 $this->warnings[] = "locale {$code}: key {$key} has placeholders that differ from the en reference";
             }
+            if (str_starts_with($key, 'command.') && preg_match('/\p{Extended_Pictographic}/u', $text) === 1) {
+                $this->warnings[] = "locale {$code}: key {$key} contains an emoji, the bot adds the command emoji itself";
+            }
         }
     }
 }

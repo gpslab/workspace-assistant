@@ -95,6 +95,16 @@ final class LocaleTest extends TestCase
         self::assertSame([], $locale->warnings());
     }
 
+    public function testCommandTextWithEmojiProducesWarning(): void
+    {
+        $this->write($this->instance, 'de', ['command.new' => '🆕 Neu', 'hello' => 'Hallo ❓, {name}!']);
+
+        $warnings = (new Locale('de', $this->instance, $this->builtin))->warnings();
+
+        self::assertCount(1, $warnings);
+        self::assertStringContainsString('command.new contains an emoji', $warnings[0]);
+    }
+
     public function testInstanceFileOverridesBuiltinLocaleByKeys(): void
     {
         $this->write($this->instance, 'de', ['hello' => 'Servus, {name}!']);
