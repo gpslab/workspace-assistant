@@ -55,13 +55,17 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
 ### The managed repository: commit and push
 
 The managed repository is a **knowledge base**: a repository of documents that you edit through chat,
-not the code base of a project. After every successful run the bot commits all changes (`git add -A`)
-with the message `tg: <start of the request>` and pushes the current branch with a plain `git push`.
-Nothing is reviewed in between, so do not point the bot at a code project.
+not the code base of a project. After every successful run that changed files the bot commits all
+changes (`git add -A`) with the message `tg: <first line of the request, up to 60 chars>` (epic runs:
+`tg: epic <slug>`) and pushes the current branch with a plain `git push`. A run that changed nothing
+produces no commit and no push. Changes left by an interrupted or failed run, or by someone else, are
+not committed automatically: the bot asks whether to commit or discard them. Nothing else is reviewed
+before a push, so do not point the bot at a code project.
 
-- If the push fails, the reply reports the error and has no commit link. The commit stays local, and
-  the next successful push sends it along with the new one. On a protected branch every push fails,
-  so local commits pile up.
+- If the push fails, the reply reports the error and has no link to the managed repository commit
+  (links to sub-repository commits can still be there). The commit stays local and goes out with the
+  next run that changes files, or push it by hand. On a protected branch every push fails, so local
+  commits pile up.
 - Code lives in separate repositories, and changes there go through pull requests:
   - sub-repositories under `SUBREPOS_DIR`: the bot pulls them before a run and links their new commits
     in the reply. Whether they are committed and pushed is up to Claude, following the managed
