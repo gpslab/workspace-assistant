@@ -123,8 +123,8 @@ the process ends.
 
 The rules Claude follows are split in two (see [internals.md](internals.md) for the assembly order):
 
-- **Contract** — `common`, `common_limits`, `contract_review`, `language_line` and `session_update` in
-  `prompts/*.md.dist`, under git. A local `prompts/<name>.md` can override it, but every run reports each
+- **Contract** — the 14 names of `PromptFiles::CONTRACT` (`common`, `common_limits`, `contract_review`,
+  `language_line`, `session_update`, ...) in `prompts/*.md.dist`, under git. A local `prompts/<name>.md` can override it, but every run reports each
   override of a contract name (`PromptFiles::CONTRACT`) in the reply. It holds what the bot parses or enforces:
   the identity line, delivery, **self-preservation** (never run `bin/ctl.sh`, stop, restart or kill the
   bot; Claude runs inside the bot's working tree, and a restart kills the session before the reply is

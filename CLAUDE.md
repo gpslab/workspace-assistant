@@ -11,6 +11,7 @@ Start with [index.md](.claude-docs/index.md), the routing table.
 
 | File                                                       | When to read                                                                  |
 |------------------------------------------------------------|-------------------------------------------------------------------------------|
+| [PROMPTS.md](PROMPTS.md)                                   | The prompt files, how a run's prompt is assembled, how to override them      |
 | [.claude-docs/index.md](.claude-docs/index.md)             | Not sure where to look: routing table and code map                            |
 | [.claude-docs/internals.md](.claude-docs/internals.md)     | How the bot works: components, message flow, state, timeouts, configuration   |
 | [.claude-docs/operations.md](.claude-docs/operations.md)   | Running the bot: one-instance rule (409), git auth, `gh`, "the bot hangs"     |
@@ -45,6 +46,8 @@ reviewer prompt in `claude-review.yml` and this section move together.
 - Call the repository the bot manages the **managed repository** (not "workspace", "target repo");
   the project is **Workspace Assistant**.
 - Use the glossary terms: `epic` (a series of tasks), `Orchestrator` (drives one epic), `Bot` (the main loop).
+- A change of the prompt assembly, a new `prompts/**/*.md.dist` or a new, renamed or removed placeholder
+  updates [PROMPTS.md](PROMPTS.md) in the same PR.
 - `git pull` before starting any edits: this repository receives direct pushes from independent runs,
   so a stale checkout means editing outdated code and a rejected push (see
   [gotchas.md](.claude-docs/gotchas.md)).
