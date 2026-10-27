@@ -426,9 +426,11 @@ after the first action. The merge gate retries once: the first `gh` failure on a
 and the next pass in which the decision for the task is not WAIT tries again. A second failure in a row
 moves the task to `blocked` (the reason goes to the epic topic), not the whole epic. The counter is reset
 by a success, by a pass where the decision is WAIT and by `/epic resume`; errors are not classified by
-text, so a permanent error blocks one pass later. If a task with `merge_failures >= 1` turns out to have
-its PR merged, it is marked `merge_unverified` (as after a successful merge) so the post-merge `master`
-watch covers it, and no retry happens.
+text, so a permanent error blocks one pass later. A failed `merge` also sets a separate task counter
+`merge_error = 1`, cleared only by a successful merge or when the task is seen with its PR merged; blocking,
+a WAIT pass and `/epic resume` leave it. A task with `merge_error = 1` whose PR turns out to be merged
+(even if it was blocked or resumed meanwhile) is marked `merge_unverified` (as after a successful merge) so
+the post-merge `master` watch covers it, and no retry happens.
 
 After a successful merge (the PR reports `merged`; a PR only queued in a merge queue is left alone) the bot deletes the PR's head branch (`gh api -X DELETE …/git/refs/heads/<ref>`),
 unless the PR comes from a fork or the branch is the default one. A failure of this step (including
