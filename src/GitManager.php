@@ -263,19 +263,85 @@ final class GitManager
     public function changedPathsIn(string $subdir): array
     {
         $out = $this->git(['status', '--porcelain', '-z', '--untracked-files=all', '--', $subdir])['stdout'];
+
+        return array_keys($this->parseStatus($out));
+    }
+
+    /**
+     * The working-tree state as "path => status and content hash", from `git status --porcelain -z
+     * --untracked-files=all`. It is not a diff against HEAD: pair it with {@see changedSince()} to find
+     * what a single run changed in an already dirty tree.
+     *
+     * @return array<string, string>
+     */
+    public function treeSnapshot(): array
+    {
+        $out = $this->git(['status', '--porcelain', '-z', '--untracked-files=all'])['stdout'];
+        $snapshot = [];
+        foreach ($this->parseStatus($out) as $path => $status) {
+            $snapshot[$path] = $status.' '.$this->contentHash($path);
+        }
+
+        return $snapshot;
+    }
+
+    /**
+     * Paths that are new, gone or have a different status or content hash than in $before. With
+     * $subdir only the paths under it are considered.
+     *
+     * @param array<string, string> $before result of {@see treeSnapshot()}
+     *
+     * @return list<string>
+     */
+    public function changedSince(array $before, string $subdir = ''): array
+    {
+        $after = $this->treeSnapshot();
+        $prefix = $subdir === '' ? '' : rtrim($subdir, '/').'/';
+        $changed = [];
+        foreach ($after + $before as $path => $_) {
+            $path = (string) $path;
+            if ($prefix !== '' && !str_starts_with($path, $prefix)) {
+                continue;
+            }
+            if (($before[$path] ?? null) !== ($after[$path] ?? null)) {
+                $changed[] = $path;
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
+     * @return array<string, string> path => two-letter status
+     */
+    private function parseStatus(string $out): array
+    {
         $entries = explode("\0", $out);
         $paths = [];
         for ($i = 0, $n = count($entries); $i < $n; ++$i) {
             if (strlen($entries[$i]) < 4) {
                 continue;
             }
-            $paths[] = substr($entries[$i], 3);
+            $paths[substr($entries[$i], 3)] = substr($entries[$i], 0, 2);
             if (in_array('R', [$entries[$i][0], $entries[$i][1]], true) || in_array('C', [$entries[$i][0], $entries[$i][1]], true)) {
                 ++$i; // a rename/copy entry is followed by its source path
             }
         }
 
         return $paths;
+    }
+
+    private function contentHash(string $path): string
+    {
+        $full = $this->repoPath.'/'.$path;
+        if (is_link($full)) {
+            return sha1('link:'.(string) readlink($full));
+        }
+        if (is_file($full)) {
+            return (string) hash_file('sha1', $full);
+        }
+
+        return is_dir($full) ? 'dir' : 'gone';
     }
 
     /**

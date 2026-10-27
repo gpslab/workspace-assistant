@@ -101,6 +101,15 @@ final class Bot
      */
     private ?array $repoSnapshot = null;
 
+    /**
+     * With AUTO_COMMIT=0: the working tree as it was when the current run started, to tell what the run
+     * changed in a tree that is normally dirty. It outlives finishJobState() and is dropped when the
+     * run's outcome has been handled.
+     *
+     * @var array<string, string>|null
+     */
+    private ?array $runTreeSnapshot = null;
+
     private readonly Locale $locale;
     private readonly ClaudeErrorText $claudeErrorText;
     private readonly SubRepoSync $subRepoSync;
@@ -181,6 +190,11 @@ final class Bot
     public function run(): void
     {
         $this->db->clearStalePids();
+        if (!$this->config->autoCommit) {
+            // A button issued before the switch to AUTO_COMMIT=0 must never reset or commit the tree.
+            $this->db->clearDecision();
+            $this->db->clearDirtyOwner();
+        }
         foreach ($this->locale->warnings() as $warning) {
             Log::line('locale: '.$warning);
         }
@@ -712,7 +726,7 @@ final class Bot
     /** Queue is non-empty, no job, tree is dirty. */
     private function isPausedByDirtyTree(): bool
     {
-        return $this->activeJob === null && $this->db->queueHead() !== null && $this->git->hasChanges();
+        return $this->config->autoCommit && $this->activeJob === null && $this->db->queueHead() !== null && $this->git->hasChanges();
     }
 
     private function topicLabel(int $chatId, int $threadId): string
@@ -1072,7 +1086,7 @@ final class Bot
      */
     private function releaseStaleDirtyState(): void
     {
-        if ($this->db->getDirtyOwner() === null && $this->db->getDecision() === null) {
+        if (!$this->config->autoCommit || ($this->db->getDirtyOwner() === null && $this->db->getDecision() === null)) {
             return;
         }
         if (!$this->git->hasChanges()) {
@@ -1114,14 +1128,17 @@ final class Bot
 
         // 2. Tree cleanliness: dirty -> pause (derived from state). The commit/discard
         //    buttons are issued on entering the pause; manual cleanup lifts it.
-        if ($this->git->hasChanges()) {
-            $this->treePaused = true;
-            $this->ensureDecision($chatId, $threadId);
+        //    With AUTO_COMMIT=0 the tree is the operator's: no check, no pause.
+        if ($this->config->autoCommit) {
+            if ($this->git->hasChanges()) {
+                $this->treePaused = true;
+                $this->ensureDecision($chatId, $threadId);
 
-            return;
+                return;
+            }
+            $this->db->clearDecision();
+            $this->db->clearDirtyOwner();
         }
-        $this->db->clearDecision();
-        $this->db->clearDirtyOwner();
 
         if ($head['kind'] === self::ITEM_NEW) {
             $this->db->queueRemove($head['id']);
@@ -1564,7 +1581,8 @@ final class Bot
     {
         $managedStart = microtime(true);
         $pullError = '';
-        if (!$this->git->pullRebase($pullError)) {
+        // AUTO_COMMIT=0: the managed repository is not touched; the sub-repositories below still are.
+        if ($this->config->autoCommit && !$this->git->pullRebase($pullError)) {
             return $pullError;
         }
         $managedSec = microtime(true) - $managedStart;
@@ -1669,6 +1687,16 @@ final class Bot
             $settingsJson = PmGateHook::settingsJson($this->config->stateDir, $gateKind, $gateRunId, $mode === SystemPrompt::MODE_REVIEW);
         }
 
+        // AUTO_COMMIT=0: the state of the tree before the process can touch it.
+        $this->runTreeSnapshot = null;
+        if (!$this->config->autoCommit) {
+            try {
+                $this->runTreeSnapshot = $this->git->treeSnapshot();
+            } catch (\RuntimeException $e) {
+                Log::line('tree snapshot failed: '.$e->getMessage());
+            }
+        }
+
         try {
             $runner = new ClaudeRunner(
                 $this->config->claudeBin,
@@ -1723,7 +1751,9 @@ final class Bot
         ];
 
         // The topic of the last job that touched the tree owns the commit/discard decision.
-        $this->db->setDirtyOwner($chatId, $threadId);
+        if ($this->config->autoCommit) {
+            $this->db->setDirtyOwner($chatId, $threadId);
+        }
         $this->repoSnapshot = $this->subRepoSync->snapshotSubRepos();
         $this->db->setPid($chatId, $threadId, $runner->pid());
 
@@ -1923,6 +1953,9 @@ final class Bot
             // topic.
             if ($this->activeJob === null && !$this->git->hasChanges()) {
                 $this->db->clearDirtyOwner();
+            }
+            if ($this->activeJob === null) {
+                $this->runTreeSnapshot = null;
             }
         }
     }
@@ -2136,8 +2169,9 @@ final class Bot
             return;
         }
 
+        // AUTO_COMMIT=0: the tree is the operator's, so there is no patch and no rollback.
         $patchName = null;
-        if ($this->git->hasChanges()) {
+        if ($this->config->autoCommit && $this->git->hasChanges()) {
             try {
                 $patch = $this->git->dirtyPatch();
                 if ($patch === '') {
@@ -2314,7 +2348,12 @@ final class Bot
 
         $commitLinks = [];
 
-        if ($this->git->hasChanges()) {
+        if (!$this->config->autoCommit) {
+            $changed = $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot) : [];
+            if ($changed !== []) {
+                $text .= "\n\n".$this->t('result.changed_files', ['count' => count($changed)]);
+            }
+        } elseif ($this->git->hasChanges()) {
             try {
                 $hash = $this->git->commitAndPush($this->commitMessage($prompt));
                 $commitLinks[] = $this->commitUrl($hash);
@@ -2357,6 +2396,11 @@ final class Bot
             }
 
             try {
+                if (!$this->config->autoCommit) {
+                    $files = array_merge($files, $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot, $dir) : []);
+
+                    continue;
+                }
                 $files = array_merge($files, $this->git->changedPathsIn($dir));
             } catch (\RuntimeException) {
             }
@@ -2387,7 +2431,11 @@ final class Bot
             return '';
         }
 
-        return "\n\n".$this->t('prompt_files.changed', ['files' => implode(', ', $files)]);
+        $list = implode(', ', $files);
+
+        return "\n\n".($this->config->autoCommit
+            ? $this->t('prompt_files.changed', ['files' => $list])
+            : $this->t('prompt_files.changed_uncommitted', ['files' => $list]));
     }
 
     /**
@@ -2429,6 +2477,13 @@ final class Bot
         // The epic branch is stateless too: the topic and the epic slug are carried in data.
         if (str_starts_with($data, 'epic:')) {
             $this->epicChat->handleEpicCallback($callbackId, $chatId, is_array($message) ? $message : [], $data);
+
+            return;
+        }
+
+        // Under AUTO_COMMIT=0 the bot never commits or resets the tree, so a button issued earlier is refused.
+        if (!$this->config->autoCommit && ($data === 'commit' || $data === 'discard')) {
+            $this->tg->answerCallback($callbackId, $this->t('decision.auto_commit_off'));
 
             return;
         }
@@ -2500,6 +2555,9 @@ final class Bot
      */
     private function offerDecisionIfDirty(int $chatId, int $threadId): void
     {
+        if (!$this->config->autoCommit) {
+            return;
+        }
         if (!$this->git->hasChanges()) {
             // The run left a clean tree — there is no owner of the dirt;
             // otherwise later external dirt would be attributed to this topic.
@@ -2521,6 +2579,9 @@ final class Bot
      */
     private function ensureDecision(int $fallbackChatId, int $fallbackThreadId): void
     {
+        if (!$this->config->autoCommit) {
+            return;
+        }
         if ($this->db->getDecision() !== null) {
             return;
         }
