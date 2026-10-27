@@ -6,12 +6,20 @@ namespace GpsLab\WorkspaceAssistant;
 
 use GpsLab\WorkspaceAssistant\Command\CallbackCommand;
 use GpsLab\WorkspaceAssistant\Command\CommandRequest;
+use GpsLab\WorkspaceAssistant\Command\CompactCommand;
 use GpsLab\WorkspaceAssistant\Command\EpicCommand;
 use GpsLab\WorkspaceAssistant\Command\HelpCommand;
 use GpsLab\WorkspaceAssistant\Command\LangCommand;
+use GpsLab\WorkspaceAssistant\Command\LocaleResolver;
 use GpsLab\WorkspaceAssistant\Command\Menu;
 use GpsLab\WorkspaceAssistant\Command\ModeCommand;
+use GpsLab\WorkspaceAssistant\Command\NewCommand;
+use GpsLab\WorkspaceAssistant\Command\QueueCommand;
+use GpsLab\WorkspaceAssistant\Command\QueueControl;
+use GpsLab\WorkspaceAssistant\Command\RestartCommand;
 use GpsLab\WorkspaceAssistant\Command\Router;
+use GpsLab\WorkspaceAssistant\Command\RunControl;
+use GpsLab\WorkspaceAssistant\Command\StatsCommand;
 use GpsLab\WorkspaceAssistant\Command\VerboseCommand;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ChatSurface;
@@ -25,6 +33,7 @@ use GpsLab\WorkspaceAssistant\Epic\Signal;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
 use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
 use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
+use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 
 /**
  * Main loop: Telegram polling, Claude launch, git operations.
@@ -41,7 +50,7 @@ use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
  * bot — at most one task is active at a time (see $activeJob), which
  * serializes everything by construction.
  */
-final class Bot
+final class Bot implements QueueControl, RunControl, LocaleResolver
 {
     private const string KIND_CHAT = 'chat';
     private const string KIND_COMPACT_SUMMARIZE = 'compact_summarize';
@@ -50,9 +59,9 @@ final class Bot
 
     /** Queue item kinds (queue.kind column): a regular request and the /new, /compact barriers. */
     private const string ITEM_CHAT = 'chat';
-    private const string ITEM_NEW = 'new';
-    private const string ITEM_COMPACT = 'compact';
-    private const string ITEM_EPIC = 'epic';
+    private const string ITEM_NEW = QueueTexts::ITEM_NEW;
+    private const string ITEM_COMPACT = QueueTexts::ITEM_COMPACT;
+    private const string ITEM_EPIC = QueueTexts::ITEM_EPIC;
 
     private const string EPIC_RUNNING = 'running';
     private const string EPIC_PAUSED = 'paused';
@@ -129,6 +138,7 @@ final class Bot
     private readonly ModeAndLang $modeAndLang;
     private readonly Router $commandRouter;
     private readonly Menu $commandMenu;
+    private readonly QueueTexts $queueTexts;
 
     public function __construct(
         private readonly Config $config,
@@ -152,10 +162,10 @@ final class Bot
             $db,
             $tg,
             $this->locale,
-            $this->topicHasActiveJob(...),
-            $this->localeFor(...),
-            $this->userLocale(...),
+            $this,
+            $this,
         );
+        $this->queueTexts = new QueueTexts($this->locale);
         $this->commandRouter = $this->buildCommandRouter();
         $this->commandMenu = new Menu($this->commandRouter, $tg, $this->locale);
         if ($github !== null) {
@@ -182,16 +192,16 @@ final class Bot
     private function buildCommandRouter(): Router
     {
         $router = new Router($this->tg, $this->locale);
-        $router->register(new CallbackCommand('new', '🆕', fn (CommandRequest $r) => $this->cmdNew($r->chatId, $r->threadId, $r->messageId, $r->userId)));
-        $router->register(new CallbackCommand('compact', '🗜️', fn (CommandRequest $r) => $this->cmdCompact($r->chatId, $r->threadId, $r->messageId, $r->userId)));
+        $router->register(new NewCommand($this->db, $this, $this));
+        $router->register(new CompactCommand($this, $this));
         $router->register(new CallbackCommand('cancel', '⛔', fn (CommandRequest $r) => $this->cmdCancel($r->chatId, $r->threadId)));
-        $router->register(new CallbackCommand('queue', '📋', fn (CommandRequest $r) => $this->cmdQueue($r->chatId, $r->threadId)));
-        $router->register(new CallbackCommand('stats', '📊', fn (CommandRequest $r) => $this->cmdStats($r->chatId, $r->threadId)));
+        $router->register(new QueueCommand($this->tg, $this->locale, $this, $this, $this->queueTexts));
+        $router->register(new StatsCommand($this->db, $this->tg, $this->locale, $this, $this));
         $router->register(new VerboseCommand($this->db, $this->tg, $this->locale));
         $router->register(new ModeCommand($this->modeAndLang));
         $router->register(new LangCommand($this->modeAndLang));
         $router->register(new EpicCommand($this->epicChat));
-        $router->register(new CallbackCommand('restart', '🔄', fn (CommandRequest $r) => $this->cmdRestart($r->chatId, $r->threadId)));
+        $router->register(new RestartCommand($this->config, $this->tg, $this->locale, $this, $this->selfRepoPath ?? dirname(__DIR__)));
         $router->register(new HelpCommand($this->tg, $this->locale));
 
         return $router;
@@ -208,13 +218,13 @@ final class Bot
     }
 
     /** Catalog with the locale fixed for a queue item or a user selected (`null` means the bot locale). */
-    private function localeFor(?string $localeCode): Locale
+    public function localeFor(?string $localeCode): Locale
     {
         return $localeCode === null ? $this->locale : $this->locale->with($localeCode);
     }
 
     /** Chat language of a user: chosen with /lang, otherwise `BOT_LOCALE` (never guessed from `language_code`). */
-    private function userLocale(int $userId): string
+    public function userLocale(int $userId): string
     {
         $chosen = $userId !== 0 ? $this->db->getUserLocale($userId) : null;
 
@@ -504,23 +514,7 @@ final class Bot
         $this->commandRouter->handle($chatId, $threadId, $text, $messageId, $userId);
     }
 
-    /**
-     * /new: if the topic has an active or pending item — it joins the queue as a
-     * barrier (a request sent before /new runs in the old session); if the topic
-     * is idle — an instant reset, as before.
-     */
-    private function cmdNew(int $chatId, int $threadId, int $messageId = 0, int $userId = 0): void
-    {
-        if ($this->topicBusy($chatId, $threadId)) {
-            $this->enqueueItem($chatId, $threadId, $messageId, self::ITEM_NEW, $this->db->getMode($chatId, $threadId), [], $this->userLocale($userId));
-
-            return;
-        }
-
-        $this->resetTopicSession($chatId, $threadId);
-    }
-
-    private function resetTopicSession(int $chatId, int $threadId): void
+    public function resetTopicSession(int $chatId, int $threadId): void
     {
         // The transcript of the session being reset is no longer needed on disk (it could be returned to
         // only via `claude --resume` from the console) — delete it.
@@ -530,21 +524,6 @@ final class Bot
             $this->sessionFiles->delete($old);
         }
         $this->tg->sendText($chatId, $this->t('session.new_started'), null, $threadId);
-    }
-
-    /**
-     * Compact the session instead of a full reset: ask Claude to write a
-     * summary of the current session, then open a new session with that summary in
-     * the first message. A two-phase task (see finishCompactSummarize /
-     * finishCompactReseed) — the old session's counters are zeroed only after
-     * the new session is actually created, otherwise a failure of the second phase would
-     * lose the context with no replacement. /compact is a claude run: it takes the
-     * queue like a regular item; "is there anything to compact" is checked when
-     * the item starts (session_id is read then, not at queueing).
-     */
-    private function cmdCompact(int $chatId, int $threadId, int $messageId = 0, int $userId = 0): void
-    {
-        $this->enqueueItem($chatId, $threadId, $messageId, self::ITEM_COMPACT, SystemPrompt::MODE_ARCH, [], $this->userLocale($userId));
     }
 
     /**
@@ -616,7 +595,7 @@ final class Bot
         $lines = [];
         foreach ($removed as $item) {
             $this->tg->editMessageText($item['chat_id'], $item['placeholder_id'], $this->t('cancel.item_removed'));
-            $lines[] = '• '.$this->describeItem($item);
+            $lines[] = '• '.$this->queueTexts->describeItem($item);
         }
 
         $text = $killed ? $this->t('cancel.process_stopped') : '';
@@ -638,41 +617,11 @@ final class Bot
     }
 
     /**
-     * /queue: queue items, their topics and the pause reason (if the queue is paused).
-     */
-    private function cmdQueue(int $chatId, int $threadId): void
-    {
-        $lines = [];
-        if ($this->activeJob !== null && $this->jobContext !== null) {
-            $lines[] = $this->t('queue.running', ['topic' => $this->topicLabel($this->jobContext['chat_id'], $this->jobContext['thread_id'])]);
-        }
-
-        $waiting = $this->db->queueWaiting();
-        foreach ($waiting as $i => $item) {
-            $lines[] = sprintf('%d. %s — %s [%s]', $i + 1, $this->topicLabel($item['chat_id'], $item['thread_id']), $this->describeItem($item), $item['mode']);
-        }
-
-        if ($lines === []) {
-            $this->tg->sendText($chatId, $this->t('queue.empty'), null, $threadId);
-
-            return;
-        }
-
-        $text = $this->t('queue.header', ['count' => count($waiting)])."\n".implode("\n", $lines);
-        $reason = $this->pauseReason();
-        if ($reason !== null) {
-            $text .= "\n\n".$this->t('queue.paused', ['reason' => $reason]);
-        }
-
-        $this->tg->sendText($chatId, $text, null, $threadId);
-    }
-
-    /**
      * The queue pause reason or null. A pause on a dirty tree is DERIVED from
      * state (AUTO_COMMIT=1, queue is non-empty, no job, tree is dirty), not stored as
      * an in-memory flag.
      */
-    private function pauseReason(): ?string
+    public function pauseReason(): ?string
     {
         $head = $this->db->queueHead();
         if ($head === null) {
@@ -693,7 +642,7 @@ final class Bot
             $decision = $this->db->getDecision();
 
             return $decision !== null
-                ? $this->t('pause.dirty_tree_in_topic', ['topic' => $this->topicLabel($decision['chat_id'], $decision['thread_id'])])
+                ? $this->t('pause.dirty_tree_in_topic', ['topic' => $this->queueTexts->topicLabel($decision['chat_id'], $decision['thread_id'])])
                 : $this->t('pause.dirty_tree');
         }
 
@@ -722,124 +671,6 @@ final class Bot
 
             return false;
         }
-    }
-
-    private function topicLabel(int $chatId, int $threadId): string
-    {
-        return $threadId === 0
-            ? $this->t('topic.general', ['chat' => $chatId])
-            : $this->t('topic.thread', ['thread' => $threadId, 'chat' => $chatId]);
-    }
-
-    /**
-     * @param array{kind:string, parts:list<array<string, mixed>>} $item
-     */
-    private function describeItem(array $item): string
-    {
-        if ($item['kind'] === self::ITEM_NEW) {
-            return '/new';
-        }
-        if ($item['kind'] === self::ITEM_COMPACT) {
-            return '/compact';
-        }
-        if ($item['kind'] === self::ITEM_EPIC) {
-            return $this->t('queue.epic_run', ['slug' => (string) ($item['parts'][0]['slug'] ?? ''), 'run' => (string) ($item['parts'][0]['run'] ?? '')]);
-        }
-
-        foreach ($item['parts'] as $part) {
-            $text = $part['text'] ?? null;
-            if (is_string($text) && trim($text) !== '') {
-                return '«'.mb_substr(trim(strtok($text, "\n") ?: $text), 0, 40).'»'.(count($item['parts']) > 1 ? ' (+'.(count($item['parts']) - 1).')' : '');
-            }
-        }
-
-        return $this->t('queue.files');
-    }
-
-    /** Topic's queue position: 1 — running now or first in the queue; null — the topic has no items. */
-    private function queuePosition(int $chatId, int $threadId): ?int
-    {
-        if ($this->jobContext !== null && $this->jobContext['chat_id'] === $chatId && $this->jobContext['thread_id'] === $threadId) {
-            return 1;
-        }
-
-        $offset = $this->activeJob !== null ? 1 : 0;
-        foreach ($this->db->queueWaiting() as $i => $item) {
-            if ($item['chat_id'] === $chatId && $item['thread_id'] === $threadId) {
-                return $i + 1 + $offset;
-            }
-        }
-
-        return null;
-    }
-
-    private function cmdStats(int $chatId, int $threadId): void
-    {
-        // The mode line goes first regardless of the outcome below — a forgotten mode
-        // silently trims replies, and /stats is often checked right after /new, when there is
-        // no active session yet. One message in both cases.
-        $modeLine = $this->t('stats.mode', ['mode' => $this->db->getMode($chatId, $threadId)]);
-        $position = $this->queuePosition($chatId, $threadId);
-        $modeLine .= "\n".$this->t('stats.queue', ['state' => $position === null
-            ? $this->t('stats.queue_none')
-            : ($position === 1 && $this->jobContext !== null && $this->jobContext['thread_id'] === $threadId && $this->jobContext['chat_id'] === $chatId
-                ? $this->t('stats.queue_running')
-                : $this->t('queue.position', ['position' => $position]))]);
-
-        $row = $this->db->getSession($chatId, $threadId);
-        if ($row === null || ($row['session_id'] ?? null) === null) {
-            $this->tg->sendText($chatId, $modeLine."\n".$this->t('stats.no_session'), null, $threadId);
-
-            return;
-        }
-
-        $sessionId = (string) $row['session_id'];
-        $lines = [
-            $modeLine,
-            $this->t('stats.session', ['id' => substr($sessionId, 0, 8)]),
-            $this->t('stats.messages', ['count' => (int) $row['message_count']]),
-            $this->t('stats.tokens_in', ['count' => number_format((int) $row['input_tokens'], 0, '.', ' ')]),
-            $this->t('stats.tokens_out', ['count' => number_format((int) $row['output_tokens'], 0, '.', ' ')]),
-            $this->t('stats.verbose', ['state' => ((int) $row['verbose']) === 1 ? $this->t('common.on') : $this->t('common.off')]),
-        ];
-
-        $this->tg->sendText($chatId, implode("\n", $lines), null, $threadId);
-    }
-
-    /**
-     * Pulls fresh bot code (git pull in its own repository) and
-     * ends the polling loop. The systemd unit (Restart=always) brings the process
-     * back up - the same stop path as on SIGTERM, including the final
-     * getUpdates flush in run() (otherwise Telegram would redeliver this same /restart
-     * after the restart - see gotchas.md).
-     */
-    private function cmdRestart(int $chatId, int $threadId): void
-    {
-        $selfGit = GitManager::forPath($this->selfRepoPath ?? dirname(__DIR__), $this->config->gitTimeout);
-        $pullNote = '';
-
-        if ($selfGit === null) {
-            $pullNote = "\n".$this->t('restart.no_repo');
-        } else {
-            try {
-                $dirty = $selfGit->hasChanges();
-            } catch (GitStatusException $e) {
-                $dirty = null;
-                $pullNote = "\n".$this->t('restart.status_failed', ['error' => $e->getMessage()]);
-            }
-            if ($dirty === true) {
-                $pullNote = "\n".$this->t('restart.dirty');
-            } elseif ($dirty === false) {
-                $error = '';
-                $pullNote = $selfGit->pullRebase($error)
-                    ? "\n".$this->t('restart.updated', ['hash' => $selfGit->headHash()])
-                    : "\n".$this->t('restart.pull_failed', ['error' => $error]);
-            }
-        }
-
-        $this->tg->sendText($chatId, $this->t('restart.restarting').$pullNote, null, $threadId);
-        Log::line('restart requested via /restart (chat '.$chatId.', thread '.$threadId.')');
-        $this->running = false;
     }
 
     // ---- Request queue ----------------------------------------------------
@@ -1002,14 +833,43 @@ final class Bot
     }
 
     /** Whether the topic has an active job. */
-    private function topicHasActiveJob(int $chatId, int $threadId): bool
+    public function topicHasActiveJob(int $chatId, int $threadId): bool
     {
         return $this->activeJob !== null && $this->jobContext !== null
             && $this->jobContext['chat_id'] === $chatId && $this->jobContext['thread_id'] === $threadId;
     }
 
+    public function currentRun(): ?array
+    {
+        if ($this->activeJob === null || $this->jobContext === null) {
+            return null;
+        }
+
+        return ['chat_id' => $this->jobContext['chat_id'], 'thread_id' => $this->jobContext['thread_id']];
+    }
+
+    public function requestStop(): void
+    {
+        $this->running = false;
+    }
+
+    public function waiting(): array
+    {
+        return $this->db->queueWaiting();
+    }
+
+    public function enqueueNew(int $chatId, int $threadId, int $messageId, string $mode, string $localeCode): void
+    {
+        $this->enqueueItem($chatId, $threadId, $messageId, self::ITEM_NEW, $mode, [], $localeCode);
+    }
+
+    public function enqueueCompact(int $chatId, int $threadId, int $messageId, string $localeCode): void
+    {
+        $this->enqueueItem($chatId, $threadId, $messageId, self::ITEM_COMPACT, SystemPrompt::MODE_ARCH, [], $localeCode);
+    }
+
     /** The topic has an active or pending item. */
-    private function topicBusy(int $chatId, int $threadId): bool
+    public function topicBusy(int $chatId, int $threadId): bool
     {
         return $this->topicHasActiveJob($chatId, $threadId) || $this->db->queueLastWaiting($chatId, $threadId) !== null;
     }
@@ -2770,7 +2630,7 @@ final class Bot
                 continue;
             }
             $notified[$key] = true;
-            $this->delivery->safeDeliver($item['chat_id'], $item['thread_id'], $this->t('decision.queue_waits', ['topic' => $this->topicLabel($chatId, $landed['thread_id'])]));
+            $this->delivery->safeDeliver($item['chat_id'], $item['thread_id'], $this->t('decision.queue_waits', ['topic' => $this->queueTexts->topicLabel($chatId, $landed['thread_id'])]));
         }
     }
 

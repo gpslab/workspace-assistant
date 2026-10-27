@@ -1,0 +1,22 @@
+<?php
+
+declare(strict_types=1);
+
+namespace GpsLab\WorkspaceAssistant\Command;
+
+/** What the commands need from the run owned by `Bot`. */
+interface RunControl
+{
+    /**
+     * The topic of the running job, or null when nothing runs.
+     *
+     * @return array{chat_id:int, thread_id:int}|null
+     */
+    public function currentRun(): ?array;
+
+    /** Whether the topic has an active job. */
+    public function topicHasActiveJob(int $chatId, int $threadId): bool;
+
+    /** Asks the polling loop to end after the current iteration. */
+    public function requestStop(): void;
+}

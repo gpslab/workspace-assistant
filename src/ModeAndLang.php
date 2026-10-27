@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Command\LocaleResolver;
+use GpsLab\WorkspaceAssistant\Command\RunControl;
+
 /**
  * The `/mode` and `/lang` commands and their inline keyboards: the working mode of a topic
  * and the chat language of a user.
@@ -13,18 +16,12 @@ final class ModeAndLang
     /** Telegram's limit for inline button callback_data. */
     private const int CALLBACK_DATA_MAX_BYTES = 64;
 
-    /**
-     * @param \Closure(int, int): bool  $topicHasActiveJob (chatId, threadId)
-     * @param \Closure(?string): Locale $localeFor         locale code or null for the bot locale
-     * @param \Closure(int): string     $userLocale        userId => locale code
-     */
     public function __construct(
         private readonly Database $db,
         private readonly TelegramClient $tg,
         private readonly Locale $locale,
-        private readonly \Closure $topicHasActiveJob,
-        private readonly \Closure $localeFor,
-        private readonly \Closure $userLocale,
+        private readonly RunControl $run,
+        private readonly LocaleResolver $locales,
     ) {
     }
 
@@ -52,7 +49,7 @@ final class ModeAndLang
             return;
         }
 
-        if (($this->topicHasActiveJob)($chatId, $threadId)) {
+        if ($this->run->topicHasActiveJob($chatId, $threadId)) {
             $this->tg->sendText($chatId, $this->locale->t('mode.busy'), null, $threadId);
 
             return;
@@ -84,14 +81,14 @@ final class ModeAndLang
     public function cmdLang(int $chatId, int $threadId, int $userId, string $argument): void
     {
         $argument = trim($argument);
-        $current = ($this->userLocale)($userId);
+        $current = $this->locales->userLocale($userId);
         $available = implode(', ', array_map(
             fn (string $code): string => $code.' ('.$this->locale->languageName($code).')',
             $this->locale->codes(),
         ));
 
         if ($argument === '') {
-            $this->tg->sendText($chatId, ($this->localeFor)($current)->t('lang.current', [
+            $this->tg->sendText($chatId, $this->locales->localeFor($current)->t('lang.current', [
                 'code' => $current,
                 'language' => $this->locale->languageName($current),
                 'available' => $available,
@@ -107,7 +104,7 @@ final class ModeAndLang
             }
         }
         if ($code === null) {
-            $this->tg->sendText($chatId, ($this->localeFor)($current)->t('lang.unknown', ['code' => $argument, 'available' => $available]), null, $threadId);
+            $this->tg->sendText($chatId, $this->locales->localeFor($current)->t('lang.unknown', ['code' => $argument, 'available' => $available]), null, $threadId);
 
             return;
         }
@@ -119,10 +116,10 @@ final class ModeAndLang
     /** The reply to a language switch, in the new language; shared by the text form and the keyboard. */
     private function langSwitchedText(string $code): string
     {
-        return ($this->localeFor)($code)->t('lang.switched', [
+        return $this->locales->localeFor($code)->t('lang.switched', [
             'code' => $code,
             'language' => $this->locale->languageName($code),
-        ]).($this->localeFor)($code)->t('lang.session_warning');
+        ]).$this->locales->localeFor($code)->t('lang.session_warning');
     }
 
     /**
@@ -180,7 +177,7 @@ final class ModeAndLang
             return;
         }
 
-        $this->tg->answerCallback($callbackId, ($this->localeFor)($code)->t('lang.switched', [
+        $this->tg->answerCallback($callbackId, $this->locales->localeFor($code)->t('lang.switched', [
             'code' => $code,
             'language' => $this->locale->languageName($code),
         ]));
@@ -272,7 +269,7 @@ final class ModeAndLang
         $mode = $parsed['mode'];
         $threadId = $parsed['thread_id'];
 
-        if (($this->topicHasActiveJob)($chatId, $threadId)) {
+        if ($this->run->topicHasActiveJob($chatId, $threadId)) {
             $this->tg->answerCallback($callbackId, $this->locale->t('mode.busy'));
 
             return;

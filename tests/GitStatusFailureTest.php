@@ -399,7 +399,7 @@ final class GitStatusFailureTest extends TestCase
         $this->corruptIndex($self);
         $this->bot = $this->makeBot($self);
 
-        $this->call('cmdRestart', [100, 1]);
+        $this->call('handleCommand', [100, 1, '/restart']);
 
         self::assertStringContainsString(self::FAILED, $this->allText());
         self::assertStringContainsString(self::INDEX_ERROR, $this->allText());
