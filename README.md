@@ -13,7 +13,7 @@ A Telegram bot that turns chat messages into Claude Code
 runs inside a git repository, the *managed repository*. It is meant to be a knowledge base: a repository
 of documents that you edit through chat, not a code base. You write to the bot from your phone; the
 message goes to `claude -p` in the context of the managed repository, the changes are committed and
-pushed automatically, and the reply contains a link to the commit. See
+pushed automatically (unless `AUTO_COMMIT=0`), and the reply contains a link to the commit. See
 [How it works](#how-it-works) for what exactly is committed and pushed.
 
 ```
@@ -41,7 +41,7 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
 ## Features
 
 - Per-chat Claude sessions that continue between messages (`--resume`).
-- Before each run: clean-tree check and `git pull --rebase`; after a successful run: commit and push of the managed repository.
+- Before each run: clean-tree check and `git pull --rebase`; after a successful run: commit and push of the managed repository. With `AUTO_COMMIT=0` the bot does none of this in the managed repository.
 - A request that arrives while the bot is busy is queued, not rejected.
 - Live progress: the "Thinking..." message is updated with what Claude says and which tools it calls.
 - Files in both directions: files sent to the bot are handed to Claude (inbox); files Claude puts
@@ -63,6 +63,11 @@ someone else are not committed automatically: the bot asks whether to commit or 
 epic run asks nothing: its changes are saved as `dirty-<timestamp>.patch` next to `failures.log` in
 `<STATE_DIR>/epics/<slug>/`, and the tree is rolled back. Nothing else is reviewed before a push, so do
 not point the bot at a code project.
+
+With `AUTO_COMMIT=0` the bot neither commits, pushes nor pulls the managed repository: there is no
+clean-tree check, no commit/discard buttons and no commit link, and the changes of every run stay in
+the working tree for you to commit. All topics share one working tree, so the changes of one topic are
+visible in the next run of another. Sub-repositories under `SUBREPOS_DIR` are still pulled.
 
 - If the push fails, the reply reports the error and has no link to the managed repository commit
   (links to sub-repository commits can still be there). The commit stays local and goes out with the
@@ -228,8 +233,9 @@ remote shell for everyone in `ALLOWED_USER_IDS`.
 - **`--dangerously-skip-permissions` is the default** of `CLAUDE_EXTRA_ARGS`. Claude can run any command
   as the bot's system user and use that user's `gh` token and git credentials. Content Claude reads
   (files, issues, PR text) can steer it too (prompt injection).
-- Every successful run is committed and pushed to the current branch automatically with no review (see
-  [How it works](#how-it-works)), including edits to persona and locale files.
+- With the default `AUTO_COMMIT=1` every successful run is committed and pushed to the current branch
+  automatically with no review (see [How it works](#how-it-works)), including edits to persona and
+  locale files. With `AUTO_COMMIT=0` nothing is committed or pushed by the bot.
 
 To report a vulnerability privately, see [SECURITY.md](SECURITY.md).
 

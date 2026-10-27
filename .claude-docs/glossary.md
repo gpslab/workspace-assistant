@@ -8,7 +8,7 @@ Terms and names that are easy to misread. The obvious is not duplicated.
 
 | Term                          | What it actually is                                                                                                                                         |
 |-------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Managed repository**        | The repository the bot pulls, commits and pushes: `REPO_PATH`. **Not** the bot's own repository. Claude runs with it as the working directory.              |
+| **Managed repository**        | The repository the bot pulls, commits and pushes (unless `AUTO_COMMIT=0`): `REPO_PATH`. **Not** the bot's own repository. Claude runs with it as the working directory.              |
 | **Bot's repository**          | The code of Workspace Assistant itself (`gpslab/workspace-assistant`). The bot never commits it in response to messages.                                    |
 | **`Bot`**                     | The class in `src/Bot.php` and the **main loop**: polling, queue, commands, git decisions. It is not an orchestrator.                                       |
 | **epic**                      | A series of GitHub tasks with an execution order, approved by its author (`/epic`, plan in `EPICS_DIR`). The only word for a series of tasks. See [../EPICS.md](../EPICS.md). |

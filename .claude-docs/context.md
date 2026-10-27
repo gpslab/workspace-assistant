@@ -13,7 +13,7 @@ Who calls the service, the threat model and the deliberate design decisions. Run
 
 - **A small trusted group, usually one person.** A user writes to the bot in Telegram; the message goes
   to `claude -p` in the context of the **managed repository** (`REPO_PATH`), the result is committed and
-  pushed, and the reply carries a commit link. The point is to edit a knowledge base or drive
+  pushed (unless `AUTO_COMMIT=0`), and the reply carries a commit link. The point is to edit a knowledge base or drive
   development from a phone.
 - It is a **tool around a repository**, not a component of the repository it manages. On Telegram
   requests the bot works on `REPO_PATH`, never on its own code.
@@ -55,7 +55,7 @@ Deliberately wide surface (accepted risk, not a hole):
   4. where possible a stricter `CLAUDE_EXTRA_ARGS` (for example `--permission-mode,acceptEdits`).
 - **Accepted risk: a run can change the prompt files of the managed repository.** Persona files
   (`PROMPTS_DIR`) and locale files (`LOCALES_DIR`) live in the managed
-  repository, which the bot edits and pushes by itself. An injected or mistaken run can rewrite them and
+  repository, which the bot edits and, with `AUTO_COMMIT=1`, pushes by itself. An injected or mistaken run can rewrite them and
   so steer later runs. The change has history (git) but **no review**. Mitigation: the bot appends a
   warning to the reply of every commit path (`sendResult()`, epic runs, the manual "commit" button) when
   a run changed files under `PROMPTS_DIR` or `LOCALES_DIR`. Read that warning and review the commit.

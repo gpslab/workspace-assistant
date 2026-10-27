@@ -1,7 +1,7 @@
 # CLAUDE.md — Workspace Assistant
 
 A Telegram bot: it takes messages, runs them through `claude -p` in the context of a git repository
-(the **managed repository**) and commits/pushes the changes automatically. Usage and commands are in
+(the **managed repository**) and (unless `AUTO_COMMIT=0`) commits/pushes the changes automatically. Usage and commands are in
 [README.md](README.md), installation and configuration in [INSTALL.md](INSTALL.md), working out a task
 in [TASKS.md](TASKS.md), the epic reference in [EPICS.md](EPICS.md).
 

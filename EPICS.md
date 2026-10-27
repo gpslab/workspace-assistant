@@ -194,7 +194,9 @@ be in the `REPO_PATH` working tree at the time of `/epic start`.
 ## Journal
 
 `<EPICS_DIR>/<slug>.journal.md` in `REPO_PATH`. The journal is the epic's only memory between runs;
-the Claude runs maintain it themselves (commit and push right after every external action).
+the Claude runs maintain it themselves (commit and push right after every external action). With
+`AUTO_COMMIT=0` they write it to disk without committing or pushing it, and links to the journal on
+GitHub may return 404 until the operator pushes it.
 
 ## Epic run: input and signal
 
@@ -524,14 +526,16 @@ Then:
   `master`): the epic status is `blocked`, the reason is saved, and exactly one message "⛔ epic is
   stopped, waiting for: <reason>" goes to the epic topic. `/epic resume` clears it.
 - **Epic run failure** (the process crashed, was killed by timeout, returned an error, the signal is
-  missing or invalid): if the tree is dirty, all of its content (modified, untracked and binary
+  missing or invalid): with `AUTO_COMMIT=0` the bot does not patch and roll back the tree; the changes
+  stay in the working tree. With `1`, if the tree is dirty, all of its content (modified, untracked and binary
   files) is saved as the patch `state/epics/<slug>/dirty-<ts>.patch`
   (`git add -A && git diff --cached --binary`), then the tree is rolled back. There are no
   commit/discard buttons and the queue is not paused. A failure record is appended to
   `state/epics/<slug>/failures.log`; the bot does not commit it to the repository — the next tick
   moves it into the epic journal. The epic continues. Regular requests behave as before: commit/discard
   buttons and a paused queue.
-- **A successful epic run with residual dirt** — an auto-commit, as for a regular request.
+- **A successful epic run with residual dirt** — an auto-commit, as for a regular request; with
+  `AUTO_COMMIT=0` leftover changes are not committed.
 - **`done`**: the HTML report from the outbox goes to the epic topic at once, at any time of day; the
   epic becomes `done`.
 

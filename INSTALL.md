@@ -15,9 +15,9 @@ php bin/bot.php
 1. Create a bot with [@BotFather](https://t.me/BotFather) and keep the token.
 2. Find your Telegram user id with [@userinfobot](https://t.me/userinfobot).
 3. Clone the managed repository, make sure `git pull` and `git push` work there without prompts,
-   and note its absolute path. It should be a knowledge base, not a code project: the bot commits
+   and note its absolute path. It should be a knowledge base, not a code project: by default the bot commits
    everything after each successful run that changed files (message `tg: <first line of the request, up to 60 chars>`) and pushes the
-   current branch, see [the managed repository: commit and push](README.md#the-managed-repository-commit-and-push).
+   current branch (not with `AUTO_COMMIT=0`), see [the managed repository: commit and push](README.md#the-managed-repository-commit-and-push).
 
 The list of changes between versions is on the
 [GitHub Releases](https://github.com/gpslab/workspace-assistant/releases) page; read it before updating.
