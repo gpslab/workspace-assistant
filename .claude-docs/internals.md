@@ -76,7 +76,7 @@ immature album, queue head ready to start), otherwise `POLL_TIMEOUT`; it fetches
 `offset`, dispatches, flushes mature albums, polls the job, starts the queue head, runs the
 `Orchestrator`. A zero timeout is followed by `usleep(200 ms)`.
 
-`dispatch()`: `callback_query` → `handleCallback`; the user id is checked against the whitelist; `/...`
+`dispatch()`: `callback_query` → `handleCallback` (access guard, then the first `Callback\Handler` that supports the data); the user id is checked against the whitelist; `/...`
 → command, anything else → the queue.
 
 ### Releasing a job (critical order)

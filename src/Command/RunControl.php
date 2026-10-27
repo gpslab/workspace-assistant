@@ -17,6 +17,12 @@ interface RunControl
     /** Whether the topic has an active job. */
     public function topicHasActiveJob(int $chatId, int $threadId): bool;
 
+    /**
+     * Cancels the topic's own work: kills its active job (never another topic's) and removes all its queue
+     * items; pauses the topic's running epic and clears the Claude limit pause when something was removed.
+     */
+    public function cancelTopic(int $chatId, int $threadId): CancelResult;
+
     /** Asks the polling loop to end after the current iteration. */
     public function requestStop(): void;
 }

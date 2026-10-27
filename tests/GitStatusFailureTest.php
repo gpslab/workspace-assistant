@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\Bot;
+use GpsLab\WorkspaceAssistant\Callback\DirtyTreeDecision;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
@@ -117,6 +118,11 @@ final class GitStatusFailureTest extends TestCase
             botLocale: 'en',
             autoCommit: $this->autoCommit,
         );
+    }
+
+    private function dirtyTree(): DirtyTreeDecision
+    {
+        return (new \ReflectionProperty(Bot::class, 'dirtyTree'))->getValue($this->bot);
     }
 
     private function makeBot(?string $selfRepoPath = null): Bot
@@ -378,13 +384,13 @@ final class GitStatusFailureTest extends TestCase
     {
         $this->corruptIndex();
 
-        $this->call('offerDecisionIfDirty', [100, 1]);
+        $this->dirtyTree()->offerDecisionIfDirty(100, 1);
         self::assertSame([], $this->buttons());
         self::assertStringContainsString(self::FAILED, $this->allText());
         self::assertNull($this->db->getDecision());
 
         $this->tg->sent = [];
-        $this->call('ensureDecision', [100, 1]);
+        $this->dirtyTree()->ensureDecision(100, 1);
         self::assertSame([], $this->buttons());
         self::assertStringContainsString(self::FAILED, $this->allText());
         self::assertStringContainsString(self::INDEX_ERROR, $this->allText());
