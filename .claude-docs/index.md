@@ -36,6 +36,7 @@ Which file to read for which task. Start here when unsure.
 | `src/Bot.php`                                    | Main loop: polling, queue (`startQueueHead`), the run lifecycle and `cancelTopic`; implements the ports                                                            |
 | `src/RunState.php`                               | Holder of the run state (`activeJob`, `jobContext`, `repoSnapshot`, the tree snapshot and its error): one instance, shared by `Bot` and the classes built from it |
 | `src/RunResult.php`                              | The reply to a finished run: `sendResult`, auto-commit message and link, prompt-files warning; implements `DecisionHost` |
+| `src/CompactFlow.php` / `JobLauncher.php` / `RunKind.php` | `/compact` phases after their runs finish (`finishSummarize`, `finishReseed`); `JobLauncher` is the port that starts phase 2 (`Bot` implements it); `RunKind` holds the run kinds (`KIND_*`) |
 | `src/Command/Router.php`                         | Parses `/cmd@bot argument`, resolves aliases, answers `command.unknown`; registration order is the menu order                    |
 | `src/Command/Menu.php`                           | Builds and registers the per-locale and default command menus from the router (`setMyCommands`)                                  |
 | `src/Command/*Command.php`                       | One class per moved command (`Help`, `Verbose`, `Mode`, `Lang`, `Epic`, `New`, `Compact`, `Cancel`, `Queue`, `Stats`, `Restart`) |
