@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Delivery;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
 use GpsLab\WorkspaceAssistant\GitManager;
+use GpsLab\WorkspaceAssistant\Keyboards;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
@@ -168,12 +169,7 @@ final readonly class DirtyTreeDecision implements Handler
         $chatId = $owner['chat_id'] ?? $fallbackChatId;
         $threadId = $owner['thread_id'] ?? $fallbackThreadId;
 
-        $markup = [
-            'inline_keyboard' => [[
-                ['text' => $this->t('decision.button_commit'), 'callback_data' => 'commit'],
-                ['text' => $this->t('decision.button_discard'), 'callback_data' => 'discard'],
-            ]],
-        ];
+        $markup = Keyboards::decision($this->t('decision.button_commit'), $this->t('decision.button_discard'))->markup;
 
         // The message with buttons must go out as TEXT: a long one goes as a file
         // without reply_markup, the decision would be left without buttons and the

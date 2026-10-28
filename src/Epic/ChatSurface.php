@@ -7,6 +7,8 @@ namespace GpsLab\WorkspaceAssistant\Epic;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\GitManager;
+use GpsLab\WorkspaceAssistant\Keyboard;
+use GpsLab\WorkspaceAssistant\Keyboards;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\TelegramClient;
 
@@ -15,7 +17,6 @@ use GpsLab\WorkspaceAssistant\TelegramClient;
  */
 final class ChatSurface
 {
-    private const int CALLBACK_DATA_MAX_BYTES = 64;
     private const string EPIC_RUNNING = 'running';
     private const string EPIC_PAUSED = 'paused';
     private const string EPIC_DONE = 'done';
@@ -60,14 +61,14 @@ final class ChatSurface
 
     /**
      * /epic without an argument: a keyboard of the actions that would do something right now
-     * (see epicButtons()); with no such action — "nothing to do" and the usage.
+     * (see epicActions()); with no such action — "nothing to do" and the usage.
      *
      * @param array{slug:string, status:string}|null $epic
      */
     private function sendEpicMenu(int $chatId, int $threadId, ?array $epic): void
     {
-        $buttons = $this->epicButtons($threadId, $epic);
-        if ($buttons === []) {
+        $menu = Keyboards::epicMenu($this->epicActions($threadId, $epic));
+        if ($menu->isEmpty()) {
             $this->tg->sendText($chatId, $this->t('epic.nothing_to_do')."\n".$this->t('epic.usage'), null, $threadId);
 
             return;
@@ -76,23 +77,23 @@ final class ChatSurface
         $header = $epic !== null
             ? $this->t('epic.status_header', ['slug' => $epic['slug'], 'status' => $epic['status']])
             : $this->t('epic.none');
-        $this->tg->sendText($chatId, $header, ['inline_keyboard' => [$buttons]], $threadId);
+        $this->tg->sendText($chatId, $header, $menu->markup, $threadId);
     }
 
     /**
-     * Buttons of the actions of the topic's epic that would not answer "nothing to do". The
-     * conditions mirror the guards of epicPause(), epicResume() and epicStart(). A button whose
-     * callback_data does not fit the Telegram limit is left out (the text form stays available).
+     * Actions of the topic's epic that would not answer "nothing to do". The conditions mirror the
+     * guards of epicPause(), epicResume() and epicStart(). The menu leaves out an action whose
+     * callback_data does not fit the Telegram limit (the text form stays available).
      *
      * @param array{slug:string, status:string}|null $epic
      *
-     * @return list<array{text: string, callback_data: string}>
+     * @return list<array{0: string, 1: string}> [text, callback_data]
      */
-    private function epicButtons(int $threadId, ?array $epic): array
+    private function epicActions(int $threadId, ?array $epic): array
     {
         $actions = [];
         if ($epic === null || $epic['status'] === self::EPIC_DONE) {
-            if ($this->epicCandidates($threadId)['slugs'] !== []) {
+            if (!$this->candidateKeyboard($threadId)->isEmpty()) {
                 $actions[] = ['🚀 start', "epic:list:{$threadId}"];
             }
             if ($epic !== null) {
@@ -110,14 +111,7 @@ final class ChatSurface
             $actions[] = ['📊 status', "epic:status:{$threadId}:{$slug}"];
         }
 
-        $buttons = [];
-        foreach ($actions as [$text, $data]) {
-            if (strlen($data) <= self::CALLBACK_DATA_MAX_BYTES) {
-                $buttons[] = ['text' => $text, 'callback_data' => $data];
-            }
-        }
-
-        return $buttons;
+        return $actions;
     }
 
     private function epicHasBlockedTasks(string $slug): bool
@@ -127,12 +121,11 @@ final class ChatSurface
 
     /**
      * Plans that can be started: `<EPICS_DIR>/*.md` without journals, with a valid slug and no
-     * epic record, newest file first (ties by slug), at most EPIC_CANDIDATES_MAX. A plan whose
-     * callback_data would not fit the Telegram limit is not listed; `skipped` tells about it.
-     *
-     * @return array{slugs: list<string>, skipped: bool}
+     * epic record, newest file first (ties by slug). The keyboard lists at most EPIC_CANDIDATES_MAX
+     * of them and leaves out a plan whose callback_data would not fit the Telegram limit; `skipped`
+     * tells about it.
      */
-    private function epicCandidates(int $threadId): array
+    private function candidateKeyboard(int $threadId): Keyboard
     {
         $found = [];
         foreach (glob($this->config->repoPath.'/'.$this->config->epicsDir.'/*.md') ?: [] as $file) {
@@ -147,21 +140,7 @@ final class ChatSurface
         }
         usort($found, static fn (array $a, array $b): int => [$b['mtime'], $a['slug']] <=> [$a['mtime'], $b['slug']]);
 
-        $slugs = [];
-        $skipped = false;
-        foreach (array_column($found, 'slug') as $slug) {
-            // `pick` is the longest form a candidate appears in.
-            if (strlen("epic:pick:{$threadId}:{$slug}") > self::CALLBACK_DATA_MAX_BYTES) {
-                $skipped = true;
-
-                continue;
-            }
-            if (count($slugs) < self::EPIC_CANDIDATES_MAX) {
-                $slugs[] = $slug;
-            }
-        }
-
-        return ['slugs' => $slugs, 'skipped' => $skipped];
+        return Keyboards::epicCandidates($threadId, array_column($found, 'slug'), self::EPIC_CANDIDATES_MAX, $this->t('epic.cancel_button'));
     }
 
     /**
@@ -333,7 +312,7 @@ final class ChatSurface
         switch ($action) {
             case 'cancel':
                 $this->tg->answerCallback($callbackId);
-                $this->tg->editMessageText($chatId, $messageId, $this->t('epic.start_cancelled'), ['inline_keyboard' => []]);
+                $this->tg->editMessageText($chatId, $messageId, $this->t('epic.start_cancelled'), Keyboards::remove()->markup);
 
                 return;
 
@@ -381,37 +360,31 @@ final class ChatSurface
         $this->tg->sendText($chatId, $reply, null, $threadId);
         // The buttons are spent: the same text, no keyboard.
         $shown = (string) ($message['text'] ?? '');
-        $this->tg->editMessageText($chatId, $messageId, $shown !== '' ? $shown : $reply, ['inline_keyboard' => []]);
+        $this->tg->editMessageText($chatId, $messageId, $shown !== '' ? $shown : $reply, Keyboards::remove()->markup);
     }
 
     /** The "pick a plan" step: plain text, one button per candidate. */
     private function editEpicCandidates(int $chatId, int $messageId, int $threadId): void
     {
-        $candidates = $this->epicCandidates($threadId);
-        if ($candidates['slugs'] === []) {
-            $this->tg->editMessageText($chatId, $messageId, $this->t('epic.no_candidates'), ['inline_keyboard' => []]);
+        $candidates = $this->candidateKeyboard($threadId);
+        if ($candidates->isEmpty()) {
+            $this->tg->editMessageText($chatId, $messageId, $this->t('epic.no_candidates'), Keyboards::remove()->markup);
 
             return;
         }
 
-        $rows = [];
-        foreach ($candidates['slugs'] as $slug) {
-            $rows[] = [['text' => $slug, 'callback_data' => "epic:pick:{$threadId}:{$slug}"]];
-        }
-        $rows[] = [['text' => $this->t('epic.cancel_button'), 'callback_data' => "epic:cancel:{$threadId}"]];
-
         $text = $this->t('epic.pick_header');
-        if ($candidates['skipped']) {
+        if ($candidates->skipped) {
             $text .= "\n".$this->t('epic.long_names_hint');
         }
-        $this->tg->editMessageText($chatId, $messageId, $text, ['inline_keyboard' => $rows]);
+        $this->tg->editMessageText($chatId, $messageId, $text, $candidates->markup);
     }
 
     /** The confirmation step: plain text with a bare plan URL; an invalid plan gets the error and no start button. */
     private function editEpicConfirmation(int $chatId, int $messageId, int $threadId, string $slug): void
     {
         if ($this->db->epicGet($slug) !== null) {
-            $this->tg->editMessageText($chatId, $messageId, $this->t('epic.exists', ['slug' => $slug]), ['inline_keyboard' => []]);
+            $this->tg->editMessageText($chatId, $messageId, $this->t('epic.exists', ['slug' => $slug]), Keyboards::remove()->markup);
 
             return;
         }
@@ -420,7 +393,7 @@ final class ChatSurface
         try {
             $plan = Plan::load(Run::planPath($this->config->repoPath, $this->config->epicsDir, $slug), $this->config->githubOwners);
         } catch (\InvalidArgumentException $e) {
-            $this->tg->editMessageText($chatId, $messageId, $this->t('epic.plan_invalid', ['error' => $e->getMessage()]), ['inline_keyboard' => []]);
+            $this->tg->editMessageText($chatId, $messageId, $this->t('epic.plan_invalid', ['error' => $e->getMessage()]), Keyboards::remove()->markup);
 
             return;
         }
@@ -431,10 +404,7 @@ final class ChatSurface
             'releases' => count($plan->releases),
             'plan' => $this->git->githubFileUrl($path) ?? $path,
         ]);
-        $this->tg->editMessageText($chatId, $messageId, $text, ['inline_keyboard' => [[
-            ['text' => $this->t('epic.start_button'), 'callback_data' => "epic:go:{$threadId}:{$slug}"],
-            ['text' => $this->t('epic.cancel_button'), 'callback_data' => "epic:cancel:{$threadId}"],
-        ]]]);
+        $this->tg->editMessageText($chatId, $messageId, $text, Keyboards::epicConfirmation($threadId, $slug, $this->t('epic.start_button'), $this->t('epic.cancel_button'))->markup);
     }
 
     /**

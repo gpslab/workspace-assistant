@@ -13,9 +13,6 @@ use GpsLab\WorkspaceAssistant\Command\RunControl;
  */
 final class ModeAndLang
 {
-    /** Telegram's limit for inline button callback_data. */
-    private const int CALLBACK_DATA_MAX_BYTES = 64;
-
     public function __construct(
         private readonly Database $db,
         private readonly TelegramClient $tg,
@@ -44,7 +41,7 @@ final class ModeAndLang
 
         if ($argument === '') {
             $current = $this->db->getMode($chatId, $threadId);
-            $this->tg->sendText($chatId, $this->modeMessage($current), self::buildModeKeyboard($current, $threadId), $threadId);
+            $this->tg->sendText($chatId, $this->modeMessage($current), Keyboards::mode($current, $threadId)->markup, $threadId);
 
             return;
         }
@@ -123,33 +120,24 @@ final class ModeAndLang
     }
 
     /**
-     * /lang keyboard: one button per locale, three per row, labelled '<flag> <self-name>' from the
-     * locale's own catalog (no flag when it has none); the caller's current language gets ' ✓'.
-     * callback_data is 'lang:<code>'; a locale whose code does not fit Telegram's 64-byte limit
-     * gets no button (it stays selectable with '/lang <code>').
+     * The /lang keyboard (see Keyboards::language()); a locale whose code does not fit Telegram's
+     * 64-byte limit gets no button (it stays selectable with '/lang <code>').
      *
      * @return array{inline_keyboard: list<list<array{text: string, callback_data: string}>>}
      */
     private function buildLangKeyboard(string $current): array
     {
-        $buttons = [];
+        $locales = [];
         foreach ($this->locale->codes() as $code) {
             $label = $this->locale->nativeName($code);
             $flag = $this->locale->flag($code);
             if ($flag !== null) {
                 $label = $flag.' '.$label;
             }
-            if ($code === $current) {
-                $label .= ' ✓';
-            }
-            $callbackData = "lang:{$code}";
-            if (strlen($callbackData) > self::CALLBACK_DATA_MAX_BYTES) {
-                continue;
-            }
-            $buttons[] = ['text' => $label, 'callback_data' => $callbackData];
+            $locales[] = ['code' => $code, 'label' => $label];
         }
 
-        return ['inline_keyboard' => array_chunk($buttons, 3)];
+        return Keyboards::language($locales, $current)->markup;
     }
 
     /**
@@ -187,34 +175,6 @@ final class ModeAndLang
     private function modeMessage(string $mode): string
     {
         return $this->locale->t('mode.current', ['mode' => $mode]);
-    }
-
-    /**
-     * /mode keyboard: three buttons arch/review/pm, the active mode's
-     * label gets a ' ✓' marker. thread_id is baked into callback_data (see
-     * parseModeCallback()) - the keyboard lives in the feed indefinitely, and
-     * thread_id from the message object of an old callback may be
-     * unavailable (see gotchas.md).
-     *
-     * @return array{inline_keyboard: list<list<array{text: string, callback_data: string}>>}
-     */
-    public static function buildModeKeyboard(string $currentMode, int $threadId): array
-    {
-        $labels = [
-            SystemPrompt::MODE_ARCH => '🧠 arch',
-            SystemPrompt::MODE_REVIEW => '🔍 review',
-            SystemPrompt::MODE_PM => '📋 pm',
-        ];
-
-        $buttons = [];
-        foreach ($labels as $mode => $label) {
-            if ($mode === $currentMode) {
-                $label .= ' ✓';
-            }
-            $buttons[] = ['text' => $label, 'callback_data' => "mode:{$mode}:{$threadId}"];
-        }
-
-        return ['inline_keyboard' => [$buttons]];
     }
 
     /**
@@ -294,6 +254,6 @@ final class ModeAndLang
         }
 
         $messageId = (int) ($message['message_id'] ?? 0);
-        $this->tg->editMessageText($chatId, $messageId, $text, self::buildModeKeyboard($mode, $threadId));
+        $this->tg->editMessageText($chatId, $messageId, $text, Keyboards::mode($mode, $threadId)->markup);
     }
 }

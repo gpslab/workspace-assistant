@@ -45,6 +45,7 @@ Which file to read for which task. Start here when unsure.
 | `src/Delivery.php`                               | Sending replies (topic fallback), the outbox, summary truncation                                                                 |
 | `src/Inbox.php`                                  | Incoming files: download into the inbox, file/queue prompts, inbox cleanup                                                       |
 | `src/Epic/ChatSurface.php`                       | The `/epic` command, its menu and inline keyboard, and the `epic:` callbacks                                                     |
+| `src/Keyboards.php` / `Keyboard.php`             | Pure builders of every inline keyboard (language, mode, epic menu/candidates/confirmation, decision, removal) and their result: markup plus a "button skipped by the 64-byte `callback_data` limit" flag; callers send it and keep their own reaction to a skip |
 | `src/ModeAndLang.php`                            | The `/mode` and `/lang` commands, their keyboards and the `mode:`/`lang:` callbacks                                              |
 | `src/ClaudeErrorText.php`                        | Claude error text for the chat; usage-limit parsing and reset moment (pause of the queue)                                        |
 | `src/ClaudeRunner.php` / `ClaudeResult.php`      | Asynchronous `claude -p` via `proc_open`, timeouts; parsing of its output                                                        |
