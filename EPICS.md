@@ -499,8 +499,8 @@ Then:
 
 **Ceilings.**
 
-- **Epic review with `REQUEST_CHANGES`:** the third such review of a task (counted over reviews with
-  the epic marker, `MAX_CHANGES_REQUESTED = 3`) moves the task to `blocked`; a question on what to do
+- **Epic review with `REQUEST_CHANGES`:** the third such review of a task (counted per reviewed commit over
+  reviews with the epic marker: several on one commit are one round, `MAX_CHANGES_REQUESTED = 3`) moves the task to `blocked`; a question on what to do
   goes to the topic. Only the task is blocked; the epic stays `running`. `/epic resume` clears
   `blocked` on tasks, also on a `running` epic (the reply names tasks), and resets the counter and
   the post-merge gate's `conflict_head`: afterwards only epic `REQUEST_CHANGES` reviews submitted

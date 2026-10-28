@@ -526,6 +526,24 @@ final class GhClientTest extends TestCase
         self::assertTrue($s->changedAfterReview);
     }
 
+    public function testChangesRequestedAreCountedPerReviewedCommit(): void
+    {
+        $cr = static fn (string $oid, string $at): array => ['author' => ['login' => self::BOT], 'body' => 'changes '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => $at, 'commit' => ['oid' => $oid]];
+        $payload = self::approvedPayload('rev', [], [
+            $cr('c1', '2026-01-01T12:00:00Z'),
+            $cr('c1', '2026-01-01T11:00:00Z'),
+            $cr('c2', '2026-01-01T13:00:00Z'),
+        ]);
+        $s = self::clientFor($payload, ['compare/' => ['behind_by' => 0]])->taskState('r#1', self::MARKER);
+        // the fixture's own review on 'old' (09:00) is a third commit; c1 and c2 add two more rounds
+        self::assertSame(3, $s->epicChangesRequested);
+        self::assertSame([
+            strtotime('2026-01-01T09:00:00Z'),
+            strtotime('2026-01-01T11:00:00Z'),
+            strtotime('2026-01-01T13:00:00Z'),
+        ], $s->epicChangesRequestedAt);
+    }
+
     public function testEpicMarkerReviewFromStrangerIsNotAVerdict(): void
     {
         $fake = ['author' => ['login' => 'stranger'], 'body' => 'no '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => '2026-01-01T12:00:00Z', 'commit' => ['oid' => 'rev']];

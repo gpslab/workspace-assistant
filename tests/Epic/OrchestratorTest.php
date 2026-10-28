@@ -923,7 +923,7 @@ final class OrchestratorTest extends TestCase
         $base = $this->pr('a#1', 'open', cold: true, reviewed: true, head: 'h2');
         $this->gh->states['a#1'] = new TaskState(
             $base->task, $base->labels, $base->prState, $base->prNumber, 'h2', $base->checks, 'true', 1, 0,
-            $base->lastActivityAt, null, true, true, epicReviewHead: 'h2',
+            $base->lastActivityAt, null, true, true, epicVerdict: 'APPROVED', epicReviewHead: 'h2',
         );
         // queued on h1, commit h2 arrived before the run
         $this->db->epicSetTaskCounter('epic', 'a#1', 'reviewed_head', 'h1');
@@ -933,6 +933,19 @@ final class OrchestratorTest extends TestCase
 
         $this->orchestrator()->poll();
         self::assertSame(1, $this->reviewCount(), 'the retry happens once');
+    }
+
+    public function testNoHotReviewWhenRequestChangesLandedOnHeadWithoutCoverage(): void
+    {
+        $base = $this->pr('a#1', 'open', cold: true, reviewed: true, head: 'h2');
+        $this->gh->states['a#1'] = new TaskState(
+            $base->task, $base->labels, $base->prState, $base->prNumber, 'h2', $base->checks, 'true', 1, 0,
+            $base->lastActivityAt, null, true, true, epicVerdict: 'CHANGES_REQUESTED', epicReviewHead: 'h2',
+        );
+        $this->db->epicSetTaskCounter('epic', 'a#1', 'reviewed_head', 'h1');
+        $this->db->epicSetTaskCounter('epic', 'a#1', 'coverage_head', 'h1');
+        $this->orchestrator()->poll();
+        self::assertSame(0, $this->reviewCount(), 'a Request changes review of the head is not repeated');
     }
 
     /**

@@ -395,9 +395,10 @@ final class Orchestrator
     }
 
     /**
-     * The epic review landed on a head our run did not touch (a commit arrived between enqueueing
-     * and the run), and there is no coverage on that head: without a retry the gate would wait forever.
-     * The retry is one-off — enqueueing writes `reviewed_head` = head.
+     * The epic review on the current head is APPROVED but there is no coverage on that head (a commit
+     * arrived between enqueueing and the run): without a retry the gate would wait forever. After
+     * REQUEST_CHANGES there is no retry: the gate waits for a new commit from openronin, and a repeat
+     * review would only publish a duplicate. The retry is one-off — enqueueing writes `reviewed_head` = head.
      *
      * @param array<string, mixed> $counters
      */
@@ -405,6 +406,7 @@ final class Orchestrator
     {
         return $s->epicReviewHead !== null
             && $s->epicReviewHead === $s->head
+            && $s->epicVerdict === 'APPROVED'
             && ($counters['coverage_head'] ?? '') !== $s->head
             && !$s->headAccepted((string) ($counters['coverage_head'] ?? ''));
     }
