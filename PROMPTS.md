@@ -27,9 +27,9 @@ There are three kinds of file:
 | `review_status_reason_no_verdict`   | contract | Stop hook of the `review` mode, no verdict in the reply             |                                 |
 | `review_status_reason_steps`        | contract | Stop hook of the `review` mode, after the reason                    |                                 |
 | `review_status_reason_ids`          | contract | Stop hook of the `review` mode, ids of cold findings are missing    | `{ids}`                         |
-| `compact_summarize_prompt`          | contract | `/compact`, phase 1 (`QueueScheduler`)                                         |                                 |
-| `compact_reseed_prefix`             | contract | `/compact`, phase 2, before the summary (`CompactFlow`)                     |                                 |
-| `compact_reseed_suffix`             | contract | `/compact`, phase 2, after the summary (`CompactFlow`)                      |                                 |
+| `compact_summarize_prompt`          | contract | `/compact`, phase 1 (`QueueScheduler`)                              |                                 |
+| `compact_reseed_prefix`             | contract | `/compact`, phase 2, before the summary (`CompactFlow`)             |                                 |
+| `compact_reseed_suffix`             | contract | `/compact`, phase 2, after the summary (`CompactFlow`)              |                                 |
 | `epic_runbook`                      | contract | Epic runs (`Epic\Run`): instructions Claude reads itself            |                                 |
 | `pm_runbook`                        | contract | `pm` mode and epic runs (`PmRunbook`): the pipeline config          |                                 |
 | `persona_common`                    | persona  | Common persona block of every run (`SystemPrompt`)                  |                                 |
