@@ -22,7 +22,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * `Bot` needs heavy dependencies (Config/Database/TelegramClient/GitManager/
- * SessionFiles) for its constructor. Some of the parsing (ModeAndLang::buildModeKeyboard,
+ * SessionFiles) for its constructor. Some of the parsing (Keyboards::mode,
  * ModeAndLang::parseModeCallback) is pure static methods, tested directly
  * without instantiating the bot. The handleCallback/
  * handleModeCallback wiring (routing before/after $pending, thread_id source)
@@ -307,43 +307,11 @@ final class BotTest extends TestCase
     }
 
     /**
-     * @return array{inline_keyboard: list<list<array{text: string, callback_data: string}>>}
-     */
-    private function buildModeKeyboard(string $currentMode, int $threadId): array
-    {
-        return ModeAndLang::buildModeKeyboard($currentMode, $threadId);
-    }
-
-    /**
      * @return array{mode: string, thread_id: int}|null
      */
     private function parseModeCallback(string $data): ?array
     {
         return ModeAndLang::parseModeCallback($data);
-    }
-
-    public function testModeKeyboardMarksActiveModeAndEncodesThread(): void
-    {
-        $keyboard = $this->buildModeKeyboard('review', 4323);
-
-        $buttons = $keyboard['inline_keyboard'][0];
-        self::assertCount(3, $buttons);
-
-        self::assertSame('🧠 arch', $buttons[0]['text']);
-        self::assertSame('mode:arch:4323', $buttons[0]['callback_data']);
-
-        self::assertSame('🔍 review ✓', $buttons[1]['text']);
-        self::assertSame('mode:review:4323', $buttons[1]['callback_data']);
-
-        self::assertSame('📋 pm', $buttons[2]['text']);
-        self::assertSame('mode:pm:4323', $buttons[2]['callback_data']);
-    }
-
-    public function testModeKeyboardMarksArchAsActiveByDefault(): void
-    {
-        $keyboard = $this->buildModeKeyboard('arch', 0);
-
-        self::assertSame('🧠 arch ✓', $keyboard['inline_keyboard'][0][0]['text']);
     }
 
     public function testParseModeCallbackAcceptsKnownModeAndThread(): void
