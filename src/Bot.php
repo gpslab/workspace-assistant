@@ -57,13 +57,8 @@ use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
  * bot — at most one task is active at a time (see RunState::$activeJob), which
  * serializes everything by construction.
  */
-final class Bot implements QueueControl, RunControl, LocaleResolver
+final class Bot implements QueueControl, RunControl, LocaleResolver, JobLauncher
 {
-    private const string KIND_CHAT = 'chat';
-    private const string KIND_COMPACT_SUMMARIZE = 'compact_summarize';
-    private const string KIND_COMPACT_RESEED = 'compact_reseed';
-    private const string KIND_EPIC = 'epic';
-
     /** Queue item kinds (queue.kind column): a regular request and the /new, /compact barriers. */
     private const string ITEM_CHAT = 'chat';
     private const string ITEM_NEW = QueueTexts::ITEM_NEW;
@@ -120,6 +115,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
     private readonly ?Orchestrator $orchestrator;
     private readonly RunPrompt $runPrompt;
     private readonly RunLifecycle $runLifecycle;
+    private readonly CompactFlow $compactFlow;
 
     /**
      * Callback handlers in the order they are tried: the stateless `mode:`, `lang:`, `epic:` first,
@@ -185,6 +181,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             locale: $this->locale,
         );
         $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator);
+        $this->compactFlow = new CompactFlow($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->dirtyTree, $this->runState, $this);
     }
 
     /** Menu order = registration order; commands not moved out of `Bot` yet go through temporary adapters. */
@@ -1005,7 +1002,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
 
                 return;
             }
-            $this->startJobOfItem($head, self::KIND_COMPACT_SUMMARIZE, $summarizePrompt, $sessionId, [], $sessionId);
+            $this->startJobOfItem($head, RunKind::KIND_COMPACT_SUMMARIZE, $summarizePrompt, $sessionId, [], $sessionId);
 
             return;
         }
@@ -1066,7 +1063,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
                 $prompt .= "\n\n".implode("\n", $extra);
             }
         }
-        $this->startJobOfItem($head, self::KIND_CHAT, $prompt, $sessionId, $paths, idsPath: $idsPath);
+        $this->startJobOfItem($head, RunKind::KIND_CHAT, $prompt, $sessionId, $paths, idsPath: $idsPath);
     }
 
     /**
@@ -1088,7 +1085,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         }
 
         $prompt = $this->runPrompt->forEpicRun($slug, $run, $pr);
-        $this->startJobOfItem($head, self::KIND_EPIC, $prompt, null, [], null, $slug, ['run' => $run, 'pr' => $pr]);
+        $this->startJobOfItem($head, RunKind::KIND_EPIC, $prompt, null, [], null, $slug, ['run' => $run, 'pr' => $pr]);
     }
 
     /**
@@ -1108,8 +1105,8 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         // An item without a placeholder (after a limit) gets a new one - in ITS OWN topic,
         // without a fallback to General: a Telegram refusal drops the item.
         $text = $this->startText(match ($kind) {
-            self::KIND_CHAT => self::ITEM_CHAT,
-            self::KIND_EPIC => self::ITEM_EPIC,
+            RunKind::KIND_CHAT => self::ITEM_CHAT,
+            RunKind::KIND_EPIC => self::ITEM_EPIC,
             default => self::ITEM_COMPACT,
         }, $head['mode']);
         $thinkingId = $head['placeholder_id'];
@@ -1130,7 +1127,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         } else {
             try {
                 // The service message of an epic run disappears when it ends - no push.
-                $thinkingId = $this->tg->sendText($chatId, $text, null, $threadId, null, $kind === self::KIND_EPIC);
+                $thinkingId = $this->tg->sendText($chatId, $text, null, $threadId, null, $kind === RunKind::KIND_EPIC);
             } catch (TelegramApiException) {
                 $this->inbox->deleteInboxFiles($inboxFiles);
                 $this->dropItem($head, null);
@@ -1325,7 +1322,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
      */
     public static function runsWithAgents(string $kind): bool
     {
-        return !in_array($kind, [self::KIND_COMPACT_SUMMARIZE, self::KIND_COMPACT_RESEED], true);
+        return !in_array($kind, [RunKind::KIND_COMPACT_SUMMARIZE, RunKind::KIND_COMPACT_RESEED], true);
     }
 
     /**
@@ -1335,13 +1332,13 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
      *
      * @param array{run:string, pr:?string}|null $epicRun
      */
-    private function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null): ?string
+    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null): ?string
     {
         // Compact summarize runs in arch regardless of the topic mode: the summary must
         // stay detailed, otherwise after compression in review/pm we would lose the key
         // decisions (see prompts/compact_summarize_prompt.md.dist). Reseed creates the
         // session the topic lives on, so it runs in the topic mode (passed by the caller).
-        if ($kind === self::KIND_COMPACT_SUMMARIZE) {
+        if ($kind === RunKind::KIND_COMPACT_SUMMARIZE) {
             $mode = SystemPrompt::MODE_ARCH;
         }
 
@@ -1418,8 +1415,8 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
                 stateDir: $this->config->stateDir,
                 withAgents: self::runsWithAgents($kind),
                 homeDir: (string) getenv('HOME'),
-                updateOnResume: $kind === self::KIND_CHAT,
-                savedPromptHash: $kind === self::KIND_CHAT && $sessionId !== null ? $this->savedPromptHash($chatId, $threadId) : null,
+                updateOnResume: $kind === RunKind::KIND_CHAT,
+                savedPromptHash: $kind === RunKind::KIND_CHAT && $sessionId !== null ? $this->savedPromptHash($chatId, $threadId) : null,
             );
             $runner->start($prompt, $sessionId);
         } catch (\RuntimeException $e) {
@@ -1478,7 +1475,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
      * the DB while the run is in progress; otherwise /cancel or a timeout would
      * orphan the new transcript holding the request just sent, while the DB would
      * keep the previous session (without it). Only for KIND_CHAT: for the compact
-     * phases session_id is managed specially (finishCompactReseed after
+     * phases session_id is managed specially (CompactFlow::finishReseed() after
      * resetSession), an early write would break the accounting.
      */
     private function persistSessionEarly(): void
@@ -1486,7 +1483,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         if ($this->runState->activeJob === null || $this->runState->jobContext === null) {
             return;
         }
-        if ($this->runState->jobContext['session_saved'] || $this->runState->jobContext['kind'] !== self::KIND_CHAT) {
+        if ($this->runState->jobContext['session_saved'] || $this->runState->jobContext['kind'] !== RunKind::KIND_CHAT) {
             return;
         }
         $sid = $this->runState->activeJob->sessionId();
@@ -1575,18 +1572,18 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             // A recovered answer is just the last assistant message and may be partial: never feed it
             // to compact (it would replace the session context); mark it in a chat reply.
             if ($claude->recovered && !$claude->isError) {
-                if (in_array($kind, [self::KIND_COMPACT_SUMMARIZE, self::KIND_COMPACT_RESEED], true)) {
+                if (in_array($kind, [RunKind::KIND_COMPACT_SUMMARIZE, RunKind::KIND_COMPACT_RESEED], true)) {
                     $claude = new ClaudeResult(true, $this->t('claude.recovered_unusable'), $claude->sessionId, $claude->inputTokens, $claude->outputTokens, true, true);
-                } elseif ($kind === self::KIND_CHAT) {
+                } elseif ($kind === RunKind::KIND_CHAT) {
                     $claude = new ClaudeResult(false, $claude->text."\n\n".$this->t('claude.recovered_note'), $claude->sessionId, $claude->inputTokens, $claude->outputTokens, true, true);
                 }
             }
             // sendResult() appends the warnings to a normal reply itself; every
             // other outcome (error, epic, compact) gets a separate message.
-            $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, $claude->isError || $kind !== self::KIND_CHAT);
+            $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, $claude->isError || $kind !== RunKind::KIND_CHAT);
             // A chat reply carries the gate note itself (sendResult appends the warnings); every other
             // outcome gets a separate message after the job state is dropped.
-            $gateInReply = $kind === self::KIND_CHAT && !$claude->isError;
+            $gateInReply = $kind === RunKind::KIND_CHAT && !$claude->isError;
             if ($gateSkip !== '' && $gateInReply) {
                 $promptWarnings[] = $this->t('result.pm_gate_skipped', ['reason' => $gateSkip]);
             }
@@ -1606,19 +1603,19 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             // success below).
             $this->delivery->flushOutbox($chatId, $threadId);
 
-            // KIND_COMPACT_RESEED writes to the DB itself (finishCompactReseed), after
+            // KIND_COMPACT_RESEED writes to the DB itself (CompactFlow::finishReseed()), after
             // resetSession; otherwise the accumulated counters of the old session
             // would be added on top of the new one. KIND_EPIC is isolated: its
             // session_id must not become the topic's session.
-            if ($claude->sessionId !== null && !in_array($kind, [self::KIND_COMPACT_RESEED, self::KIND_EPIC], true)) {
+            if ($claude->sessionId !== null && !in_array($kind, [RunKind::KIND_COMPACT_RESEED, RunKind::KIND_EPIC], true)) {
                 // The prompt hash moves only after a successful run (a failed one leaves the update block due) and
                 // never after the summarize phase, which runs under another prompt.
-                $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->inputTokens, $claude->outputTokens, $claude->isError || $kind === self::KIND_COMPACT_SUMMARIZE ? null : $promptHash);
+                $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->inputTokens, $claude->outputTokens, $claude->isError || $kind === RunKind::KIND_COMPACT_SUMMARIZE ? null : $promptHash);
             }
 
             // An epic run is judged by its signal file, not by the reply, so a clean exit
             // without a result event is not a failure there.
-            if ($claude->isError && !($claude->exitedWithoutResult && $kind === self::KIND_EPIC)) {
+            if ($claude->isError && !($claude->exitedWithoutResult && $kind === RunKind::KIND_EPIC)) {
                 $limit = $this->claudeErrorText->parseLimit($claude->text);
                 if ($limit !== null && $queueId > 0) {
                     // A Claude limit pauses the WHOLE queue until the reset time; the item
@@ -1641,9 +1638,9 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             }
 
             match ($kind) {
-                self::KIND_COMPACT_SUMMARIZE => $this->finishCompactSummarize($chatId, $threadId, $claude, $compactOld, $queueId, $localeCode),
-                self::KIND_COMPACT_RESEED => $this->finishCompactReseed($chatId, $threadId, $claude, $compactOld, $promptHash),
-                self::KIND_EPIC => $this->runLifecycle->finishRemembering($chatId, $threadId, (string) $epicSlug, $epicRun),
+                RunKind::KIND_COMPACT_SUMMARIZE => $this->compactFlow->finishSummarize($chatId, $threadId, $claude, $compactOld, $queueId, $localeCode),
+                RunKind::KIND_COMPACT_RESEED => $this->compactFlow->finishReseed($chatId, $threadId, $claude, $compactOld, $promptHash),
+                RunKind::KIND_EPIC => $this->runLifecycle->finishRemembering($chatId, $threadId, (string) $epicSlug, $epicRun),
                 default => $this->runResult->sendResult($chatId, $threadId, $claude, $prompt, $mode, $promptWarnings),
             };
         } finally {
@@ -1679,7 +1676,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
     private function reportPmGateSkip(int $chatId, int $threadId, string $kind, ?string $epicSlug, ?array $epicRun, string $reason): void
     {
         Log::line('pm gate: the pipeline stages were skipped: '.$reason);
-        $this->delivery->deliver($chatId, $threadId, $kind === self::KIND_EPIC
+        $this->delivery->deliver($chatId, $threadId, $kind === RunKind::KIND_EPIC
             ? $this->t('epicrun.pm_gate_skipped', ['slug' => (string) $epicSlug, 'run' => (string) ($epicRun['run'] ?? ''), 'reason' => $reason])
             : $this->t('result.pm_gate_skipped', ['reason' => $reason]));
     }
@@ -1697,106 +1694,6 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             return;
         }
         $this->runLifecycle->failRemembering($chatId, $threadId, $epicSlug, $reason);
-    }
-
-    /**
-     * Paths the summarize run changed: the whole dirty tree with AUTO_COMMIT=1, the per-run diff with 0.
-     *
-     * @return list<string>
-     *
-     * @throws \RuntimeException when the tree state is unknown (no snapshot, git status failed or git could not start)
-     */
-    private function compactChangedPaths(): array
-    {
-        if ($this->config->autoCommit) {
-            return $this->git->hasChanges() ? ['*'] : [];
-        }
-        if ($this->runState->runTreeSnapshotError !== null) {
-            throw new GitStatusException($this->runState->runTreeSnapshotError);
-        }
-        if ($this->runState->runTreeSnapshot === null) {
-            return [];
-        }
-
-        return $this->git->changedSince($this->runState->runTreeSnapshot);
-    }
-
-    /**
-     * Phase 1 of /compact finished: we got the summary of the old session. If
-     * Claude disobeyed and changed something in the repository, we go no
-     * further, hand the decision to the user (commit/discard, with AUTO_COMMIT=1)
-     * and leave the session untouched.
-     */
-    private function finishCompactSummarize(int $chatId, int $threadId, ClaudeResult $claude, ?string $compactOldSessionId, int $queueId, string $localeCode): void
-    {
-        $summary = trim($claude->text);
-        if ($summary === '') {
-            $this->delivery->deliver($chatId, $threadId, $this->t('compact.no_summary'));
-
-            return;
-        }
-
-        try {
-            $changed = $this->compactChangedPaths();
-            $changes = $changed === [] ? '' : ($this->config->autoCommit ? $this->git->changesSummary() : implode("\n", $changed));
-        } catch (\RuntimeException $e) {
-            // Unknown tree state (git status failed, or git could not start): no guard verdict, so no phase 2 and no buttons.
-            Log::line('compact: git status failed, not reseeding: '.$e->getMessage());
-            $this->delivery->deliver($chatId, $threadId, $this->t('compact.status_failed', ['error' => $e->getMessage()]));
-
-            return;
-        }
-        if ($changed !== []) {
-            $this->delivery->deliver($chatId, $threadId, $this->t('compact.dirty', ['changes' => $changes]));
-            $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
-
-            return;
-        }
-
-        $thinkingId = $this->tg->sendText($chatId, $this->t('compact.reseeding'), null, $threadId);
-        try {
-            $prompt = PromptFiles::load('compact_reseed_prefix')."\n".$summary."\n\n".PromptFiles::load('compact_reseed_suffix');
-        } catch (\RuntimeException $e) {
-            $this->tg->deleteMessage($chatId, $thinkingId);
-            $this->delivery->deliver($chatId, $threadId, $this->t('queue.claude_start_failed', ['error' => $e->getMessage()]));
-
-            return;
-        }
-        $error = $this->launchJob($chatId, $threadId, self::KIND_COMPACT_RESEED, $prompt, null, $thinkingId, $compactOldSessionId, $this->db->getMode($chatId, $threadId), $queueId, localeCode: $localeCode);
-        if ($error !== null) {
-            $this->tg->deleteMessage($chatId, $thinkingId);
-            $this->delivery->deliver($chatId, $threadId, $this->t('queue.claude_start_failed', ['error' => $error]));
-        }
-    }
-
-    /**
-     * Phase 2 of /compact finished: the new session is created. Only now do we
-     * reset the old counters and record the new ones; had we reset them earlier
-     * (before making sure the new session really started), a start failure
-     * (see launchJob) would leave us with neither the old context nor the new one.
-     */
-    private function finishCompactReseed(int $chatId, int $threadId, ClaudeResult $claude, ?string $compactOldSessionId, ?string $promptHash): void
-    {
-        if ($claude->sessionId === null) {
-            $this->delivery->deliver($chatId, $threadId, $this->t('compact.reseed_failed'));
-
-            return;
-        }
-
-        $this->db->resetSession($chatId, $threadId);
-        $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->inputTokens, $claude->outputTokens, $promptHash);
-
-        // The new session was created successfully, so the transcript of the
-        // pre-compact session on disk is no longer needed. We delete it only now:
-        // when reseed fails (above) the old session is kept for a repeated
-        // /compact and its file must not be touched.
-        if ($compactOldSessionId !== null) {
-            $this->sessionFiles->delete($compactOldSessionId);
-        }
-
-        $text = $claude->text !== '' ? $claude->text : $this->t('result.empty');
-        $this->delivery->deliver($chatId, $threadId, $this->t('compact.done', ['text' => $text]));
-        $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
     }
 
     /**

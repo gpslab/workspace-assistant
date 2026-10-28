@@ -539,6 +539,30 @@ final class AutoCommitTest extends TestCase
         self::assertSame([], $this->buttons());
     }
 
+    public function testCompactKeepsItsQueueItemWhileTheReseedRuns(): void
+    {
+        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $summarizeItem = $this->db->queueRunning()[0] ?? null;
+        self::assertSame('compact', $summarizeItem['kind'] ?? null);
+
+        // Poll until phase 1 is routed: the reseed is launched from inside the end of phase 1.
+        for ($i = 0; $i < 200 && $this->runState()->jobContext !== null && $this->runState()->jobContext['kind'] === 'compact_summarize'; ++$i) {
+            $this->call('pollJob');
+            usleep(50000);
+        }
+
+        self::assertTrue($this->activeJob(), 'the reseed must be running');
+        self::assertSame('compact_reseed', $this->runState()->jobContext['kind'] ?? null);
+        self::assertSame([$summarizeItem['id']], array_column($this->db->queueRunning(), 'id'), 'the /compact item stays in the queue during phase 2');
+
+        $this->finishJob();
+        self::assertSame([], $this->db->queueRunning(), 'the item is removed when phase 2 ends');
+    }
+
     public function testSnapshotDiffSeesNewGoneAndRewrittenPaths(): void
     {
         $git = new GitManager($this->work, 30);

@@ -90,12 +90,12 @@ tokens" in `/stats` is the **total** input including cache, not raw input.
 `-p` mode has no slash commands, so `Command\CompactCommand` emulates `/compact` with two consecutive runs
 distinguished by `jobContext['kind']`:
 
-1. `KIND_COMPACT_SUMMARIZE`: `--resume` of the old session, asking for a summary without file edits;
-2. `KIND_COMPACT_RESEED`: a new call **without** `--resume`, the summary from phase 1 is the first message.
+1. `RunKind::KIND_COMPACT_SUMMARIZE`: `--resume` of the old session, asking for a summary without file edits;
+2. `RunKind::KIND_COMPACT_RESEED`: a new call **without** `--resume`, the summary from phase 1 is the first message.
 
-`Database::resetSession()` is called only inside `finishCompactReseed()`, **after** the new session id
+`Database::resetSession()` is called only inside `CompactFlow::finishReseed()`, **after** the new session id
 exists. Resetting earlier would leave the user with no old and no new session if phase 2 failed to
-start. For the same reason the generic `recordRun` in `pollJob` skips `KIND_COMPACT_RESEED`: that phase
+start. For the same reason the generic `recordRun` in `pollJob` skips `RunKind::KIND_COMPACT_RESEED`: that phase
 writes `resetSession()` + `recordRun()` itself, so the counters reflect only the new session.
 The summarize phase always runs in `arch` mode whatever the topic's mode, otherwise compacting in
 `review`/`pm` would squeeze the summary to three lines and lose context irreversibly. The reseed phase
@@ -206,7 +206,7 @@ Traps:
   that it replaces all earlier instructions as a whole and carries the full new prompt. Once is enough, the
   session keeps it. So `/mode`, `/lang` and edits of the prompt files take effect from the next message
   without `/new`. The hash is written by `recordRun` only after a successful run, never after the
-  `compact_summarize` phase; the reseed session gets its hash in `finishCompactReseed`; `resetSession`
+  `compact_summarize` phase; the reseed session gets its hash in `CompactFlow::finishReseed`; `resetSession`
   clears it. Epic and compact runs never get the block. The contract recognizes the block only by the
   verbatim first line of `session_update.md.dist`; the markers of the block in the message text of **any**
   run (chat, epic, compact) are replaced with `[update marker removed]` by
@@ -254,7 +254,7 @@ so `0` never collides.
 
 - Delete the pre-compact session only after a successful reseed; on failure the old session is kept for a
   retry (`--resume` would fail without its file). `compact_old_session_id` travels in `jobContext` of both
-  phases and `delete()` is called in `finishCompactReseed` after `recordRun`.
+  phases and `delete()` is called in `CompactFlow::finishReseed` after `recordRun`.
 - The file is found by UUID with the glob `<projects>/*/<id>.jsonl`; the cwd→slug encoding is not
   reconstructed. `isUuid()` guards against a glob on a wildcard character.
 - The path comes from the bot's environment (`CLAUDE_CONFIG_DIR` or `$HOME/.claude`), the same one claude
@@ -271,7 +271,7 @@ so `0` never collides.
 request. So `ClaudeRunner` catches the id from the first stream event (`system/init`) and
 `Bot::persistSessionEarly` writes it via `Database::setSessionId` while the state is `Running`.
 
-- **Only `KIND_CHAT`.** Compact phases manage `session_id` themselves; epic runs have no session.
+- **Only `RunKind::KIND_CHAT`.** Compact phases manage `session_id` themselves; epic runs have no session.
 - `setSessionId` does not touch `message_count`/tokens: a killed run under-counts one message, which is
   acceptable.
 - Resuming a killed session carries the interrupted turn; that is by design.
@@ -414,8 +414,8 @@ working tree). No parallel runs, no `git worktree`, no priorities: the queue ser
   closed by `/mode`, `/new`, `/compact` (`queue.closed`), and never into a running job.
 - **"Queued: Nth" is written once** and not renumbered; `/queue` shows the current picture.
 - **An epic run (`kind = epic`) is isolated from the topic session.** `startEpicItem` starts claude with
-  `sessionId = null`; `persistSessionEarly` skips it (only `KIND_CHAT`), `recordRun` in `pollJob` excludes
-  `KIND_EPIC` explicitly, otherwise the next chat run of the topic would continue the tick's session. The
+  `sessionId = null`; `persistSessionEarly` skips it (only `RunKind::KIND_CHAT`), `recordRun` in `pollJob` excludes
+  `RunKind::KIND_EPIC` explicitly, otherwise the next chat run of the topic would continue the tick's session. The
   reply text does not go to the topic, only the signal (`state/epics/<slug>/signal.json`, path in
   `WORKSPACE_ASSISTANT_EPIC_SIGNAL`) and the outbox. Exception to "a job killed by a restart is dropped":
   an epic item is silently returned to the queue in `recoverQueueOnStart` (`queueRelease`).
