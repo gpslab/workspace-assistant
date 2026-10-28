@@ -13,6 +13,8 @@ use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\RunResult;
+use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\SubRepoSync;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -143,9 +145,14 @@ final class GitStatusFailureTest extends TestCase
         $this->call('enqueueMessage', [100, 1, 10, [['message_id' => 10, 'text' => $text, 'files' => []]]]);
     }
 
+    private function runState(): RunState
+    {
+        return (new \ReflectionProperty(Bot::class, 'runState'))->getValue($this->bot);
+    }
+
     private function activeJob(): bool
     {
-        return (new \ReflectionProperty(Bot::class, 'activeJob'))->getValue($this->bot) !== null;
+        return $this->runState()->activeJob !== null;
     }
 
     private function finishJob(): void
@@ -417,8 +424,10 @@ final class GitStatusFailureTest extends TestCase
     {
         $this->corruptIndex();
 
-        self::assertSame([], $this->call('changedPromptFiles'));
-        $note = $this->call('promptFilesNote');
+        $runResult = (new \ReflectionProperty(Bot::class, 'runResult'))->getValue($this->bot);
+        $call = static fn (string $method): mixed => (new \ReflectionMethod(RunResult::class, $method))->invoke($runResult);
+        self::assertSame([], $call('changedPromptFiles'));
+        $note = $call('promptFilesNote');
 
         self::assertIsString($note);
         self::assertStringContainsString('could not check PROMPTS_DIR / LOCALES_DIR: ', $note);

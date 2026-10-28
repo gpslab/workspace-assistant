@@ -57,7 +57,7 @@ Deliberately wide surface (accepted risk, not a hole):
   (`PROMPTS_DIR`) and locale files (`LOCALES_DIR`) live in the managed
   repository, which the bot edits and, with `AUTO_COMMIT=1`, pushes by itself. An injected or mistaken run can rewrite them and
   so steer later runs. The change has history (git) but **no review**. Mitigation: the bot appends a
-  warning to the reply of every commit path (`sendResult()`, epic runs, the manual "commit" button) when
+  warning to the reply of every commit path (`RunResult::sendResult()`, epic runs, the manual "commit" button) when
   a run changed files under `PROMPTS_DIR` or `LOCALES_DIR`. Read that warning and review the commit.
   The **contract** texts are `prompts/*.md.dist` under git; a local `prompts/<name>.md` (gitignored, so
   invisible to those checks) can override them, which is why every run reports each local override of a

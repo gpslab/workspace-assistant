@@ -34,12 +34,14 @@ Which file to read for which task. Start here when unsure.
 | `bin/pm-gate-hook.php`                           | PreToolUse hook gating issue creation in `pm`/`review` and the epic runs (`tick`, `final`, `review`), fail-closed (`PmGateHook`) |
 | `bootstrap.php`                                  | PSR-4 autoloader + `date_default_timezone_set('UTC')`                                                                            |
 | `src/Bot.php`                                    | Main loop: polling, queue (`startQueueHead`), the run lifecycle and `cancelTopic`; implements the ports                                                            |
+| `src/RunState.php`                               | Holder of the run state (`activeJob`, `jobContext`, `repoSnapshot`, the tree snapshot and its error): one instance, shared by `Bot` and the classes built from it |
+| `src/RunResult.php`                              | The reply to a finished run: `sendResult`, auto-commit message and link, prompt-files warning; implements `DecisionHost` |
 | `src/Command/Router.php`                         | Parses `/cmd@bot argument`, resolves aliases, answers `command.unknown`; registration order is the menu order                    |
 | `src/Command/Menu.php`                           | Builds and registers the per-locale and default command menus from the router (`setMyCommands`)                                  |
 | `src/Command/*Command.php`                       | One class per moved command (`Help`, `Verbose`, `Mode`, `Lang`, `Epic`, `New`, `Compact`, `Cancel`, `Queue`, `Stats`, `Restart`) |
 | `src/Command/QueueControl.php` / `RunControl.php` / `LocaleResolver.php` | Ports implemented by `Bot`: the queue, the current run, the stop request and `cancelTopic` (`CancelResult`), locale lookup |
 | `src/Callback/Handler.php`, `*Handler.php`       | Inline keyboard callbacks in an ordered list: `ModeHandler`, `LangHandler`, `EpicHandler` (stateless), then `DirtyTreeDecision` |
-| `src/Callback/DirtyTreeDecision.php` / `DecisionHost.php` | Commit/discard decision on a dirty tree (offer, buttons, AUTO_COMMIT=0 refusal, unknown tree state); `DecisionHost` is the port `Bot` implements for the prompt-files warning and `commitUrl` |
+| `src/Callback/DirtyTreeDecision.php` / `DecisionHost.php` | Commit/discard decision on a dirty tree (offer, buttons, AUTO_COMMIT=0 refusal, unknown tree state); `DecisionHost` is the port `RunResult` implements for the prompt-files warning and `commitUrl` |
 | `src/Queue/QueueTexts.php`                       | `topicLabel` and `describeItem`: texts about queue items and topics, shared by `Bot` and the commands |
 | `src/SubRepoSync.php`                            | Nested repositories: pull before a run, HEAD snapshot, commit links, sync profile                                                |
 | `src/Delivery.php`                               | Sending replies (topic fallback), the outbox, summary truncation                                                                 |

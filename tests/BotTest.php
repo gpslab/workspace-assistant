@@ -110,11 +110,9 @@ final class BotTest extends TestCase
      */
     private function markJobActive(Bot $bot, int $chatId = 100, int $threadId = 0): void
     {
-        $property = new \ReflectionProperty(Bot::class, 'activeJob');
-        $property->setValue($bot, new ClaudeRunner('claude', sys_get_temp_dir(), 0, []));
-
-        $context = new \ReflectionProperty(Bot::class, 'jobContext');
-        $context->setValue($bot, [
+        $state = (new \ReflectionProperty(Bot::class, 'runState'))->getValue($bot);
+        $state->activeJob = new ClaudeRunner('claude', sys_get_temp_dir(), 0, []);
+        $state->jobContext = [
             'kind' => 'chat',
             'chat_id' => $chatId,
             'thread_id' => $threadId,
@@ -126,9 +124,13 @@ final class BotTest extends TestCase
             'session_saved' => false,
             'inbox_files' => [],
             'mode' => 'pm',
+            'locale' => 'en',
             'queue_id' => 0,
             'epic_slug' => null,
-        ]);
+            'epic_run' => null,
+            'pm_gate_run_id' => null,
+            'prompt_hash' => null,
+        ];
     }
 
     private function fakeTelegram(): FakeTelegram

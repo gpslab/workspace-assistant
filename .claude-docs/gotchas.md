@@ -35,7 +35,7 @@ already in flight. Only the `status --short` call of `changesSummary()` counts: 
 just drops the stat part.
 
 With `AUTO_COMMIT=0` the per-run snapshot has three states: known, unknown (`treeSnapshot()` threw; the error is kept in
-`Bot::$runTreeSnapshotError`) and none (not an `AUTO_COMMIT=0` run). Unknown never reads as "nothing changed": the reply says it
+`RunState::$runTreeSnapshotError`) and none (not an `AUTO_COMMIT=0` run). Unknown never reads as "nothing changed": the reply says it
 could not tell what the run changed, the PROMPTS_DIR / LOCALES_DIR note says it could not check, and `/compact` stops after
 phase 1 with `git status failed: <error>` (also when `changesSummary()` fails in the `compact.dirty` message).
 
@@ -190,7 +190,7 @@ Traps:
   in other components, recorded decisions, paired tasks, duplicated solutions). The second is mandatory:
   a cold CI reviewer sees one repository and one diff, the architect sees the whole system.
 - **Prompt files are not trusted input.** They live in the managed repository, which the bot edits and (with `AUTO_COMMIT=1`)
-  pushes. A run that changes them gets a warning on every commit path (`sendResult()`, epic runs, the
+  pushes. A run that changes them gets a warning on every commit path (`RunResult::sendResult()`, epic runs, the
   manual "commit" button); see the accepted risk in [context.md](context.md). Temporary prompt files
   outside git are wiped by `reset --hard` and cause "file not found".
 - **Mode** is the `mode` field of `sessions`, sticky: `resetSession()` keeps it, `/new` and `/compact`
@@ -384,7 +384,7 @@ working tree). No parallel runs, no `git worktree`, no priorities: the queue ser
   itself. Unknown owner → buttons go to the head's topic marked "changes not from this request" with a
   neutral commit message.
 - **The mode is read only from `jobContext['mode']`.** It is fixed at enqueue (`queue.mode`) and used by
-  `launchJob` (including the `ReviewStatusHook` choice), `thinkingText`, `overflowCaption`, `sendResult`.
+  `launchJob` (including the `ReviewStatusHook` choice), `thinkingText`, `overflowCaption`, `RunResult::sendResult`.
   Never from `sessions` (`Database::getMode`), otherwise `/mode` sent while another run is going would
   restyle an already queued request. The `/mode` gate is "THIS topic has a job", not "the bot is busy".
 - **`session_id` is read when the item starts, not at enqueue.** A run of the same topic may have forked

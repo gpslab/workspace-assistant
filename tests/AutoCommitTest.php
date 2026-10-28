@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
+use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -124,9 +125,14 @@ final class AutoCommitTest extends TestCase
         $this->call('enqueueMessage', [100, 1, $messageId, [['message_id' => $messageId, 'text' => $text, 'files' => []]]]);
     }
 
+    private function runState(): RunState
+    {
+        return (new \ReflectionProperty(Bot::class, 'runState'))->getValue($this->bot);
+    }
+
     private function activeJob(): bool
     {
-        return (new \ReflectionProperty(Bot::class, 'activeJob'))->getValue($this->bot) !== null;
+        return $this->runState()->activeJob !== null;
     }
 
     private function finishJob(): void

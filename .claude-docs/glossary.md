@@ -18,8 +18,8 @@ Terms and names that are easy to misread. The obvious is not duplicated.
 | **`thread_id`**               | Forum topic id; `0` means "no topic" (1:1 chat or General), never NULL. Each topic is a separate session.                                                  |
 | **Mode**                      | `arch`, `review` or `pm`: which role block the system prompt carries. Sticky per `(chat_id, thread_id)`, fixed per queue item at enqueue time. Default `pm`.  |
 | **Contract / persona**        | The two halves of a system prompt. Both ship in `prompts/*.md.dist`; a local `prompts/<name>.md` overrides one, and a contract override is always reported in the reply. The persona (common + role block) may also come from `PROMPTS_DIR` files.     |
-| **`activeJob`**               | The single current `ClaudeRunner` in `Bot`. One run at a time; others wait in the queue, they are not rejected.                                             |
-| **`jobContext`**              | Data of the active job: `chat_id`, `thread_id`, `thinking_id`, prompt, **`mode`** (the only source of the mode), `kind`, `queue_id`.                        |
+| **`activeJob`**               | The single current `ClaudeRunner`, held in `RunState`. One run at a time; others wait in the queue, they are not rejected.                                             |
+| **`jobContext`**              | Data of the active job, held in `RunState`: `chat_id`, `thread_id`, `thinking_id`, prompt, **`mode`** (the only source of the mode), `kind`, `queue_id`.                        |
 | **Queue**                     | The bot's single FIFO in SQLite: a topic request with its mode fixed, or a `/new`/`/compact` barrier. Unique key `(chat_id, message_id)`.                   |
 | **Decision**                  | SQLite record of the commit/discard buttons message. With `AUTO_COMMIT=1`, the queue pause on a dirty tree is derived from state, there is no in-memory flag.                         |
 | **"Thinking…"**               | Placeholder message sent when a run starts and removed when it ends; its `message_id` is `thinking_id`.                                                     |
