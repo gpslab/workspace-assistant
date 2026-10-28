@@ -539,9 +539,18 @@ final class GhClientTest extends TestCase
         self::assertSame(3, $s->epicChangesRequested);
         self::assertSame([
             strtotime('2026-01-01T09:00:00Z'),
-            strtotime('2026-01-01T11:00:00Z'),
+            strtotime('2026-01-01T12:00:00Z'),
             strtotime('2026-01-01T13:00:00Z'),
         ], $s->epicChangesRequestedAt);
+    }
+
+    public function testChangesRequestedWithUnknownCommitAreCountedSeparately(): void
+    {
+        $noCommit = ['author' => ['login' => self::BOT], 'body' => 'changes '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => '2026-01-01T12:00:00Z'];
+        $nullCommit = ['commit' => null, 'submittedAt' => '2026-01-01T13:00:00Z'] + $noCommit;
+        $s = self::clientFor(self::approvedPayload('rev', [], [$noCommit, $nullCommit]), ['compare/' => ['behind_by' => 0]])->taskState('r#1', self::MARKER);
+        // the fixture's own review on 'old' plus two reviews of an unknown commit
+        self::assertSame(3, $s->epicChangesRequested);
     }
 
     public function testEpicMarkerReviewFromStrangerIsNotAVerdict(): void

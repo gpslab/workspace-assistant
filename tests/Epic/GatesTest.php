@@ -895,6 +895,18 @@ final class GatesTest extends TestCase
         self::assertSame('blocked', $this->db->epicTasks('epic')[0]['status']);
     }
 
+    public function testResumeCountsRoundOnCommitReviewedAgainAfterResume(): void
+    {
+        $since = time();
+        $this->db->epicSetTaskCounter('epic', 'a#1', 'epic_changes_since', (string) $since);
+        // two older commits plus one whose latest review came after the resume: only the last is fresh
+        $at = [$since - 200, $since - 100, $since + 10];
+        $states = ['a#1' => self::pr('a#1', ['epicVerdict' => 'CHANGES_REQUESTED', 'epicChangesRequested' => 3, 'epicChangesRequestedAt' => $at])];
+        $this->runGates($states);
+        self::assertSame('open', $this->db->epicTasks('epic')[0]['status']);
+        self::assertSame('1', $this->db->epicTasks('epic')[0]['counters']['epic_changes']);
+    }
+
     public function testResumeCountsReviewsWithUnknownTimeAsFresh(): void
     {
         $states = ['a#1' => self::pr('a#1', ['epicVerdict' => 'CHANGES_REQUESTED', 'epicChangesRequested' => 3, 'epicChangesRequestedAt' => [0, 0, 0]])];

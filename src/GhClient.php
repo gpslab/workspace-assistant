@@ -209,7 +209,11 @@ final class GhClient implements GitHub
             if (($review['state'] ?? '') === 'CHANGES_REQUESTED') {
                 $at = self::ts($review['submittedAt'] ?? null) ?? 0;
                 $oid = (string) ($review['commit']['oid'] ?? '');
-                $changesRequestedByCommit[$oid] = isset($changesRequestedByCommit[$oid]) ? min($changesRequestedByCommit[$oid], $at) : $at;
+                // An unknown commit is fail-closed: every such review is its own round.
+                $key = $oid !== '' ? $oid : 'unknown#'.count($changesRequestedByCommit);
+                // The latest time answers "is there a fresh review on this commit"; unknown time (0) wins.
+                $prev = $changesRequestedByCommit[$key] ?? null;
+                $changesRequestedByCommit[$key] = $prev === 0 || $at === 0 ? 0 : max($prev ?? 0, $at);
             }
         }
         $changesRequestedAt = array_values($changesRequestedByCommit);
