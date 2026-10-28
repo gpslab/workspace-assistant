@@ -17,6 +17,7 @@ use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Inbox;
 use GpsLab\WorkspaceAssistant\PmRunbook;
 use GpsLab\WorkspaceAssistant\PromptFiles;
+use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\ReviewStatusHook;
 use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
@@ -135,6 +136,11 @@ final class QueueFlowTest extends TestCase
     private function runState(): RunState
     {
         return (new \ReflectionProperty(Bot::class, 'runState'))->getValue($this->bot);
+    }
+
+    private function queueScheduler(): QueueScheduler
+    {
+        return (new \ReflectionProperty(Bot::class, 'queueScheduler'))->getValue($this->bot);
     }
 
     private function activeJob(): bool
@@ -1075,21 +1081,21 @@ final class QueueFlowTest extends TestCase
 
     public function testNoPauseWhenQueueEmptyOrTreeClean(): void
     {
-        $paused = new \ReflectionMethod(Bot::class, 'isPausedByDirtyTree');
-        self::assertFalse($paused->invoke($this->bot));
+        $paused = new \ReflectionMethod(QueueScheduler::class, 'isPausedByDirtyTree');
+        self::assertFalse($paused->invoke($this->queueScheduler()));
 
         $this->dirtyTree();
-        self::assertFalse($paused->invoke($this->bot), 'the queue is empty');
+        self::assertFalse($paused->invoke($this->queueScheduler()), 'the queue is empty');
 
         $this->say(100, 1, 'x', 10);
-        self::assertTrue($paused->invoke($this->bot));
+        self::assertTrue($paused->invoke($this->queueScheduler()));
 
         unlink($this->work.'/dirty.txt');
-        self::assertFalse($paused->invoke($this->bot), 'the tree is clean');
+        self::assertFalse($paused->invoke($this->queueScheduler()), 'the tree is clean');
 
         $this->dirtyTree();
         $this->call('startQueueHead'); // the job does not start: dirty tree
-        self::assertTrue($paused->invoke($this->bot));
+        self::assertTrue($paused->invoke($this->queueScheduler()));
     }
 
     public function testNoPauseWhileJobRunning(): void
@@ -1099,8 +1105,8 @@ final class QueueFlowTest extends TestCase
         $this->say(100, 2, 'y', 11);
         $this->dirtyTree();
 
-        $paused = new \ReflectionMethod(Bot::class, 'isPausedByDirtyTree');
-        self::assertFalse($paused->invoke($this->bot));
+        $paused = new \ReflectionMethod(QueueScheduler::class, 'isPausedByDirtyTree');
+        self::assertFalse($paused->invoke($this->queueScheduler()));
     }
 
     public function testClaudeLimitPausesQueueUntilParsedResetAndKeepsItemAsHead(): void

@@ -41,4 +41,11 @@ final class RunState
 
     /** AUTO_COMMIT=0: why the snapshot of the run is unknown (taking it failed); null when it is known or not taken. */
     public ?string $runTreeSnapshotError = null;
+
+    /** Whether the job in progress belongs to the topic. */
+    public function hasActiveJob(int $chatId, int $threadId): bool
+    {
+        return $this->activeJob !== null && $this->jobContext !== null
+            && $this->jobContext['chat_id'] === $chatId && $this->jobContext['thread_id'] === $threadId;
+    }
 }

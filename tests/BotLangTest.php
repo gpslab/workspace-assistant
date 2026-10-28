@@ -244,7 +244,7 @@ final class BotLangTest extends TestCase
         $this->db->epicCreate('epic', 100, 2, [['task' => 'a#1', 'after' => []]], []);
         $this->command($bot, self::USER_A, '/lang ru');
 
-        self::assertTrue($bot->enqueueEpicRun('epic', 'tick'));
+        self::assertTrue((new \ReflectionProperty(Bot::class, 'queueScheduler'))->getValue($bot)->enqueueEpicRun('epic', 'tick'));
         self::assertSame(['en'], $this->itemLocales());
     }
 

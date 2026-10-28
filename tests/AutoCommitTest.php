@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
+use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -128,6 +129,11 @@ final class AutoCommitTest extends TestCase
     private function runState(): RunState
     {
         return (new \ReflectionProperty(Bot::class, 'runState'))->getValue($this->bot);
+    }
+
+    private function queueScheduler(): QueueScheduler
+    {
+        return (new \ReflectionProperty(Bot::class, 'queueScheduler'))->getValue($this->bot);
     }
 
     private function activeJob(): bool
@@ -423,7 +429,7 @@ final class AutoCommitTest extends TestCase
         $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
         $this->dirtyOperatorTree();
 
-        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', 'tick'));
         $this->call('startQueueHead');
         $this->finishJob();
 
@@ -439,7 +445,7 @@ final class AutoCommitTest extends TestCase
         $this->bot = $this->makeBot(true);
         $this->db->epicCreate('demo', 100, 1, [['task' => 'a#1', 'after' => []]], []);
 
-        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', 'tick'));
         $this->call('startQueueHead');
         $this->finishJob();
 
@@ -456,7 +462,7 @@ final class AutoCommitTest extends TestCase
         $head = $this->head();
         $origin = $this->originHead();
 
-        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', 'tick'));
         $this->call('startQueueHead');
         $this->finishJob();
 
@@ -497,7 +503,7 @@ final class AutoCommitTest extends TestCase
         file_put_contents($this->work.'/prompts/other.md', "operator\n");
         $this->hook('echo claude >> "$PWD/prompts/other.md"; echo \'{}\' > "$WORKSPACE_ASSISTANT_EPIC_SIGNAL"');
 
-        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', 'tick'));
         $this->call('startQueueHead');
         $this->finishJob();
 

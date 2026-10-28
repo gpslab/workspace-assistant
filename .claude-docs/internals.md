@@ -37,7 +37,7 @@ Telegram getUpdates (long poll)
         │ yes
         ├─ "/..." ──► handleCommand → Command\Router (/new /compact /cancel /queue /stats /verbose /mode /lang /epic /restart /help)
         │
-        └─ text or files ──► enqueue (FIFO in SQLite) ──► startQueueHead (each tick, when no job is active)
+        └─ text or files ──► enqueue (FIFO in SQLite) ──► QueueScheduler::startQueueHead (each tick, when no job is active)
                                 │
                                 ├─ dirty tree? ──► pause the queue, offer commit / discard (AUTO_COMMIT=1 only)
                                 ├─ git pull --rebase (+ sub-repositories) ──fail──► retry in 60 s (AUTO_COMMIT=1; with 0 only sub-repositories)
@@ -78,6 +78,13 @@ immature album, queue head ready to start), otherwise `POLL_TIMEOUT`; it fetches
 
 `dispatch()`: `callback_query` → `handleCallback` (access guard, then the first `Callback\Handler` that supports the data); the user id is checked against the whitelist; `/...`
 → command, anything else → the queue.
+
+### `QueueScheduler` — the request queue
+
+`Queue\QueueScheduler` owns the queue (`enqueueMessage`, `enqueueFiles`, `enqueueEpicRun`, `startQueueHead`,
+retries, `recoverQueueOnStart`) and the pauses (Claude limit, dirty tree); it implements `QueueControl`. It starts
+a run through the `JobLauncher` port (`Bot` until the job runner moves out) and gets the epic run prompt from
+`Epic\RunPrompt`. `Bot` keeps one-line delegates and asks it for the poll timer (`queueBlockedUntil`, `isTreePaused`).
 
 ### Releasing a job (critical order)
 
