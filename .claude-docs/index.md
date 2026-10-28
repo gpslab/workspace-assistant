@@ -65,6 +65,7 @@ Which file to read for which task. Start here when unsure.
 | `src/Log.php` / `Timezone.php`                   | STDERR log with timestamp; time zone selection                                                                                   |
 | `src/Epic/Plan.php` / `Signal.php` / `Run.php`   | Epic plan (JSON in markdown), run signal, run prompt/modes/paths                                                                 |
 | `src/Epic/Orchestrator.php` / `src/GhClient.php` | Epic orchestrator: GitHub fingerprint, ticks, stall; `gh` wrapper                                                                |
+| `src/Epic/RunPrompt.php` / `RunLifecycle.php` / `EpicNotifier.php` | Epic run prompt; finish and failure of an epic run; block/notify an epic topic |
 | `src/Epic/Gates.php` / `MergeGate.php`           | Merge, post-merge actions, CHANGELOG release, review/tail ceilings                                                               |
 | `src/Epic/ColdFindings.php`                      | Cold reviewer findings: file, coverage check, prompt lines                                                                       |
 | `src/Epic/Card.php` / `src/EditStatus.php`       | Epic status card (one silent message, edited in place); `editMessageText` result                                                 |
