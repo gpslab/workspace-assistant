@@ -23,7 +23,7 @@ final readonly class RestartCommand implements Command
         private Config $config,
         private TelegramClient $tg,
         private Locale $locale,
-        private RunControl $run,
+        private LoopControl $loop,
         private string $selfRepoPath,
     ) {
     }
@@ -69,6 +69,6 @@ final readonly class RestartCommand implements Command
 
         $this->tg->sendText($request->chatId, $this->locale->t('restart.restarting').$pullNote, null, $request->threadId);
         Log::line('restart requested via /restart (chat '.$request->chatId.', thread '.$request->threadId.')');
-        $this->run->requestStop();
+        $this->loop->requestStop();
     }
 }

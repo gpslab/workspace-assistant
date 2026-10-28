@@ -281,7 +281,7 @@ final class QueueScheduler implements QueueControl
      * (the caption applies to all files, an incomplete album must not go to
      * Claude). Files are downloaded when the run STARTS, not here - otherwise the inbox
      * accumulates the queue tail. Downloaded files are deleted after the run in
-     * Bot::pollJob()/cancelTopic().
+     * Bot::pollJob()/JobRunner::cancelTopic().
      *
      * @param list<array{file_id: string, extension: string|null, name: string|null, file_size: int|null}> $files
      * @param list<int>                                                                                    $messageIds

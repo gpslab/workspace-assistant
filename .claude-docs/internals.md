@@ -46,7 +46,7 @@ Telegram getUpdates (long poll)
                                          │
             ┌── the loop keeps polling Telegram (so /cancel works) ──┐
             ▼                                                        │
-   Bot::pollJob (every tick) ──► RunnerState                         │
+   JobRunner::poll (every tick) ──► RunnerState                         │
         ├─ Running ──► keep waiting ─────────────────────────────────┘
         ├─ Timeout ──► kill, "process killed", offer a decision if the tree is dirty (AUTO_COMMIT=1 only)
         └─ Done    ──► result()
@@ -83,12 +83,12 @@ immature album, queue head ready to start), otherwise `POLL_TIMEOUT`; it fetches
 
 `Queue\QueueScheduler` owns the queue (`enqueueMessage`, `enqueueFiles`, `enqueueEpicRun`, `startQueueHead`,
 retries, `recoverQueueOnStart`) and the pauses (Claude limit, dirty tree); it implements `QueueControl`. It starts
-a run through the `JobLauncher` port (`Bot` until the job runner moves out) and gets the epic run prompt from
+a run through the `JobLauncher` port (`JobRunner`) and gets the epic run prompt from
 `Epic\RunPrompt`. `Bot` keeps one-line delegates and asks it for the poll timer (`queueBlockedUntil`, `isTreePaused`).
 
 ### Releasing a job (critical order)
 
-In `pollJob` on `Done`:
+In `JobRunner::poll()` on `Done` (it returns a `RunOutcome`, which `Bot::pollJob` routes to `RunResult::sendResult`, `Epic\RunLifecycle` or `CompactFlow`, and then removes the queue item unless the run was put back at the head or is still alive):
 
 ```
 result = runState->activeJob->result();   // valid ONLY here, before the reset

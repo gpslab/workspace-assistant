@@ -95,7 +95,7 @@ distinguished by `jobContext['kind']`:
 
 `Database::resetSession()` is called only inside `CompactFlow::finishReseed()`, **after** the new session id
 exists. Resetting earlier would leave the user with no old and no new session if phase 2 failed to
-start. For the same reason the generic `recordRun` in `pollJob` skips `RunKind::KIND_COMPACT_RESEED`: that phase
+start. For the same reason the generic `recordRun` in `JobRunner::poll()` skips `RunKind::KIND_COMPACT_RESEED`: that phase
 writes `resetSession()` + `recordRun()` itself, so the counters reflect only the new session.
 The summarize phase always runs in `arch` mode whatever the topic's mode, otherwise compacting in
 `review`/`pm` would squeeze the summary to three lines and lose context irreversibly. The reseed phase
@@ -269,7 +269,7 @@ so `0` never collides.
 `claude -p --resume <old>` forks a **new** `session_id` and puts the request there. If the run is killed
 (`/cancel`, timeout) before the end, the DB would keep the old id and the next "continue" would lose the
 request. So `ClaudeRunner` catches the id from the first stream event (`system/init`) and
-`Bot::persistSessionEarly` writes it via `Database::setSessionId` while the state is `Running`.
+`JobRunner::persistSessionEarly` writes it via `Database::setSessionId` while the state is `Running`.
 
 - **Only `RunKind::KIND_CHAT`.** Compact phases manage `session_id` themselves; epic runs have no session.
 - `setSessionId` does not touch `message_count`/tokens: a killed run under-counts one message, which is
@@ -281,7 +281,7 @@ request. So `ClaudeRunner` catches the id from the first stream event (`system/i
 
 ## `/cancel` cancels only its OWN topic
 
-There is one job for the whole bot, but `Bot::cancelTopic()` (behind `/cancel`) kills it only if the caller's
+There is one job for the whole bot, but `JobRunner::cancelTopic()` (behind `/cancel`) kills it only if the caller's
 `(chat_id, thread_id)` owns it, and removes only that pair's queue items. Another topic's job and items
 are never touched. With no job and no items of its own while another topic runs, the reply is "work is in
 another session". `state/outbox` is cleaned only when the own job was killed or no job exists.
@@ -321,8 +321,8 @@ Decide by exception **type**:
   head), and every zero-timeout case is followed by `usleep(200 ms)` (`pollTimeoutNow() === 0`), otherwise
   the loop becomes a busy loop against the Telegram API.
 - **Downloaded files live exactly one run** and are deleted from EVERY way out of a job: normal end and
-  timeout in `pollJob()` (take the paths from `jobContext['inbox_files']` BEFORE `finishJobState()` clears
-  it) and manual cancel in `Bot::cancelTopic()`. If `launchJob()` fails to start the runner, `QueueScheduler::startJobOfItem()`
+  timeout in `JobRunner::poll()` (take the paths from `jobContext['inbox_files']` BEFORE `finishJobState()` clears
+  it) and manual cancel in `JobRunner::cancelTopic()`. If `launchJob()` fails to start the runner, `QueueScheduler::startJobOfItem()`
   deletes the files itself. `Inbox::sweepInbox()` removes leftovers older than an hour.
 
 ---
@@ -406,7 +406,7 @@ working tree). No parallel runs, no `git worktree`, no priorities: the queue ser
   (first message, merged ones, album frames). The change summary in the buttons message is truncated
   (otherwise it goes as a file without the keyboard); the full list is a separate message.
 - **A started item stays in `queue` with `running = 1`** until the run ends (a limit hit re-queues it as
-  head with the same id, keeping FIFO order). Removed in the `finally` of `pollJob` except for a limit
+  head with the same id, keeping FIFO order). Removed in the `finally` of `Bot::pollJob` except for a limit
   return and the compact summarize → reseed hand-over (same item). An item with `running = 1` at bot
   start is a job killed by a restart: removed with "repeat the request", **not** relaunched (the prompt
   would be duplicated in the transcript).
@@ -414,7 +414,7 @@ working tree). No parallel runs, no `git worktree`, no priorities: the queue ser
   closed by `/mode`, `/new`, `/compact` (`queue.closed`), and never into a running job.
 - **"Queued: Nth" is written once** and not renumbered; `/queue` shows the current picture.
 - **An epic run (`kind = epic`) is isolated from the topic session.** `QueueScheduler::startEpicItem` starts claude with
-  `sessionId = null`; `persistSessionEarly` skips it (only `RunKind::KIND_CHAT`), `recordRun` in `pollJob` excludes
+  `sessionId = null`; `persistSessionEarly` skips it (only `RunKind::KIND_CHAT`), `recordRun` in `JobRunner::poll()` excludes
   `RunKind::KIND_EPIC` explicitly, otherwise the next chat run of the topic would continue the tick's session. The
   reply text does not go to the topic, only the signal (`state/epics/<slug>/signal.json`, path in
   `WORKSPACE_ASSISTANT_EPIC_SIGNAL`) and the outbox. Exception to "a job killed by a restart is dropped":

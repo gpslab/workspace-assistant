@@ -16,7 +16,7 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
  * `gh pr comment`, no status). The hook does not set the status itself — the model does,
  * since it has the context (PR number, review body); the hook only keeps the
  * turn from ending without it. The bot attaches it via `--settings` only in review mode
- * (see ClaudeRunner, Bot::launchJob).
+ * (see ClaudeRunner, JobRunner::launchJob).
  *
  * Decisions per turn (decide()):
  *  - pass    — the turn did no PR work (a retelling of an old verdict) /
