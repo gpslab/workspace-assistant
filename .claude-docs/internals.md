@@ -23,7 +23,9 @@ epics are in [../EPICS.md](../EPICS.md).
 | Tests          | phpunit; real git for `GitManager`, fake `claude` scripts for the flow tests |
 
 Components are wired top-down: `Bot` knows everyone, the lower classes are standalone, the dependency
-graph is acyclic and injected through constructors in `bin/bot.php`.
+graph is acyclic. `bin/bot.php` builds the base services (`Database`, `TelegramClient`, `GitManager`,
+`SessionFiles`, `GhClient`) and passes them to `Bot`; `Bot`'s constructor builds the other collaborators and
+injects them through constructors.
 
 ---
 
@@ -100,8 +102,8 @@ RunResult::sendResult(...) | "Claude error"
 
 ### Commit / discard decision
 
-With `AUTO_COMMIT=1` (the default), after `/cancel`, a timeout or a Claude error the tree may stay dirty. `Bot` then stores a decision and
-sends inline buttons "Commit / Discard"; the queue is paused while the tree is dirty.
+With `AUTO_COMMIT=1` (the default), after `/cancel`, a timeout or a Claude error the tree may stay dirty. `Callback\DirtyTreeDecision::offerDecisionIfDirty()` stores the decision and
+sends the inline buttons "Commit / Discard"; the queue is paused while the tree is dirty.
 
 - **commit** → `git add -A && commit && push`, commit link;
 - **discard** → `git reset --hard && git clean -fd` (also removes untracked files).
