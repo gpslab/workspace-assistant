@@ -147,7 +147,7 @@ final class Bot implements LoopControl
         $this->compactFlow = new CompactFlow($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->dirtyTree, $this->runState, $this->jobRunner);
     }
 
-    /** Menu order = registration order; commands not moved out of `Bot` yet go through temporary adapters. */
+    /** Menu order = registration order. */
     private function buildCommandRouter(): Router
     {
         $router = new Router($this->tg, $this->locale);

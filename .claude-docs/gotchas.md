@@ -477,7 +477,7 @@ was never published on this head, so do not remove the comparison with `coverage
 `readyForReview` share `headAccepted`.
 
 - **The PM runbook reaches the model as a line in the message, not in the system prompt.** In `pm` mode
-  `Bot` prepends a conditional line (`PmRunbook::line`) to every message, and the epic run prompts carry the
+  `QueueScheduler` prepends a conditional line (`PmRunbook::line`) to every message, and the epic run prompts carry the
   same line; `--append-system-prompt` is ignored on `--resume`, the message is not. The line holds only
   absolute paths (the runbook, and `PROMPTS_DIR/pm_runbook.md` when it exists), never the addition's text.
   The pipeline config is the first ```` ```json ```` block of the runbook (`PmRunbook::config`): a local
