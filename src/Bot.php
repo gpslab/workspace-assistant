@@ -193,20 +193,6 @@ final class Bot implements RunControl, JobLauncher
         return $this->locale->t($key, $params);
     }
 
-    /** Catalog with the locale fixed for a queue item or a user selected (`null` means the bot locale). */
-    public function localeFor(?string $localeCode): Locale
-    {
-        return $localeCode === null ? $this->locale : $this->locale->with($localeCode);
-    }
-
-    /** Chat language of a user: chosen with /lang, otherwise `BOT_LOCALE` (never guessed from `language_code`). */
-    public function userLocale(int $userId): string
-    {
-        $chosen = $userId !== 0 ? $this->db->getUserLocale($userId) : null;
-
-        return $chosen !== null && in_array($chosen, $this->locale->codes(), true) ? $chosen : $this->locale->code();
-    }
-
     public function run(): void
     {
         $this->db->clearStalePids();
@@ -563,8 +549,7 @@ final class Bot implements RunControl, JobLauncher
     /** Whether the topic has an active job. */
     public function topicHasActiveJob(int $chatId, int $threadId): bool
     {
-        return $this->runState->activeJob !== null && $this->runState->jobContext !== null
-            && $this->runState->jobContext['chat_id'] === $chatId && $this->runState->jobContext['thread_id'] === $threadId;
+        return $this->runState->hasActiveJob($chatId, $threadId);
     }
 
     public function currentRun(): ?array

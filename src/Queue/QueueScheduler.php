@@ -94,12 +94,6 @@ final class QueueScheduler implements QueueControl
         return $this->locale->t($key, $params);
     }
 
-    private function hasActiveJob(int $chatId, int $threadId): bool
-    {
-        return $this->runState->activeJob !== null && $this->runState->jobContext !== null
-            && $this->runState->jobContext['chat_id'] === $chatId && $this->runState->jobContext['thread_id'] === $threadId;
-    }
-
     public function resetTopicSession(int $chatId, int $threadId): void
     {
         // The transcript of the session being reset is no longer needed on disk (it could be returned to
@@ -333,7 +327,7 @@ final class QueueScheduler implements QueueControl
     /** The topic has an active or pending item. */
     public function topicBusy(int $chatId, int $threadId): bool
     {
-        return $this->hasActiveJob($chatId, $threadId) || $this->db->queueLastWaiting($chatId, $threadId) !== null;
+        return $this->runState->hasActiveJob($chatId, $threadId) || $this->db->queueLastWaiting($chatId, $threadId) !== null;
     }
 
     /**
