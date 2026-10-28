@@ -380,6 +380,20 @@ final class AutoCommitTest extends TestCase
         self::assertNull($this->runState()->repoSnapshot);
     }
 
+    public function testNestedRepositorySnapshotIsDroppedWhenTheRunTimesOut(): void
+    {
+        $this->bot = $this->makeBot(false, 'subs', 1);
+        mkdir($this->work.'/subs/x', 0777, true);
+        $this->hook('sleep 10');
+
+        $this->say('hello');
+        $this->call('startQueueHead');
+        self::assertNotNull($this->runState()->repoSnapshot);
+        $this->finishJob();
+
+        self::assertNull($this->runState()->repoSnapshot);
+    }
+
     public function testCommitButtonIssuedBeforeTheSwitchIsRefusedAndTreeUntouched(): void
     {
         // Buttons issued while the bot ran with AUTO_COMMIT=1.
