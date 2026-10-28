@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Command;
 
-/** What the commands need from the run owned by `Bot`. */
+/** What the commands need from the run owned by `JobRunner`. */
 interface RunControl
 {
     /**
@@ -22,7 +22,4 @@ interface RunControl
      * items; pauses the topic's running epic and clears the Claude limit pause when something was removed.
      */
     public function cancelTopic(int $chatId, int $threadId): CancelResult;
-
-    /** Asks the polling loop to end after the current iteration. */
-    public function requestStop(): void;
 }

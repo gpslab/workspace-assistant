@@ -12,6 +12,7 @@ use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Delivery;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
+use GpsLab\WorkspaceAssistant\JobRunner;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\ModeAndLang;
 use GpsLab\WorkspaceAssistant\SessionFiles;
@@ -267,10 +268,11 @@ final class BotTest extends TestCase
     {
         $tg = new FakeTelegram();
         $bot = $this->makeBot($tg);
-        $method = new \ReflectionMethod(Bot::class, 'reportPromptWarnings');
+        $runner = (new \ReflectionProperty(Bot::class, 'jobRunner'))->getValue($bot);
+        $method = new \ReflectionMethod(JobRunner::class, 'reportPromptWarnings');
 
-        $method->invoke($bot, 100, 0, ['Prompt file p/arch.md is missing, empty or unreadable.'], true);
-        $method->invoke($bot, 100, 0, ['quiet'], false);
+        $method->invoke($runner, 100, 0, ['Prompt file p/arch.md is missing, empty or unreadable.'], true);
+        $method->invoke($runner, 100, 0, ['quiet'], false);
 
         self::assertCount(1, $tg->sent);
         self::assertStringContainsString('⚠️ Prompt file p/arch.md', $tg->sent[0]['text']);

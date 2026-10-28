@@ -12,6 +12,12 @@ final class RunKind
     public const string KIND_COMPACT_RESEED = 'compact_reseed';
     public const string KIND_EPIC = 'epic';
 
+    /** Whether a run of this kind gets the built-in sub-agents: the two `/compact` phases do not. */
+    public static function runsWithAgents(string $kind): bool
+    {
+        return !in_array($kind, [self::KIND_COMPACT_SUMMARIZE, self::KIND_COMPACT_RESEED], true);
+    }
+
     private function __construct()
     {
     }

@@ -31,7 +31,7 @@ keep `ctl.sh` for local development (`bin/ctl.sh fg`) or for hosts without a ser
 **The bot never restarts itself through `systemctl`/`kill`.** This is the self-preservation rule in the
 system prompt: the bot process hosts the current Claude session, so stopping the bot from inside it kills
 the session before the reply is delivered. `/restart` is handled by `Command\RestartCommand` outside the Claude
-context: it pulls the code and ends the polling loop (`RunControl::requestStop()`, which sets `Bot::$running = false`), the same path as
+context: it pulls the code and ends the polling loop (`LoopControl::requestStop()`, which sets `Bot::$running = false`), the same path as
 `SIGTERM`, including the notice about an active run in `Bot::run()`; the service manager starts it again.
 
 ---
@@ -120,7 +120,7 @@ The bot is single-threaded: any blocking call freezes the whole loop.
 | Non-interactive git/ssh         | `GitManager`   | `GIT_TERMINAL_PROMPT=0`, `ssh -o BatchMode=yes -o ConnectTimeout=10`                       |
 | Activity watchdog               | `ClaudeRunner` | no output longer than `CLAUDE_STALL_TIMEOUT` (900 s) → killed as hung                      |
 | Overall claude timeout          | `ClaudeRunner` | `CLAUDE_TIMEOUT`, `0` (off) by default; `>0` caps the whole call                           |
-| Job released before delivery    | `Bot::pollJob` | `finishJobState()` runs before sending to Telegram, so a delivery failure leaves no stuck job |
+| Job released before delivery    | `JobRunner::poll` | `finishJobState()` runs before sending to Telegram, so a delivery failure leaves no stuck job |
 
 **Subagents and the stall timeout.** Subagents run inside the same `claude -p` process and emit almost
 nothing to the parent's output for minutes. The stall timeout is the only safety net when
