@@ -1475,7 +1475,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, JobLauncher
      * the DB while the run is in progress; otherwise /cancel or a timeout would
      * orphan the new transcript holding the request just sent, while the DB would
      * keep the previous session (without it). Only for KIND_CHAT: for the compact
-     * phases session_id is managed specially (finishCompactReseed after
+     * phases session_id is managed specially (CompactFlow::finishReseed() after
      * resetSession), an early write would break the accounting.
      */
     private function persistSessionEarly(): void
@@ -1603,7 +1603,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, JobLauncher
             // success below).
             $this->delivery->flushOutbox($chatId, $threadId);
 
-            // KIND_COMPACT_RESEED writes to the DB itself (finishCompactReseed), after
+            // KIND_COMPACT_RESEED writes to the DB itself (CompactFlow::finishReseed()), after
             // resetSession; otherwise the accumulated counters of the old session
             // would be added on top of the new one. KIND_EPIC is isolated: its
             // session_id must not become the topic's session.
