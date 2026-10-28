@@ -517,6 +517,5 @@ final class JobRunner implements JobLauncher, RunControl
         }
         $this->runState->activeJob = null;
         $this->runState->jobContext = null;
-        $this->runState->repoSnapshot = null;
     }
 }

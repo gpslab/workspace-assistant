@@ -357,6 +357,29 @@ final class AutoCommitTest extends TestCase
         self::assertSame("2\n", file_get_contents($this->work.'/subs/x/s.txt'));
     }
 
+    public function testReplyLinksACommitMadeInANestedRepositoryDuringTheRun(): void
+    {
+        $sub = $this->work.'/subs/x';
+        mkdir($sub, 0777, true);
+        $this->git('init -q -b main', $sub);
+        $this->git('config user.email t@t.t', $sub);
+        $this->git('config user.name test', $sub);
+        $this->git('remote add origin https://github.com/gpslab/nested.git', $sub);
+        file_put_contents($sub.'/s.txt', "1\n");
+        $this->git('add -A', $sub);
+        $this->git('commit -q -m one', $sub);
+        $this->hook('cd "'.$sub.'" && echo 2 > s.txt && git add -A && git commit -q -m two');
+
+        $this->bot = $this->makeBot(false, 'subs');
+        $this->say('hello');
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $after = trim($this->git('rev-parse HEAD', $sub));
+        self::assertStringContainsString('https://github.com/gpslab/nested/commit/'.$after, $this->allText());
+        self::assertNull($this->runState()->repoSnapshot);
+    }
+
     public function testCommitButtonIssuedBeforeTheSwitchIsRefusedAndTreeUntouched(): void
     {
         // Buttons issued while the bot ran with AUTO_COMMIT=1.
