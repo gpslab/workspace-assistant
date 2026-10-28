@@ -18,7 +18,7 @@ use GpsLab\WorkspaceAssistant\Epic\Run;
  *
  * No concurrency: the bot is a single process and handles jobs sequentially.
  * Multiplicity lives only in DB rows, not in the runtime — at any moment
- * at most one job is active (see Bot::$activeJob).
+ * at most one job is active (see RunState::$activeJob).
  */
 final class Database
 {

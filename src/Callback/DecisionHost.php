@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Callback;
 
-/** What the commit/discard decision needs from the run state owned by `Bot`. */
+/** What the commit/discard decision needs from the finished-run reply owned by `RunResult`. */
 interface DecisionHost
 {
     /** Tells the topic which prompt/locale files the run changed (nothing when none did). */

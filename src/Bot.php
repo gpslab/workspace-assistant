@@ -52,7 +52,7 @@ use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
  * thread_id = 0 — a 1:1 chat and the General topic of a group (the chat's default session),
  * thread_id > 0 — a separate forum topic = an isolated Claude session. Isolation is
  * at the Claude context level only; the git tree and the task queue are shared by the whole
- * bot — at most one task is active at a time (see $activeJob), which
+ * bot — at most one task is active at a time (see RunState::$activeJob), which
  * serializes everything by construction.
  */
 final class Bot implements QueueControl, RunControl, LocaleResolver
