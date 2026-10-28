@@ -166,6 +166,12 @@ final class Config
         return $warnings;
     }
 
+    /** Absolute path of `PROMPTS_DIR` inside the managed repository (null - not set). */
+    public function absolutePromptsDir(): ?string
+    {
+        return $this->promptsDir !== '' ? $this->repoPath.'/'.$this->promptsDir : null;
+    }
+
     public function isAllowed(int $userId): bool
     {
         return in_array($userId, $this->allowedUserIds, true);

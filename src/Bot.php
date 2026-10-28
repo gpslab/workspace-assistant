@@ -29,11 +29,13 @@ use GpsLab\WorkspaceAssistant\Command\VerboseCommand;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ChatSurface;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
+use GpsLab\WorkspaceAssistant\Epic\EpicNotifier;
 use GpsLab\WorkspaceAssistant\Epic\GitHub;
-use GpsLab\WorkspaceAssistant\Epic\MasterRecord;
 use GpsLab\WorkspaceAssistant\Epic\Orchestrator;
 use GpsLab\WorkspaceAssistant\Epic\PollSchedule;
 use GpsLab\WorkspaceAssistant\Epic\Run;
+use GpsLab\WorkspaceAssistant\Epic\RunLifecycle;
+use GpsLab\WorkspaceAssistant\Epic\RunPrompt;
 use GpsLab\WorkspaceAssistant\Epic\Signal;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
 use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
@@ -87,7 +89,6 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
     private const int MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 
     private int $offset = 0;
-    private ?Orchestrator $orchestrator = null;
     private readonly Card $epicCard;
     private int $lastEpicPollAt = 0;
     private bool $running = true;
@@ -116,6 +117,9 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
     private readonly DirtyTreeDecision $dirtyTree;
     private readonly RunState $runState;
     private readonly RunResult $runResult;
+    private readonly ?Orchestrator $orchestrator;
+    private readonly RunPrompt $runPrompt;
+    private readonly RunLifecycle $runLifecycle;
 
     /**
      * Callback handlers in the order they are tried: the stateless `mode:`, `lang:`, `epic:` first,
@@ -162,24 +166,25 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         ];
         $this->commandRouter = $this->buildCommandRouter();
         $this->commandMenu = new Menu($this->commandRouter, $tg, $this->locale);
-        if ($github !== null) {
-            $this->orchestrator = new Orchestrator(
-                $db,
-                $github,
-                $this->enqueueEpicRun(...),
-                $this->blockEpic(...),
-                $config->epicTickMinutes * 60,
-                $config->epicStallTicks,
-                $config->epicQuietMinutes * 60,
-                $config->epicAnswerTimeoutMinutes * 60,
-                notify: $this->notifyEpic(...),
-                card: $this->epicCard,
-                stateDir: $config->stateDir,
-                masterRedHours: $config->epicMasterRedHours,
-                owners: $config->githubOwners,
-                locale: $this->locale,
-            );
-        }
+        $notifier = new EpicNotifier($db, $this->delivery, $this->epicCard, $this->locale);
+        $this->runPrompt = new RunPrompt($db, $config, $github);
+        $this->orchestrator = $github === null ? null : new Orchestrator(
+            $db,
+            $github,
+            $this->enqueueEpicRun(...),
+            $notifier->blockEpic(...),
+            $config->epicTickMinutes * 60,
+            $config->epicStallTicks,
+            $config->epicQuietMinutes * 60,
+            $config->epicAnswerTimeoutMinutes * 60,
+            notify: $notifier->notifyEpic(...),
+            card: $this->epicCard,
+            stateDir: $config->stateDir,
+            masterRedHours: $config->epicMasterRedHours,
+            owners: $config->githubOwners,
+            locale: $this->locale,
+        );
+        $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator);
     }
 
     /** Menu order = registration order; commands not moved out of `Bot` yet go through temporary adapters. */
@@ -1046,7 +1051,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         try {
             $prompt = Inbox::buildQueuePrompt($head['parts'], $pathsByPart);
             if ($head['mode'] === SystemPrompt::MODE_PM) {
-                $prompt = PmRunbook::line($this->absolutePromptsDir())."\n\n".$prompt;
+                $prompt = PmRunbook::line($this->config->absolutePromptsDir())."\n\n".$prompt;
             }
         } catch (\RuntimeException $e) {
             $this->inbox->deleteInboxFiles($paths);
@@ -1056,7 +1061,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         }
         $idsPath = null;
         if ($head['mode'] === SystemPrompt::MODE_REVIEW) {
-            [$extra, $idsPath] = $this->manualReviewFindings($head['parts']);
+            [$extra, $idsPath] = $this->runPrompt->manualReviewFindings($head['parts']);
             if ($extra !== []) {
                 $prompt .= "\n\n".implode("\n", $extra);
             }
@@ -1082,134 +1087,8 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             return;
         }
 
-        $cold = $run === Run::REVIEW && $pr !== null
-            ? ColdFindings::load(ColdFindings::path($this->config->stateDir, $slug, $pr))
-            : null;
-        $prompt = Run::prompt(
-            $slug,
-            $run,
-            Run::planPath($this->config->repoPath, $this->config->epicsDir, $slug),
-            Run::journalPath($this->config->repoPath, $this->config->epicsDir, $slug),
-            Run::signalPath($this->config->stateDir, $slug),
-            Run::failuresPath($this->config->stateDir, $slug),
-            $pr,
-            $cold['findings'] ?? null,
-            $run === Run::TICK ? $this->masterEvents($slug) : [],
-            $this->config->outboxDir,
-            Run::addition($this->absolutePromptsDir()),
-            PmRunbook::line($this->absolutePromptsDir()),
-            $this->config->autoCommit,
-        );
+        $prompt = $this->runPrompt->forEpicRun($slug, $run, $pr);
         $this->startJobOfItem($head, self::KIND_EPIC, $prompt, null, [], null, $slug, ['run' => $run, 'pr' => $pr]);
-    }
-
-    private function absolutePromptsDir(): ?string
-    {
-        return $this->config->promptsDir !== '' ? $this->config->repoPath.'/'.$this->config->promptsDir : null;
-    }
-
-    /**
-     * Master CI events for the tick prompt: a confirmed breakage - while it persists,
-     * flakiness - once (the tick got it in the prompt).
-     *
-     * @return list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>}>
-     */
-    private function masterEvents(string $slug): array
-    {
-        $events = [];
-        foreach ($this->db->epicMasters($slug) as $rec) {
-            if ($rec->kind === MasterRecord::BROKEN || ($rec->kind === MasterRecord::FLAKY && !$rec->prompted)) {
-                $events[] = ['repo' => $rec->repo, 'sha' => $rec->sha, 'kind' => $rec->kind, 'runs' => $rec->runs];
-            }
-            if ($rec->kind === MasterRecord::FLAKY && !$rec->prompted) {
-                $rec->prompted = true;
-                $this->db->epicMasterSet($slug, $rec);
-            }
-        }
-
-        return $events;
-    }
-
-    /**
-     * Manual `review`: findings of the cold reviewer for PRs of GITHUB_OWNERS owners from the request.
-     * Returns lines for the prompt and the path to the id file for the hook (null - ids not needed).
-     * A collection failure for one PR (not a PR, no access, network) does not fail the request: the PR is skipped.
-     *
-     * @param list<array<string, mixed>> $parts
-     *
-     * @return array{list<string>, ?string}
-     */
-    private function manualReviewFindings(array $parts): array
-    {
-        if ($this->github === null) {
-            return [[], null];
-        }
-        try {
-            $prs = ColdFindings::extractPrs($parts, $this->config->githubOwners);
-        } catch (\RuntimeException $e) {
-            Log::line('manual review: '.$e->getMessage());
-
-            return [['Cold reviewer (claude[bot]) findings were NOT collected by the bot: '.$e->getMessage().' — check PRs for cold reviewer findings manually (`gh api`).'], null];
-        }
-        $unavailable = array_slice($prs, ColdFindings::MAX_MANUAL_PRS);
-        $prs = array_slice($prs, 0, ColdFindings::MAX_MANUAL_PRS);
-        if ($unavailable !== []) {
-            Log::line('manual review: PRs over the limit skipped: '.implode(', ', $unavailable));
-        }
-        // Bare numbers are looked up only when there are no explicit PRs: next to `a#7` a bare `#3` usually
-        // means an issue/PR of the same repo, not a PR of another org repository.
-        $notes = [];
-        $bare = $prs === [] && $unavailable === []
-            ? ColdFindings::extractBareNumbers($parts, ColdFindings::MAX_MANUAL_PRS, $this->config->githubOwners)
-            : [];
-        if ($bare !== []) {
-            try {
-                $repos = $this->github->openPrRepos($bare);
-                foreach ($bare as $n) {
-                    $found = $repos[$n] ?? [];
-                    if (count($found) === 1) {
-                        $prs[] = $found[0].'#'.$n;
-                    } elseif ($found === []) {
-                        $notes[] = "PR #{$n} was not found among open PRs of the owners in GITHUB_OWNERS";
-                    } else {
-                        $notes[] = "PR #{$n} is ambiguous: ".implode(', ', array_map(static fn (string $r): string => "{$r}#{$n}", $found)).' — specify the repository';
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::line('manual review: bare numbers not resolved: '.$e->getMessage());
-                foreach ($bare as $n) {
-                    $unavailable[] = "#{$n}";
-                }
-            }
-            $prs = array_values(array_unique($prs));
-        }
-        $byPr = [];
-        foreach ($prs as $pr) {
-            try {
-                $byPr[$pr] = $this->github->coldFindings($pr);
-            } catch (\Throwable $e) {
-                Log::line("manual review: findings of {$pr} not collected: ".$e->getMessage());
-                $unavailable[] = $pr;
-            }
-        }
-        if ($byPr === [] && $unavailable === []) {
-            return [$notes, null];
-        }
-        $findings = ColdFindings::qualify($byPr);
-        $idsPath = null;
-        if ($findings !== []) {
-            $path = ColdFindings::idsPath($this->config->stateDir);
-            $json = json_encode(array_column($findings, 'id'), JSON_THROW_ON_ERROR);
-            if (!is_dir(dirname($path)) && !mkdir(dirname($path), 0775, true) && !is_dir(dirname($path))) {
-                Log::line('manual review: cannot create directory '.dirname($path));
-            } elseif (file_put_contents($path, $json) === false) {
-                Log::line("manual review: cannot write {$path}");
-            } else {
-                $idsPath = $path;
-            }
-        }
-
-        return [ColdFindings::manualPromptLines($findings, $unavailable, $notes), $idsPath];
     }
 
     /**
@@ -1497,7 +1376,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
         if ($gateKind !== null) {
             $gateRunId = $queueId.'-'.bin2hex(random_bytes(4));
             try {
-                $gateConfig = PmRunbook::config($this->absolutePromptsDir());
+                $gateConfig = PmRunbook::config($this->config->absolutePromptsDir());
                 foreach ($gateConfig['warnings'] as $warning) {
                     Log::line('pm gate: '.$warning);
                 }
@@ -1764,7 +1643,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             match ($kind) {
                 self::KIND_COMPACT_SUMMARIZE => $this->finishCompactSummarize($chatId, $threadId, $claude, $compactOld, $queueId, $localeCode),
                 self::KIND_COMPACT_RESEED => $this->finishCompactReseed($chatId, $threadId, $claude, $compactOld, $promptHash),
-                self::KIND_EPIC => $this->finishEpicRunRemembering($chatId, $threadId, (string) $epicSlug, $epicRun),
+                self::KIND_EPIC => $this->runLifecycle->finishRemembering($chatId, $threadId, (string) $epicSlug, $epicRun),
                 default => $this->runResult->sendResult($chatId, $threadId, $claude, $prompt, $mode, $promptWarnings),
             };
         } finally {
@@ -1805,187 +1684,10 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
             : $this->t('result.pm_gate_skipped', ['reason' => $reason]));
     }
 
-    /** Epic run outcome + GitHub fingerprint AFTER it (the run's own edits do not wake the tick). */
-    /**
-     * @param array{run:string, pr:?string}|null $epicRun
-     */
-    private function finishEpicRunRemembering(int $chatId, int $threadId, string $slug, ?array $epicRun): void
-    {
-        try {
-            $this->finishEpicRun($chatId, $threadId, $slug, $epicRun);
-        } finally {
-            $this->orchestrator?->rememberAfterRun($slug);
-        }
-    }
-
-    /**
-     * Epic run finished: the reply text does not go to the topic, the bot reads
-     * only the signal. An invalid or missing signal is a run failure (a message
-     * to the topic, nothing from the signal is applied).
-     */
-    /**
-     * @param array{run:string, pr:?string}|null $epicRun
-     */
-    private function finishEpicRun(int $chatId, int $threadId, string $slug, ?array $epicRun = null): void
-    {
-        try {
-            $path = Run::signalPath($this->config->stateDir, $slug);
-            $raw = is_file($path) ? file_get_contents($path) : false;
-            if ($raw === false) {
-                throw new \InvalidArgumentException('signal file not created');
-            }
-            $signal = Signal::parse($raw, $this->config->githubOwners);
-
-            $known = array_column($this->db->epicTasks($slug), 'task');
-            $known = [...$known, ...array_column($signal->added, 'task')];
-            $refs = [...($signal->hold ?? [])];
-            foreach ($signal->added as $added) {
-                $refs = [...$refs, ...$added['after']];
-            }
-            foreach ($refs as $ref) {
-                if (!in_array($ref, $known, true)) {
-                    throw new \InvalidArgumentException($this->t('epicrun.task_not_in_epic', ['ref' => $ref]));
-                }
-            }
-        } catch (\InvalidArgumentException $e) {
-            Log::line("epic {$slug}: run failed: ".$e->getMessage());
-            $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.signal_invalid', ['slug' => $slug, 'error' => $e->getMessage()]));
-            $this->failEpicRun($chatId, $threadId, $slug, 'invalid signal: '.$e->getMessage());
-
-            return;
-        }
-
-        if ($epicRun !== null && $epicRun['run'] === Run::REVIEW && $epicRun['pr'] !== null
-            && !$this->checkColdCoverage($chatId, $threadId, $slug, $epicRun['pr'], $signal)) {
-            return;
-        }
-
-        // blocked outranks done: a stopped epic is not considered completed.
-        if ($this->db->epicApplySignal($slug, $signal->added, $signal->hold, $signal->done && $signal->blocked === null)) {
-            $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.tails_ceiling', ['slug' => $slug, 'rounds' => Database::MAX_TAILS_ROUNDS]));
-        }
-        if ($signal->message !== null) {
-            $this->delivery->deliver($chatId, $threadId, $signal->message);
-        }
-        if ($signal->blocked !== null) {
-            $this->blockEpic($slug, $signal->blocked);
-        }
-        $this->epicCard->update($slug);
-
-        // A successful run with leftover dirt is auto-committed, like a regular request.
-        // With AUTO_COMMIT=0 the leftovers stay in the tree; only the prompt-files warning is given.
-        if (!$this->config->autoCommit) {
-            $this->runResult->deliverPromptFilesWarning($chatId, $threadId);
-        } else {
-            try {
-                $dirty = $this->git->hasChanges();
-            } catch (GitStatusException $e) {
-                Log::line("epic {$slug}: git status failed, leftovers not committed: ".$e->getMessage());
-                $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
-
-                return;
-            }
-            if ($dirty) {
-                $this->runResult->deliverPromptFilesWarning($chatId, $threadId);
-                try {
-                    $this->git->commitAndPush($this->runResult->commitMessage("epic {$slug}"));
-                } catch (\RuntimeException $e) {
-                    $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
-                    $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
-                }
-            }
-        }
-    }
-
-    /**
-     * Coverage of the cold reviewer's findings by the `review` run signal.
-     * Full coverage means the task's `coverage_head` = the head from the saved
-     * file. A failure is a run failure, with a repeated review of the same head
-     * (`reviewed_head` is reset, `cold_retry` lets the review pipeline run on top
-     * of an already published one); after the {@see ColdFindings::MAX_ATTEMPTS}-th
-     * failure on a head the task is blocked.
-     *
-     * @param string $pr `repo#N`
-     *
-     * @return bool true if the coverage is full
-     */
-    private function checkColdCoverage(int $chatId, int $threadId, string $slug, string $pr, Signal $signal): bool
-    {
-        $cold = ColdFindings::load(ColdFindings::path($this->config->stateDir, $slug, $pr));
-        if ($cold === null) {
-            $reason = $this->t('epicrun.no_cold_list', ['pr' => $pr]);
-            $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.failed', ['slug' => $slug, 'reason' => $reason]));
-            $this->failEpicRun($chatId, $threadId, $slug, $reason);
-
-            return false;
-        }
-        $result = ColdFindings::check($signal, $cold['findings'], $this->locale);
-        if ($result['problems'] === []) {
-            // The merge gate opens only on an approval with no open findings: request_changes gives no coverage.
-            if ($signal->verdict === Signal::VERDICT_APPROVE && $result['open'] === []) {
-                $this->db->epicSetTaskCounter($slug, $cold['task'], 'coverage_head', $cold['head']);
-            }
-
-            return true;
-        }
-
-        $reason = implode('; ', $result['problems']);
-        $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.coverage_incomplete', ['slug' => $slug, 'pr' => $pr, 'reason' => $reason]));
-        $this->failEpicRun($chatId, $threadId, $slug, "findings coverage {$pr}: {$reason}");
-
-        $counters = [];
-        foreach ($this->db->epicTasks($slug) as $task) {
-            if ($task['task'] === $cold['task']) {
-                $counters = $task['counters'];
-            }
-        }
-        [$prevHead, $prevCount] = array_pad(explode(':', (string) ($counters['cold_attempts'] ?? ''), 2), 2, '');
-        $attempts = ($prevHead === $cold['head'] ? (int) $prevCount : 0) + 1;
-        $this->db->epicSetTaskCounter($slug, $cold['task'], 'cold_attempts', $cold['head'].':'.$attempts);
-
-        if ($attempts >= ColdFindings::MAX_ATTEMPTS) {
-            $this->db->epicSetTaskStatus($slug, $cold['task'], 'blocked');
-            $ids = array_values(array_unique([...$result['missing'], ...$result['open']]));
-            $list = $ids !== [] ? implode(', ', $ids) : $this->t('epicrun.no_verdict');
-            $this->notifyEpic($slug, $this->t('epicrun.hot_review_gave_up', ['task' => $cold['task'], 'attempts' => $attempts, 'list' => $list]));
-            $this->epicCard->update($slug);
-
-            return false;
-        }
-        $this->db->epicSetTaskCounter($slug, $cold['task'], 'reviewed_head', '');
-        $this->db->epicSetTaskCounter($slug, $cold['task'], 'cold_retry', $cold['head']);
-
-        return false;
-    }
-
-    /**
-     * Single transition of an epic to `blocked`: status, reason and exactly one
-     * message to the epic's topic. All stops go through it (run signal, task
-     * and merge-gate stops); callers send no stop messages of their own.
-     */
-    private function notifyEpic(string $slug, string $text): void
-    {
-        $epic = $this->db->epicGet($slug);
-        if ($epic !== null) {
-            $this->delivery->deliver($epic['chat_id'], $epic['thread_id'], "⚠️ {$text}");
-        }
-    }
-
-    private function blockEpic(string $slug, string $reason): void
-    {
-        $epic = $this->db->epicGet($slug);
-        if ($epic === null) {
-            return;
-        }
-        $this->db->epicBlock($slug, $reason);
-        $this->epicCard->update($slug);
-        $this->delivery->deliver($epic['chat_id'], $epic['thread_id'], $this->t('epic.blocked', ['reason' => $reason]));
-    }
-
     /**
      * With AUTO_COMMIT=1 a failed regular request gets the commit/discard buttons and a queue
      * pause (with 0 it gets neither); an epic run failure is handled without a human, see
-     * {@see failEpicRun()}.
+     * {@see RunLifecycle::failRemembering()}.
      */
     private function afterFailedRun(int $chatId, int $threadId, ?string $epicSlug, string $reason): void
     {
@@ -1994,75 +1696,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver
 
             return;
         }
-        $this->failEpicRun($chatId, $threadId, $epicSlug, $reason);
-        $this->orchestrator?->rememberAfterRun($epicSlug);
-    }
-
-    /**
-     * Epic run failure: with AUTO_COMMIT=1 the whole dirty tree (including
-     * untracked and binary files) is saved as a patch to
-     * `state/epics/<slug>/dirty-<ts>.patch`, then the tree is rolled back; with 0
-     * there is no patch and the tree is left as is. A record goes to `failures.log`.
-     * There are no buttons or queue pause, and the failure is not committed to the
-     * repository. The epic continues.
-     */
-    private function failEpicRun(int $chatId, int $threadId, string $slug, string $reason): void
-    {
-        $dir = $this->config->stateDir.'/epics/'.$slug;
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            Log::line("epic {$slug}: cannot create {$dir}");
-
-            return;
-        }
-
-        // AUTO_COMMIT=0: the tree is the operator's, so there is no patch and no rollback.
-        $patchName = null;
-        $dirty = false;
-        if ($this->config->autoCommit) {
-            try {
-                $dirty = $this->git->hasChanges();
-            } catch (GitStatusException $e) {
-                // Unknown state: no patch, no rollback, and the dirty-tree owner stays.
-                Log::line("epic {$slug}: git status failed, not rolling back the tree: ".$e->getMessage());
-                $this->failLog($dir, $reason.' (git status failed: '.$e->getMessage().', tree not rolled back)', null);
-                $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.status_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
-
-                return;
-            }
-        }
-        if ($dirty) {
-            try {
-                $patch = $this->git->dirtyPatch();
-                if ($patch === '') {
-                    throw new \RuntimeException('patch is empty for a dirty tree');
-                }
-                $base = 'dirty-'.date('Ymd-His');
-                $patchName = $base.'.patch';
-                for ($i = 2; file_exists($dir.'/'.$patchName); ++$i) {
-                    $patchName = "{$base}-{$i}.patch";
-                }
-                if (file_put_contents($dir.'/'.$patchName, $patch) !== strlen($patch)) {
-                    throw new \RuntimeException("cannot write {$patchName}");
-                }
-            } catch (\RuntimeException $e) {
-                // There is no patch, so we do not roll the tree back, or the edits would be lost.
-                $this->git->unstage();
-                Log::line("epic {$slug}: {$e->getMessage()}, not rolling back the tree");
-                $this->failLog($dir, $reason.' (patch not saved: '.$e->getMessage().', tree not rolled back)', null);
-
-                return;
-            }
-            $this->git->discardChanges();
-        }
-        $this->db->clearDirtyOwner();
-        $this->failLog($dir, $reason, $patchName);
-        Log::line("epic {$slug}: run failed: {$reason}".($patchName !== null ? " (patch {$patchName})" : ''));
-    }
-
-    private function failLog(string $dir, string $reason, ?string $patchName): void
-    {
-        $line = date('c').' '.str_replace(["\r", "\n"], ' ', $reason).($patchName !== null ? ' patch='.$patchName : '')."\n";
-        file_put_contents($dir.'/failures.log', $line, FILE_APPEND);
+        $this->runLifecycle->failRemembering($chatId, $threadId, $epicSlug, $reason);
     }
 
     /**

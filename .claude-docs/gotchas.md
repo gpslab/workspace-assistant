@@ -438,7 +438,7 @@ parameter (default `en`); `bin/bot.php` builds one `Locale::fromConfig()`. Rules
 
 Deliberately **outside** the catalog: Claude prompts (`prompts/compact_*`, `prompts/default_file_prompt`, the
 "File:/Files:" lines, `SystemPrompt`, `Epic\ColdFindings::promptLines`), `Log::line`, exceptions, and
-`failEpicRun` reasons (written to `failures.log`). Tests pin `botLocale: 'ru'` in `Config`; the default
+`Epic\RunLifecycle` failure reasons (written to `failures.log`). Tests pin `botLocale: 'ru'` in `Config`; the default
 (`BOT_LOCALE` unset) is `en`.
 
 ## Reply language (`/lang`)
