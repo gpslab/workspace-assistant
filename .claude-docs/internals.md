@@ -52,7 +52,7 @@ Telegram getUpdates (long poll)
         └─ Done    ──► result()
                          ├─ recordRun (session_id, tokens, counter)
                          ├─ error ──► "Claude error", offer a decision if dirty (AUTO_COMMIT=1 only)
-                         └─ ok ──► sendResult: commit + push (AUTO_COMMIT=1), commit link, optional token usage, reply
+                         └─ ok ──► `RunResult::sendResult`: commit + push (AUTO_COMMIT=1), commit link, optional token usage, reply
 ```
 
 The key idea: **Claude runs asynchronously** and the loop keeps polling Telegram with a zero timeout,
@@ -67,7 +67,7 @@ otherwise `/cancel` could not work while Claude thinks.
 1. `db->clearStalePids()` — PIDs of a previous run are meaningless.
 2. `tg->setMyCommands(...)` for the default locale and every built-in locale.
 3. `pcntl_async_signals(true)` + a `SIGTERM` handler sets `running = false` (graceful shutdown: the
-   iteration finishes, then `activeJob?->kill()`).
+   iteration finishes, then `RunState::$activeJob?->kill()`).
 4. `while ($running) { tick(); }` inside `try/catch`: one failure does not kill the bot (log + `sleep(1)`).
 5. After the loop, a best-effort `getUpdates($offset, 0)` acknowledges the offset ([gotchas.md](gotchas.md)).
 
@@ -84,11 +84,11 @@ immature album, queue head ready to start), otherwise `POLL_TIMEOUT`; it fetches
 In `pollJob` on `Done`:
 
 ```
-result = activeJob->result();   // valid ONLY here, before the reset
+result = runState->activeJob->result();   // valid ONLY here, before the reset
 finishJobState();               // release the job BEFORE delivering to Telegram
 deleteMessage("Thinking…");
 recordRun(...);                 // if there is a session_id
-sendResult(...) | "Claude error"
+RunResult::sendResult(...) | "Claude error"
 ```
 
 ### Commit / discard decision
@@ -99,10 +99,10 @@ sends inline buttons "Commit / Discard"; the queue is paused while the tree is d
 - **commit** → `git add -A && commit && push`, commit link;
 - **discard** → `git reset --hard && git clean -fd` (also removes untracked files).
 
-After a successful run (`Done`, no error) the commit is **automatic** in `sendResult`; no buttons.
+After a successful run (`Done`, no error) the commit is **automatic** in `RunResult::sendResult`; no buttons.
 
 With `AUTO_COMMIT=0` none of this happens: there is no decision, no buttons, no pause of the queue and
-no commit in `sendResult`; changes stay in the working tree.
+no commit in `RunResult::sendResult`; changes stay in the working tree.
 
 ---
 

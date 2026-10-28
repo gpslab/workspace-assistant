@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
-use GpsLab\WorkspaceAssistant\Callback\DecisionHost;
 use GpsLab\WorkspaceAssistant\Callback\DirtyTreeDecision;
 use GpsLab\WorkspaceAssistant\Callback\EpicHandler;
 use GpsLab\WorkspaceAssistant\Callback\Handler;
@@ -53,10 +52,10 @@ use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
  * thread_id = 0 — a 1:1 chat and the General topic of a group (the chat's default session),
  * thread_id > 0 — a separate forum topic = an isolated Claude session. Isolation is
  * at the Claude context level only; the git tree and the task queue are shared by the whole
- * bot — at most one task is active at a time (see $activeJob), which
+ * bot — at most one task is active at a time (see RunState::$activeJob), which
  * serializes everything by construction.
  */
-final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHost
+final class Bot implements QueueControl, RunControl, LocaleResolver
 {
     private const string KIND_CHAT = 'chat';
     private const string KIND_COMPACT_SUMMARIZE = 'compact_summarize';
@@ -91,18 +90,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
     private ?Orchestrator $orchestrator = null;
     private readonly Card $epicCard;
     private int $lastEpicPollAt = 0;
-    private ?ClaudeRunner $activeJob = null;
     private bool $running = true;
-
-    /**
-     * The run mode (`mode`) is fixed when the item is queued and
-     * read ONLY from here (launchJob/ReviewStatusHook/thinkingText/
-     * overflowCaption) — not from sessions: /mode may have changed while the run was in progress.
-     * The language (`locale`) is fixed the same way and read from the item, not from the /lang setting.
-     *
-     * @var array{kind:string, chat_id:int, thread_id:int, thinking_id:int, prompt:string, last_progress_at:int, shown_count:int, compact_old_session_id:?string, session_saved:bool, inbox_files:list<string>, mode:string, locale:string, queue_id:int, epic_slug:?string, epic_run:array{run:string, pr:?string}|null, pm_gate_run_id:?string, prompt_hash:?string}|null
-     */
-    private ?array $jobContext = null;
 
     /** The item whose placeholder was already edited to "Thinking…" (do not edit on every pause/retry tick). */
     private ?int $editedItemId = null;
@@ -115,26 +103,6 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
     /** Album frame buffer between maturations (see ALBUM_DEBOUNCE_SEC). */
     private readonly AlbumBuffer $albumBuffer;
 
-    /**
-     * Snapshot of HEAD of all docs/* repositories before Claude is launched.
-     * Afterwards we compare — new commits get links in the reply.
-     *
-     * @var array<string, string|null>|null repoPath => headHash|null
-     */
-    private ?array $repoSnapshot = null;
-
-    /**
-     * With AUTO_COMMIT=0: the working tree as it was when the current run started, to tell what the run
-     * changed in a tree that is normally dirty. It outlives finishJobState() and is dropped when the
-     * run's outcome has been handled.
-     *
-     * @var array<string, string>|null
-     */
-    private ?array $runTreeSnapshot = null;
-
-    /** AUTO_COMMIT=0: why the snapshot of the run is unknown (taking it failed); null when it is known or not taken. */
-    private ?string $runTreeSnapshotError = null;
-
     private readonly Locale $locale;
     private readonly ClaudeErrorText $claudeErrorText;
     private readonly SubRepoSync $subRepoSync;
@@ -146,6 +114,8 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
     private readonly Menu $commandMenu;
     private readonly QueueTexts $queueTexts;
     private readonly DirtyTreeDecision $dirtyTree;
+    private readonly RunState $runState;
+    private readonly RunResult $runResult;
 
     /**
      * Callback handlers in the order they are tried: the stateless `mode:`, `lang:`, `epic:` first,
@@ -168,7 +138,9 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         $this->locale = $locale ?? Locale::fromConfig($config);
         $this->claudeErrorText = new ClaudeErrorText($this->locale);
         $this->subRepoSync = new SubRepoSync($config, $this->locale);
+        $this->runState = new RunState();
         $this->delivery = new Delivery($tg, $config, $this->locale);
+        $this->runResult = new RunResult($config, $db, $git, $this->subRepoSync, $this->delivery, $this->locale, $this->runState);
         $this->inbox = new Inbox($tg, $config, $this->locale);
         $this->albumBuffer = new AlbumBuffer();
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
@@ -181,7 +153,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
             $this,
         );
         $this->queueTexts = new QueueTexts($this->locale);
-        $this->dirtyTree = new DirtyTreeDecision($config, $db, $tg, $git, $this->delivery, $this->locale, $this->queueTexts, $this);
+        $this->dirtyTree = new DirtyTreeDecision($config, $db, $tg, $git, $this->delivery, $this->locale, $this->queueTexts, $this->runResult);
         $this->callbackHandlers = [
             new ModeHandler($this->modeAndLang),
             new LangHandler($this->modeAndLang),
@@ -307,25 +279,25 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         // If a task was running at stop time (for example, Claude itself ran
         // `ctl.sh restart`) — there is no one left to deliver the answer to. We do not leave a dangling
         // "Thinking…" but warn: the session is saved, the request can be repeated.
-        if ($this->activeJob !== null && $this->jobContext !== null) {
+        if ($this->runState->activeJob !== null && $this->runState->jobContext !== null) {
             // A job killed by the restart is removed from the queue and not
             // started again: a rerun would duplicate the prompt in the transcript.
-            if ($this->jobContext['queue_id'] > 0) {
-                $this->db->queueRemove($this->jobContext['queue_id']);
+            if ($this->runState->jobContext['queue_id'] > 0) {
+                $this->db->queueRemove($this->runState->jobContext['queue_id']);
             }
             try {
-                $this->tg->deleteMessage($this->jobContext['chat_id'], $this->jobContext['thinking_id']);
+                $this->tg->deleteMessage($this->runState->jobContext['chat_id'], $this->runState->jobContext['thinking_id']);
                 $this->delivery->deliver(
-                    $this->jobContext['chat_id'],
-                    $this->jobContext['thread_id'],
-                    $this->localeFor($this->jobContext['locale'])->t('restart.job_interrupted_now'),
+                    $this->runState->jobContext['chat_id'],
+                    $this->runState->jobContext['thread_id'],
+                    $this->localeFor($this->runState->jobContext['locale'])->t('restart.job_interrupted_now'),
                 );
             } catch (\Throwable) {
                 // best-effort on shutdown
             }
         }
 
-        $this->activeJob?->kill();
+        $this->runState->activeJob?->kill();
         Log::line('stopped.');
     }
 
@@ -341,7 +313,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         $this->flushReadyAlbums();
         $this->pollEpics();
 
-        if ($this->activeJob !== null) {
+        if ($this->runState->activeJob !== null) {
             $this->pollJob();
         } elseif ($this->running) {
             // After /restart from this same batch of updates we do not start the head: it
@@ -386,7 +358,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
      */
     private function pollTimeoutNow(): int
     {
-        $busy = $this->activeJob !== null || !$this->albumBuffer->isEmpty();
+        $busy = $this->runState->activeJob !== null || !$this->albumBuffer->isEmpty();
         $queueEmpty = !$busy && $this->db->queueHead() === null;
         $epicDue = !$busy && $this->orchestrator !== null && $this->running && $this->db->epicsRunningExist()
             ? $this->epicPollDueAt()
@@ -588,7 +560,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
      */
     private function isPausedByDirtyTree(?string &$statusError = null): bool
     {
-        if ($this->activeJob !== null || ($head = $this->db->queueHead()) === null) {
+        if ($this->runState->activeJob !== null || ($head = $this->db->queueHead()) === null) {
             return false;
         }
 
@@ -662,7 +634,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
             return;
         }
 
-        $position = count($this->db->queueWaiting()) + 1 + ($this->activeJob !== null ? 1 : 0);
+        $position = count($this->db->queueWaiting()) + 1 + ($this->runState->activeJob !== null ? 1 : 0);
         $idle = $position === 1 && $this->db->getLimitPauseUntil() <= time();
         $text = $idle ? $this->startText($kind, $mode) : $this->t('queue.waiting', ['position' => $this->t('queue.position', ['position' => $position])]);
 
@@ -763,12 +735,12 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
     public function cancelTopic(int $chatId, int $threadId): CancelResult
     {
         $killed = false;
-        if ($this->activeJob !== null && $this->jobContext !== null
-            && $this->jobContext['chat_id'] === $chatId && $this->jobContext['thread_id'] === $threadId) {
-            $inboxFiles = $this->jobContext['inbox_files'];
-            $queueId = $this->jobContext['queue_id'];
+        if ($this->runState->activeJob !== null && $this->runState->jobContext !== null
+            && $this->runState->jobContext['chat_id'] === $chatId && $this->runState->jobContext['thread_id'] === $threadId) {
+            $inboxFiles = $this->runState->jobContext['inbox_files'];
+            $queueId = $this->runState->jobContext['queue_id'];
 
-            $this->activeJob->kill();
+            $this->runState->activeJob->kill();
             $this->finishJobState($chatId, $threadId);
             $this->inbox->deleteInboxFiles($inboxFiles);
             if ($queueId > 0) {
@@ -800,27 +772,27 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         // Files the cancelled run managed to put into the outbox must not
         // go out with the next run's reply (possibly to another topic). Another topic's
         // running job's outbox is not touched — those are its files.
-        if (($killed || $removed !== []) && ($killed || $this->activeJob === null)) {
+        if (($killed || $removed !== []) && ($killed || $this->runState->activeJob === null)) {
             $this->delivery->clearOutbox();
         }
 
-        return new CancelResult($killed, $removed, $pausedEpic, $limitReset, $this->activeJob !== null);
+        return new CancelResult($killed, $removed, $pausedEpic, $limitReset, $this->runState->activeJob !== null);
     }
 
     /** Whether the topic has an active job. */
     public function topicHasActiveJob(int $chatId, int $threadId): bool
     {
-        return $this->activeJob !== null && $this->jobContext !== null
-            && $this->jobContext['chat_id'] === $chatId && $this->jobContext['thread_id'] === $threadId;
+        return $this->runState->activeJob !== null && $this->runState->jobContext !== null
+            && $this->runState->jobContext['chat_id'] === $chatId && $this->runState->jobContext['thread_id'] === $threadId;
     }
 
     public function currentRun(): ?array
     {
-        if ($this->activeJob === null || $this->jobContext === null) {
+        if ($this->runState->activeJob === null || $this->runState->jobContext === null) {
             return null;
         }
 
-        return ['chat_id' => $this->jobContext['chat_id'], 'thread_id' => $this->jobContext['thread_id']];
+        return ['chat_id' => $this->runState->jobContext['chat_id'], 'thread_id' => $this->runState->jobContext['thread_id']];
     }
 
     public function requestStop(): void
@@ -877,7 +849,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
      */
     private function startQueueHead(): void
     {
-        if ($this->activeJob !== null) {
+        if ($this->runState->activeJob !== null) {
             return;
         }
         $this->releaseStaleDirtyState();
@@ -897,7 +869,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
             // effects): if it is already dropped (/new barrier, dropItem) or a job
             // is running - schedule no retry for anyone, do not touch the next item.
             Log::line('queue: exception while starting head '.$head['id'].': '.$e->getMessage());
-            if ($this->activeJob !== null) {
+            if ($this->runState->activeJob !== null) {
                 return;
             }
             $current = $this->db->queueGet($head['id']);
@@ -1296,8 +1268,8 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         } catch (\Throwable $e) {
             // The process is already started and tracked (activeJob is assigned right after
             // start()) - the job goes on as usual, pollJob() will clean up inbox files.
-            if ($this->jobContext !== null) {
-                $this->jobContext['inbox_files'] = $inboxFiles;
+            if ($this->runState->jobContext !== null) {
+                $this->runState->jobContext['inbox_files'] = $inboxFiles;
             }
             Log::line('queue: exception after claude launch: '.$e->getMessage());
 
@@ -1316,8 +1288,8 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         $this->retryItemId = null;
         $this->retryCount = 0;
         $this->editedItemId = null;
-        if ($this->jobContext !== null) {
-            $this->jobContext['inbox_files'] = $inboxFiles;
+        if ($this->runState->jobContext !== null) {
+            $this->runState->jobContext['inbox_files'] = $inboxFiles;
         }
     }
 
@@ -1538,15 +1510,15 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         }
 
         // AUTO_COMMIT=0: the state of the tree before the process can touch it.
-        $this->runTreeSnapshot = null;
-        $this->runTreeSnapshotError = null;
+        $this->runState->runTreeSnapshot = null;
+        $this->runState->runTreeSnapshotError = null;
         if (!$this->config->autoCommit) {
             try {
-                $this->runTreeSnapshot = $this->git->treeSnapshot();
+                $this->runState->runTreeSnapshot = $this->git->treeSnapshot();
             } catch (\RuntimeException $e) {
                 // Unknown, not "none": what the run changes cannot be told afterwards
                 // (git failing to run or to report its status alike).
-                $this->runTreeSnapshotError = $e->getMessage();
+                $this->runState->runTreeSnapshotError = $e->getMessage();
                 Log::line('tree snapshot failed: '.$e->getMessage());
             }
         }
@@ -1583,8 +1555,8 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         // IMMEDIATELY, before any side effects, otherwise an exception below would
         // leave an untracked claude and the next job would start while the process
         // is still alive.
-        $this->activeJob = $runner;
-        $this->jobContext = [
+        $this->runState->activeJob = $runner;
+        $this->runState->jobContext = [
             'kind' => $kind,
             'chat_id' => $chatId,
             'thread_id' => $threadId,
@@ -1608,7 +1580,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         if ($this->config->autoCommit) {
             $this->db->setDirtyOwner($chatId, $threadId);
         }
-        $this->repoSnapshot = $this->subRepoSync->snapshotSubRepos();
+        $this->runState->repoSnapshot = $this->subRepoSync->snapshotSubRepos();
         $this->db->setPid($chatId, $threadId, $runner->pid());
 
         return null;
@@ -1632,35 +1604,35 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
      */
     private function persistSessionEarly(): void
     {
-        if ($this->activeJob === null || $this->jobContext === null) {
+        if ($this->runState->activeJob === null || $this->runState->jobContext === null) {
             return;
         }
-        if ($this->jobContext['session_saved'] || $this->jobContext['kind'] !== self::KIND_CHAT) {
+        if ($this->runState->jobContext['session_saved'] || $this->runState->jobContext['kind'] !== self::KIND_CHAT) {
             return;
         }
-        $sid = $this->activeJob->sessionId();
+        $sid = $this->runState->activeJob->sessionId();
         if ($sid === null) {
             return;
         }
-        $this->db->setSessionId($this->jobContext['chat_id'], $this->jobContext['thread_id'], $sid);
-        $this->jobContext['session_saved'] = true;
+        $this->db->setSessionId($this->runState->jobContext['chat_id'], $this->runState->jobContext['thread_id'], $sid);
+        $this->runState->jobContext['session_saved'] = true;
     }
 
     private function pollJob(): void
     {
-        if ($this->activeJob === null || $this->jobContext === null) {
+        if ($this->runState->activeJob === null || $this->runState->jobContext === null) {
             return;
         }
 
-        $chatId = $this->jobContext['chat_id'];
-        $threadId = $this->jobContext['thread_id'];
+        $chatId = $this->runState->jobContext['chat_id'];
+        $threadId = $this->runState->jobContext['thread_id'];
 
         try {
-            $state = $this->activeJob->poll();
+            $state = $this->runState->activeJob->poll();
         } catch (\Throwable $e) {
             // The process is in an inconsistent state: drop the job, otherwise the
             // following ticks would loop on poll() of a closed process.
-            $queueId = $this->jobContext['queue_id'];
+            $queueId = $this->runState->jobContext['queue_id'];
             $this->finishJobState($chatId, $threadId);
             if ($queueId > 0) {
                 $this->db->queueRemove($queueId);
@@ -1676,28 +1648,28 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
             return;
         }
 
-        $thinkingId = $this->jobContext['thinking_id'];
-        $prompt = $this->jobContext['prompt'];
-        $kind = $this->jobContext['kind'];
-        $mode = $this->jobContext['mode'];
-        $localeCode = $this->jobContext['locale'];
-        $queueId = $this->jobContext['queue_id'];
-        $epicSlug = $this->jobContext['epic_slug'];
-        $epicRun = $this->jobContext['epic_run'];
+        $thinkingId = $this->runState->jobContext['thinking_id'];
+        $prompt = $this->runState->jobContext['prompt'];
+        $kind = $this->runState->jobContext['kind'];
+        $mode = $this->runState->jobContext['mode'];
+        $localeCode = $this->runState->jobContext['locale'];
+        $queueId = $this->runState->jobContext['queue_id'];
+        $epicSlug = $this->runState->jobContext['epic_slug'];
+        $epicRun = $this->runState->jobContext['epic_run'];
         // The skip reason is read before finishJobState() removes the gate files.
-        $gateSkip = $this->jobContext['pm_gate_run_id'] !== null
-            ? PmGateHook::skipReason($this->config->stateDir, $this->jobContext['pm_gate_run_id'])
+        $gateSkip = $this->runState->jobContext['pm_gate_run_id'] !== null
+            ? PmGateHook::skipReason($this->config->stateDir, $this->runState->jobContext['pm_gate_run_id'])
             : '';
-        $compactOld = $this->jobContext['compact_old_session_id'] ?? null;
-        $promptHash = $this->jobContext['prompt_hash'];
+        $compactOld = $this->runState->jobContext['compact_old_session_id'] ?? null;
+        $promptHash = $this->runState->jobContext['prompt_hash'];
         // Capture BEFORE finishJobState(), which resets jobContext.
-        $inboxFiles = $this->jobContext['inbox_files'];
+        $inboxFiles = $this->runState->jobContext['inbox_files'];
         $requeued = false;
 
         try {
             if ($state === RunnerState::Timeout) {
-                $reason = $this->activeJob->timeoutReason();
-                $timeoutWarnings = $this->activeJob->promptWarnings();
+                $reason = $this->runState->activeJob->timeoutReason();
+                $timeoutWarnings = $this->runState->activeJob->promptWarnings();
                 $this->finishJobState($chatId, $threadId);
                 $this->inbox->deleteInboxFiles($inboxFiles);
                 $this->tg->deleteMessage($chatId, $thinkingId);
@@ -1713,10 +1685,10 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
             }
 
             // Done: take the result before the state is reset (result() is valid only here).
-            $claude = $this->activeJob->result();
-            $promptWarnings = $this->activeJob->promptWarnings();
+            $claude = $this->runState->activeJob->result();
+            $promptWarnings = $this->runState->activeJob->promptWarnings();
             if ($claude->exitedWithoutResult) {
-                $diagnostics = $this->activeJob->diagnosticsPath();
+                $diagnostics = $this->runState->activeJob->diagnosticsPath();
                 Log::line('claude exited with code 0 without a result event'
                     .($claude->recovered ? ' (answer recovered from the last assistant message)' : '')
                     .($diagnostics !== null ? "; diagnostics: {$diagnostics}" : ''));
@@ -1793,19 +1765,19 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
                 self::KIND_COMPACT_SUMMARIZE => $this->finishCompactSummarize($chatId, $threadId, $claude, $compactOld, $queueId, $localeCode),
                 self::KIND_COMPACT_RESEED => $this->finishCompactReseed($chatId, $threadId, $claude, $compactOld, $promptHash),
                 self::KIND_EPIC => $this->finishEpicRunRemembering($chatId, $threadId, (string) $epicSlug, $epicRun),
-                default => $this->sendResult($chatId, $threadId, $claude, $prompt, $mode, $promptWarnings),
+                default => $this->runResult->sendResult($chatId, $threadId, $claude, $prompt, $mode, $promptWarnings),
             };
         } finally {
             // The item is removed when the run finishes. Exceptions: a return to the
             // head because of the limit and the compact summarize -> reseed
             // transition (the job is alive).
-            if (!$requeued && $this->activeJob === null && $queueId > 0) {
+            if (!$requeued && $this->runState->activeJob === null && $queueId > 0) {
                 $this->db->queueRemove($queueId);
             }
             // The run ended with a clean tree (including via auto-commit), so there is
             // no dirt owner; otherwise external dirt would later be attributed to this
             // topic.
-            if ($this->activeJob === null) {
+            if ($this->runState->activeJob === null) {
                 try {
                     if (!$this->git->hasChanges()) {
                         $this->db->clearDirtyOwner();
@@ -1814,8 +1786,8 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
                     // Unknown state: the owner stays, and this must not replace an exception in flight.
                     Log::line('git status failed after the run, dirty owner kept: '.$e->getMessage());
                 }
-                $this->runTreeSnapshot = null;
-                $this->runTreeSnapshotError = null;
+                $this->runState->runTreeSnapshot = null;
+                $this->runState->runTreeSnapshotError = null;
             }
         }
     }
@@ -1903,7 +1875,7 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         // A successful run with leftover dirt is auto-committed, like a regular request.
         // With AUTO_COMMIT=0 the leftovers stay in the tree; only the prompt-files warning is given.
         if (!$this->config->autoCommit) {
-            $this->deliverPromptFilesWarning($chatId, $threadId);
+            $this->runResult->deliverPromptFilesWarning($chatId, $threadId);
         } else {
             try {
                 $dirty = $this->git->hasChanges();
@@ -1914,9 +1886,9 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
                 return;
             }
             if ($dirty) {
-                $this->deliverPromptFilesWarning($chatId, $threadId);
+                $this->runResult->deliverPromptFilesWarning($chatId, $threadId);
                 try {
-                    $this->git->commitAndPush($this->commitMessage("epic {$slug}"));
+                    $this->git->commitAndPush($this->runResult->commitMessage("epic {$slug}"));
                 } catch (\RuntimeException $e) {
                     $this->delivery->deliver($chatId, $threadId, $this->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
                     $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
@@ -2105,14 +2077,14 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
         if ($this->config->autoCommit) {
             return $this->git->hasChanges() ? ['*'] : [];
         }
-        if ($this->runTreeSnapshotError !== null) {
-            throw new GitStatusException($this->runTreeSnapshotError);
+        if ($this->runState->runTreeSnapshotError !== null) {
+            throw new GitStatusException($this->runState->runTreeSnapshotError);
         }
-        if ($this->runTreeSnapshot === null) {
+        if ($this->runState->runTreeSnapshot === null) {
             return [];
         }
 
-        return $this->git->changedSince($this->runTreeSnapshot);
+        return $this->git->changedSince($this->runState->runTreeSnapshot);
     }
 
     /**
@@ -2200,27 +2172,27 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
      */
     private function maybeUpdateProgress(): void
     {
-        if ($this->activeJob === null || $this->jobContext === null) {
+        if ($this->runState->activeJob === null || $this->runState->jobContext === null) {
             return;
         }
 
-        $lines = $this->activeJob->getProgressLines();
-        if (count($lines) <= $this->jobContext['shown_count']) {
+        $lines = $this->runState->activeJob->getProgressLines();
+        if (count($lines) <= $this->runState->jobContext['shown_count']) {
             return; // no new calls
         }
-        if (time() - $this->jobContext['last_progress_at'] < 3) {
+        if (time() - $this->runState->jobContext['last_progress_at'] < 3) {
             return; // throttle
         }
 
         $tail = array_slice($lines, -15);
         $this->tg->editMessageText(
-            $this->jobContext['chat_id'],
-            $this->jobContext['thinking_id'],
-            $this->thinkingText($this->jobContext['mode'])."\n\n".implode("\n", $tail),
+            $this->runState->jobContext['chat_id'],
+            $this->runState->jobContext['thinking_id'],
+            $this->thinkingText($this->runState->jobContext['mode'])."\n\n".implode("\n", $tail),
         );
 
-        $this->jobContext['last_progress_at'] = time();
-        $this->jobContext['shown_count'] = count($lines);
+        $this->runState->jobContext['last_progress_at'] = time();
+        $this->runState->jobContext['shown_count'] = count($lines);
     }
 
     /**
@@ -2237,156 +2209,6 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
                 $this->delivery->deliver($chatId, $threadId, '⚠️ '.$warning);
             }
         }
-    }
-
-    /**
-     * @param list<string> $promptWarnings
-     */
-    private function sendResult(int $chatId, int $threadId, ClaudeResult $claude, string $prompt, string $mode, array $promptWarnings = []): void
-    {
-        $text = $claude->text !== '' ? $claude->text : $this->t('result.empty');
-        foreach ($promptWarnings as $warning) {
-            $text .= "\n\n⚠️ ".$warning;
-        }
-
-        // The review Stop hook did not wait for the review status in the PR and
-        // let the turn go; say so explicitly, otherwise the "approve posted"
-        // verdict in the model's text looks true (see ReviewStatusHook).
-        if ($claude->sessionId !== null && ReviewStatusHook::consumeMarker($this->config->stateDir, $claude->sessionId)) {
-            $text .= "\n\n".$this->t('result.review_status_missing');
-        }
-        if ($claude->sessionId !== null && ($missingIds = ReviewStatusHook::consumeIdsMarker($this->config->stateDir, $claude->sessionId)) !== null) {
-            $text .= "\n\n".$this->t('result.review_verdicts_missing', ['ids' => implode(', ', $missingIds)]);
-        }
-
-        $text .= $this->promptFilesNote();
-
-        $commitLinks = [];
-
-        if (!$this->config->autoCommit) {
-            $changed = [];
-            try {
-                if ($this->runTreeSnapshotError !== null) {
-                    throw new GitStatusException($this->runTreeSnapshotError);
-                }
-                $changed = $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot) : [];
-            } catch (\RuntimeException $e) {
-                Log::line('tree snapshot diff failed: '.$e->getMessage());
-                $text .= "\n\n".$this->t('result.changes_unknown', ['error' => $e->getMessage()]);
-            }
-            if ($changed !== []) {
-                $text .= "\n\n".$this->t('result.changed_files', ['count' => count($changed)]);
-            }
-        } else {
-            try {
-                $dirty = $this->git->hasChanges();
-            } catch (GitStatusException $e) {
-                Log::line('git status failed, nothing committed: '.$e->getMessage());
-                $text .= "\n\n".$this->t('result.status_failed', ['error' => $e->getMessage()]);
-                $dirty = false;
-            }
-            if ($dirty) {
-                try {
-                    $hash = $this->git->commitAndPush($this->commitMessage($prompt));
-                    $commitLinks[] = $this->commitUrl($hash);
-                } catch (\RuntimeException $e) {
-                    $text .= "\n\n".$this->t('result.git_failed', ['error' => $e->getMessage()]);
-                }
-            }
-        }
-
-        $commitLinks = array_merge($commitLinks, $this->subRepoSync->collectSubRepoLinks($this->repoSnapshot ?? []));
-        $this->repoSnapshot = null;
-
-        if ($commitLinks !== []) {
-            $text .= "\n\n".$this->t('result.committed')."\n".implode("\n", $commitLinks);
-        }
-
-        if ($this->db->isVerbose($chatId, $threadId)) {
-            $text .= "\n\n".$this->t('result.tokens', [
-                'input' => number_format($claude->inputTokens, 0, '.', ' '),
-                'output' => number_format($claude->outputTokens, 0, '.', ' '),
-            ]);
-        }
-
-        $this->delivery->deliver($chatId, $threadId, $text, null, $this->delivery->overflowCaption($mode));
-    }
-
-    /**
-     * Prompt files under PROMPTS_DIR and locale files under LOCALES_DIR changed by the run,
-     * before the auto-commit. Both shape future behaviour (locale texts can even swap the
-     * labels of the commit/discard buttons), so they are reported. A directory outside the
-     * repository is not tracked, so nothing is reported for it.
-     *
-     * @param string|null $statusError set to the first `git status` failure; the files of that directory are unknown
-     *
-     * @return list<string>
-     */
-    private function changedPromptFiles(?string &$statusError = null): array
-    {
-        $files = [];
-        foreach ([$this->config->promptsDir, $this->config->localesDir] as $dir) {
-            if ($dir === '' || str_contains($dir, '..')) {
-                continue;
-            }
-
-            try {
-                if (!$this->config->autoCommit) {
-                    if ($this->runTreeSnapshotError !== null) {
-                        throw new GitStatusException($this->runTreeSnapshotError);
-                    }
-                    $files = array_merge($files, $this->runTreeSnapshot !== null ? $this->git->changedSince($this->runTreeSnapshot, $dir) : []);
-
-                    continue;
-                }
-                $files = array_merge($files, $this->git->changedPathsIn($dir));
-            } catch (\RuntimeException $e) {
-                $statusError ??= $e->getMessage();
-            }
-        }
-
-        return array_values(array_unique($files));
-    }
-
-    /**
-     * Separate chat message for commit paths that do not go through sendResult()
-     * (autonomous epic runs, the manual "commit" button).
-     */
-    public function deliverPromptFilesWarning(int $chatId, int $threadId): void
-    {
-        $warning = trim($this->promptFilesNote());
-        if ($warning !== '') {
-            Log::line('prompt: '.$warning);
-            $this->delivery->deliver($chatId, $threadId, $warning);
-        }
-    }
-
-    /** The changed-prompt-files warning, or a warning that they could not be checked. */
-    private function promptFilesNote(): string
-    {
-        $statusError = null;
-        $note = $this->promptFilesWarning($this->changedPromptFiles($statusError));
-        if ($statusError !== null) {
-            $note .= "\n\n⚠️ ".$this->t('prompt_files.check_failed', ['error' => $statusError]);
-        }
-
-        return $note;
-    }
-
-    /**
-     * @param list<string> $files
-     */
-    private function promptFilesWarning(array $files): string
-    {
-        if ($files === []) {
-            return '';
-        }
-
-        $list = implode(', ', $files);
-
-        return "\n\n".($this->config->autoCommit
-            ? $this->t('prompt_files.changed', ['files' => $list])
-            : $this->t('prompt_files.changed_uncommitted', ['files' => $list]));
     }
 
     /**
@@ -2420,28 +2242,11 @@ final class Bot implements QueueControl, RunControl, LocaleResolver, DecisionHos
     private function finishJobState(int $chatId, int $threadId): void
     {
         $this->db->setPid($chatId, $threadId, null);
-        if (($gateRunId = $this->jobContext['pm_gate_run_id'] ?? null) !== null) {
+        if (($gateRunId = $this->runState->jobContext['pm_gate_run_id'] ?? null) !== null) {
             PmGateHook::cleanup($this->config->stateDir, $gateRunId);
         }
-        $this->activeJob = null;
-        $this->jobContext = null;
-        $this->repoSnapshot = null;
-    }
-
-    private function commitMessage(string $prompt): string
-    {
-        $firstLine = strtok($prompt, "\n") ?: $prompt;
-        $firstLine = trim(mb_substr($firstLine, 0, 60));
-
-        return "tg: {$firstLine}";
-    }
-
-    public function commitUrl(string $hash): string
-    {
-        if ($this->config->githubRepo === '') {
-            return $hash;
-        }
-
-        return "https://github.com/{$this->config->githubRepo}/commit/{$hash}";
+        $this->runState->activeJob = null;
+        $this->runState->jobContext = null;
+        $this->runState->repoSnapshot = null;
     }
 }

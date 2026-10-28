@@ -15,6 +15,7 @@ use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\MarkdownConverter;
 use GpsLab\WorkspaceAssistant\PmRunbook;
+use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\Tests\FakeTelegram;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -157,9 +158,14 @@ final class FlowTest extends TestCase
         return (new \ReflectionMethod(Bot::class, $method))->invoke($this->bot);
     }
 
+    private function runState(): RunState
+    {
+        return (new \ReflectionProperty(Bot::class, 'runState'))->getValue($this->bot);
+    }
+
     private function activeJob(): bool
     {
-        return (new \ReflectionProperty(Bot::class, 'activeJob'))->getValue($this->bot) !== null;
+        return $this->runState()->activeJob !== null;
     }
 
     /**
@@ -167,7 +173,7 @@ final class FlowTest extends TestCase
      */
     private function jobContext(): ?array
     {
-        return (new \ReflectionProperty(Bot::class, 'jobContext'))->getValue($this->bot);
+        return $this->runState()->jobContext;
     }
 
     private function finishJob(): void
