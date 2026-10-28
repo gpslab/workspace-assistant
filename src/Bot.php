@@ -561,6 +561,7 @@ final class Bot implements LoopControl
         }
         $this->runState->runTreeSnapshot = null;
         $this->runState->runTreeSnapshotError = null;
+        $this->runState->repoSnapshot = null;
     }
 
     /**

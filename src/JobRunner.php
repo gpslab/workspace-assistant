@@ -65,6 +65,7 @@ final class JobRunner implements JobLauncher, RunControl
 
             $this->runState->activeJob->kill();
             $this->finishJobState($chatId, $threadId);
+            $this->runState->repoSnapshot = null;
             $this->inbox->deleteInboxFiles($inboxFiles);
             if ($queueId > 0) {
                 $this->db->queueRemove($queueId);
@@ -517,6 +518,5 @@ final class JobRunner implements JobLauncher, RunControl
         }
         $this->runState->activeJob = null;
         $this->runState->jobContext = null;
-        $this->runState->repoSnapshot = null;
     }
 }
