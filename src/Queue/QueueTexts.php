@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Queue;
 
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\SystemPrompt;
 
 /** Texts about queue items and their topics, shared by `Bot` and the commands. */
 final readonly class QueueTexts
@@ -47,5 +48,16 @@ final readonly class QueueTexts
         }
 
         return $this->locale->t('queue.files');
+    }
+
+    /**
+     * Text of the "Thinking..." placeholder - with a mode label when it differs from
+     * the default (a forgotten mode would otherwise change behaviour silently). The mode is taken
+     * from the item/jobContext, not from sessions. The placeholder is not part of the
+     * final answer, so the output size cap is irrelevant here.
+     */
+    public function thinkingText(string $mode): string
+    {
+        return $mode === SystemPrompt::DEFAULT_MODE ? $this->locale->t('thinking') : $this->locale->t('thinking_mode', ['mode' => $mode]);
     }
 }

@@ -322,7 +322,7 @@ Decide by exception **type**:
   the loop becomes a busy loop against the Telegram API.
 - **Downloaded files live exactly one run** and are deleted from EVERY way out of a job: normal end and
   timeout in `pollJob()` (take the paths from `jobContext['inbox_files']` BEFORE `finishJobState()` clears
-  it) and manual cancel in `Bot::cancelTopic()`. If `launchJob()` fails to start the runner, `startJobOfItem()`
+  it) and manual cancel in `Bot::cancelTopic()`. If `launchJob()` fails to start the runner, `QueueScheduler::startJobOfItem()`
   deletes the files itself. `Inbox::sweepInbox()` removes leftovers older than an hour.
 
 ---
@@ -374,17 +374,17 @@ verdict.
 
 A request while the bot is busy is queued in one FIFO (`queue` table; one claude run at a time in one
 working tree). No parallel runs, no `git worktree`, no priorities: the queue serializes.
-`Bot::startQueueHead()` is called by `tick()` whenever there is no job.
+`QueueScheduler::startQueueHead()` is called by `Bot::tick()` whenever there is no job.
 
 - **A pause on a dirty tree is derived from state, not stored.** Rule: queue non-empty + no job + dirty
-  tree + `AUTO_COMMIT=1` (`isPausedByDirtyTree()`). No in-memory flag: after `/restart` or a failed `git commit` a flag
+  tree + `AUTO_COMMIT=1` (`QueueScheduler::isPausedByDirtyTree()`). No in-memory flag: after `/restart` or a failed `git commit` a flag
   would leave the queue paused with no buttons forever. In the DB there is only the *awaiting decision*
   (`decision`) and the *owner* of the dirt (`dirty_owner`: topic of the last started job). Buttons are
   re-issued on every entry into the pause (`DirtyTreeDecision::ensureDecision`); a manual cleanup over SSH lifts the pause by
   itself. Unknown owner → buttons go to the head's topic marked "changes not from this request" with a
   neutral commit message.
 - **The mode is read only from `jobContext['mode']`.** It is fixed at enqueue (`queue.mode`) and used by
-  `launchJob` (including the `ReviewStatusHook` choice), `thinkingText`, `overflowCaption`, `RunResult::sendResult`.
+  `launchJob` (including the `ReviewStatusHook` choice), `QueueTexts::thinkingText`, `overflowCaption`, `RunResult::sendResult`.
   Never from `sessions` (`Database::getMode`), otherwise `/mode` sent while another run is going would
   restyle an already queued request. The `/mode` gate is "THIS topic has a job", not "the bot is busy".
 - **`session_id` is read when the item starts, not at enqueue.** A run of the same topic may have forked
@@ -399,7 +399,7 @@ working tree). No parallel runs, no `git worktree`, no priorities: the queue ser
   (`/compact` without a session, file unavailable or too large) drop the item. A download failure of any
   file of a merged item drops it whole. The 10-retry cap applies only to item-specific failures (network
   download); sync and claude-start failures are shared by the tree and never drop the head.
-- **"Topic deleted" is checked before EVERY claude start** (`startJobOfItem`): edit the placeholder (`Gone`
+- **"Topic deleted" is checked before EVERY claude start** (`QueueScheduler::startJobOfItem`): edit the placeholder (`Gone`
   → drop), or, without a placeholder (returned by a limit), send a new one to its own topic with no
   fallback to General. `activeJob` is assigned right after `ClaudeRunner::start()`, before any side effect.
 - **Update de-duplication:** `queue_messages` with `UNIQUE (chat_id, message_id)` holds all ids of an item
@@ -413,12 +413,12 @@ working tree). No parallel runs, no `git worktree`, no priorities: the queue ser
 - **Merging** only into the last pending item of the same topic with the same mode (and language), not
   closed by `/mode`, `/new`, `/compact` (`queue.closed`), and never into a running job.
 - **"Queued: Nth" is written once** and not renumbered; `/queue` shows the current picture.
-- **An epic run (`kind = epic`) is isolated from the topic session.** `startEpicItem` starts claude with
+- **An epic run (`kind = epic`) is isolated from the topic session.** `QueueScheduler::startEpicItem` starts claude with
   `sessionId = null`; `persistSessionEarly` skips it (only `RunKind::KIND_CHAT`), `recordRun` in `pollJob` excludes
   `RunKind::KIND_EPIC` explicitly, otherwise the next chat run of the topic would continue the tick's session. The
   reply text does not go to the topic, only the signal (`state/epics/<slug>/signal.json`, path in
   `WORKSPACE_ASSISTANT_EPIC_SIGNAL`) and the outbox. Exception to "a job killed by a restart is dropped":
-  an epic item is silently returned to the queue in `recoverQueueOnStart` (`queueRelease`).
+  an epic item is silently returned to the queue in `QueueScheduler::recoverQueueOnStart` (`queueRelease`).
 
 ---
 

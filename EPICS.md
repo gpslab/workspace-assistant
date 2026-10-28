@@ -202,7 +202,7 @@ pushes the plan.
 ## Epic run: input and signal
 
 Run kinds: `tick` and `final` (the final check) run in the `pm` mode; `review` (hot review of a PR)
-runs in `review`. They are queued by `Bot::enqueueEpicRun($slug, $run, $pr)`.
+runs in `review`. They are queued by `QueueScheduler::enqueueEpicRun($slug, $run, $pr)`.
 
 **Input** is the prompt: `slug`, plan path, journal path, absolute runbook path, outbox path, run
 kind and the **epic marker** `<!-- epic:<slug> -->`, which goes into the review body (hot review) or

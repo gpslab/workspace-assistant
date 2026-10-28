@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\RunResult;
 use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
@@ -150,6 +151,11 @@ final class GitStatusFailureTest extends TestCase
         return (new \ReflectionProperty(Bot::class, 'runState'))->getValue($this->bot);
     }
 
+    private function queueScheduler(): QueueScheduler
+    {
+        return (new \ReflectionProperty(Bot::class, 'queueScheduler'))->getValue($this->bot);
+    }
+
     private function activeJob(): bool
     {
         return $this->runState()->activeJob !== null;
@@ -269,8 +275,8 @@ final class GitStatusFailureTest extends TestCase
         $this->corruptIndex();
 
         $error = null;
-        self::assertFalse($this->call('isPausedByDirtyTree', [&$error]));
-        $reason = $this->call('pauseReason');
+        self::assertFalse((new \ReflectionMethod(QueueScheduler::class, 'isPausedByDirtyTree'))->invokeArgs($this->queueScheduler(), [&$error]));
+        $reason = $this->queueScheduler()->pauseReason();
 
         self::assertIsString($reason);
         self::assertStringStartsWith(self::FAILED, $reason);
@@ -302,7 +308,7 @@ final class GitStatusFailureTest extends TestCase
         $this->hook('echo j > "$PWD/journal.txt"; echo \'{}\' > "$WORKSPACE_ASSISTANT_EPIC_SIGNAL"; echo garbage > "$PWD/.git/index"');
         $head = $this->head();
 
-        self::assertTrue($this->bot->enqueueEpicRun('demo', 'tick'));
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', 'tick'));
         $this->call('startQueueHead');
         $this->finishJob();
 
@@ -363,7 +369,7 @@ final class GitStatusFailureTest extends TestCase
         $this->db->setDirtyOwner(100, 1);
         $this->corruptIndex();
 
-        $this->call('releaseStaleDirtyState');
+        (new \ReflectionMethod(QueueScheduler::class, 'releaseStaleDirtyState'))->invoke($this->queueScheduler());
 
         self::assertNotNull($this->db->getDecision());
         self::assertNotNull($this->db->getDirtyOwner());

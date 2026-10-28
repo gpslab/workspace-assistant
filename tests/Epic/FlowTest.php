@@ -15,6 +15,7 @@ use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\MarkdownConverter;
 use GpsLab\WorkspaceAssistant\PmRunbook;
+use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\Tests\FakeTelegram;
@@ -163,6 +164,11 @@ final class FlowTest extends TestCase
         return (new \ReflectionProperty(Bot::class, 'runState'))->getValue($this->bot);
     }
 
+    private function queueScheduler(): QueueScheduler
+    {
+        return (new \ReflectionProperty(Bot::class, 'queueScheduler'))->getValue($this->bot);
+    }
+
     private function activeJob(): bool
     {
         return $this->runState()->activeJob !== null;
@@ -243,7 +249,7 @@ final class FlowTest extends TestCase
     /** Queues a run, starts it and waits for completion. */
     private function runEpic(string $run = Run::TICK, ?string $pr = null): void
     {
-        self::assertTrue($this->bot->enqueueEpicRun('demo', $run, $pr));
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', $run, $pr));
         $this->call('startQueueHead');
         self::assertTrue($this->activeJob());
         $this->finishJob();
@@ -579,7 +585,7 @@ final class FlowTest extends TestCase
         $this->startEpic();
         $this->signal('{}');
 
-        self::assertTrue($this->bot->enqueueEpicRun('demo', Run::REVIEW, 'a#1'));
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::REVIEW, 'a#1'));
         self::assertSame('review', $this->db->queueHead()['mode'] ?? null);
         $this->call('startQueueHead');
         self::assertSame('review', $this->jobContext()['mode'] ?? null);
@@ -591,7 +597,7 @@ final class FlowTest extends TestCase
         self::assertStringContainsString('Pull request: a#1', $this->args());
 
         foreach ([Run::TICK, Run::FINAL] as $run) {
-            self::assertTrue($this->bot->enqueueEpicRun('demo', $run));
+            self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', $run));
             self::assertSame('pm', $this->db->queueHead()['mode'] ?? null);
             $this->call('startQueueHead');
             self::assertSame('pm', $this->jobContext()['mode'] ?? null);
@@ -1248,7 +1254,7 @@ final class FlowTest extends TestCase
     public function testEpicItemIsNotMergedWithAuthorMessages(): void
     {
         $this->startEpic();
-        $this->bot->enqueueEpicRun('demo', Run::TICK);
+        $this->queueScheduler()->enqueueEpicRun('demo', Run::TICK);
         (new \ReflectionMethod(Bot::class, 'enqueueMessage'))->invoke($this->bot, self::CHAT, self::THREAD, 11, [['message_id' => 11, 'text' => 'question', 'files' => []]]);
 
         $kinds = array_column($this->db->queueWaiting(), 'kind');
@@ -1258,7 +1264,7 @@ final class FlowTest extends TestCase
     public function testRunOfPausedEpicIsDroppedWithoutLaunch(): void
     {
         $this->startEpic();
-        $this->bot->enqueueEpicRun('demo', Run::TICK);
+        $this->queueScheduler()->enqueueEpicRun('demo', Run::TICK);
         $this->db->epicSetStatus('demo', 'paused');
 
         $this->call('startQueueHead');
@@ -1271,7 +1277,7 @@ final class FlowTest extends TestCase
     public function testRestartRequeuesKilledEpicRunButDropsKilledChatRequest(): void
     {
         $this->startEpic();
-        $this->bot->enqueueEpicRun('demo', Run::TICK);
+        $this->queueScheduler()->enqueueEpicRun('demo', Run::TICK);
         (new \ReflectionMethod(Bot::class, 'enqueueMessage'))->invoke($this->bot, self::CHAT, 8, 12, [['message_id' => 12, 'text' => 'ordinary', 'files' => []]]);
         foreach ($this->db->queueWaiting() as $item) {
             $this->db->queueMarkRunning($item['id']);
@@ -1290,9 +1296,9 @@ final class FlowTest extends TestCase
     {
         $this->startEpic();
         self::assertSame([], $this->db->epicReviewPrs('demo'));
-        $this->bot->enqueueEpicRun('demo', Run::TICK);
+        $this->queueScheduler()->enqueueEpicRun('demo', Run::TICK);
         self::assertSame([], $this->db->epicReviewPrs('demo'));
-        $this->bot->enqueueEpicRun('demo', Run::REVIEW, 'a#1');
+        $this->queueScheduler()->enqueueEpicRun('demo', Run::REVIEW, 'a#1');
         self::assertSame(['a#1'], $this->db->epicReviewPrs('demo'));
         self::assertSame([], $this->db->epicReviewPrs('other'));
         // the review is already executing (the queue executor marks it running)
@@ -1307,8 +1313,8 @@ final class FlowTest extends TestCase
     public function testCancelRemovesEpicItemsAndPausesEpic(): void
     {
         $this->startEpic();
-        $this->bot->enqueueEpicRun('demo', Run::TICK);
-        $this->bot->enqueueEpicRun('demo', Run::REVIEW, 'a#1');
+        $this->queueScheduler()->enqueueEpicRun('demo', Run::TICK);
+        $this->queueScheduler()->enqueueEpicRun('demo', Run::REVIEW, 'a#1');
 
         $this->command('/cancel');
 
@@ -1320,7 +1326,7 @@ final class FlowTest extends TestCase
     public function testCancelKillsRunningEpicJobAndPausesEpic(): void
     {
         $this->startEpic();
-        $this->bot->enqueueEpicRun('demo', Run::TICK);
+        $this->queueScheduler()->enqueueEpicRun('demo', Run::TICK);
         $this->call('startQueueHead');
         self::assertTrue($this->activeJob());
 

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Command;
 
-/** What the queue commands need from the queue owned by `Bot`. */
+/** What the queue commands need from the queue owned by `QueueScheduler`. */
 interface QueueControl
 {
     /** The topic has an active or pending item. */
