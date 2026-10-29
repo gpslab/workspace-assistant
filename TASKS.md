@@ -115,7 +115,7 @@ without it is used. The warning goes into the reply in the `pm` mode and into th
 A `PreToolUse` hook on `Bash` in the `pm` and `review` modes (and in epic runs) refuses to create an issue
 until the required stages ran. The `arch` mode is not covered.
 
-- It catches `gh issue create` and `gh api repos/X/Y/issues` that creates an issue; comments
+- It catches `gh issue create`, `gh api repos/X/Y/issues` that creates an issue, `glab issue create|new`, `glab api projects/<id>/issues` (POST) and a `createIssue` GraphQL mutation (`-f query=…`; not detected: `-F query=@file`, `--input`, `-F query=@-` and a query in a shell variable); comments
   (`.../issues/N/comments`) pass.
 - A stage counts as done when the main chain of the transcript holds an `Agent` call with that
   `subagent_type` and `toolUseResult.status == "completed"`. Background calls do not count.
