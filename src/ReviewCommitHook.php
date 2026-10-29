@@ -114,7 +114,9 @@ final class ReviewCommitHook
      */
     private static function recorded(array $shas, string $owner, string $repo, int $n): ?string
     {
-        if ($owner !== '' && $repo !== '') {
+        // `gh api` expands `{owner}`/`:owner` placeholders from the current repository: match by number.
+        $placeholder = static fn (string $s): bool => preg_match('/^(?:\{[^}]*\}|:.*)$/', $s) === 1;
+        if ($owner !== '' && $repo !== '' && !$placeholder($owner) && !$placeholder($repo)) {
             return $shas[strtolower("{$owner}/{$repo}#{$n}")] ?? null;
         }
         $found = [];

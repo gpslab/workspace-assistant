@@ -36,6 +36,8 @@ final class ReviewCommitHookTest extends TestCase
         yield 'short sha' => ['gh api repos/gpslab/ws/pulls/7/reviews -f commit_id=0123456 -f event=APPROVE -f body=ok', []];
         yield 'other literal sha' => ['gh api repos/gpslab/ws/pulls/7/reviews -f commit_id='.self::OTHER.' -f event=APPROVE -f body=ok', self::RECORDED];
         yield 'other literal sha, uppercase repo in path' => ['gh api repos/GPSLab/WS/pulls/7/reviews -f commit_id='.self::OTHER.' -f event=APPROVE -f body=ok', self::RECORDED];
+        yield 'owner/repo placeholders, other sha' => ['gh api repos/{owner}/{repo}/pulls/7/reviews -f commit_id='.self::OTHER.' -f event=APPROVE -f body=ok', self::RECORDED];
+        yield ':owner/:repo placeholders, other sha' => ['gh api repos/:owner/:repo/pulls/7/reviews -f commit_id='.self::OTHER.' -f event=APPROVE -f body=ok', self::RECORDED];
         yield '--input' => ['gh api repos/gpslab/ws/pulls/7/reviews --input review.json', self::RECORDED];
         yield '--input from stdin' => ['gh api repos/gpslab/ws/pulls/7/reviews -X POST --input - <<< "{}"', []];
     }
