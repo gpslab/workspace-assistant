@@ -159,8 +159,11 @@ Minimum versions: **GitLab 16.0** and **glab 1.40**.
 
 With `FORGE=gitlab` the bot builds commit and file links (`…/-/commit/<sha>`, `…/-/blob/<branch>/<path>`)
 for `origin` remotes in the forms `git@<host>:<namespace>/<project>.git`,
-`https://<host>/<namespace>/<project>.git` and `ssh://git@<host>[:port]/<namespace>/<project>.git`, when
-`<host>` equals `FORGE_HOST`; for any other remote it shows a bare hash or a plain path. The cron check
+`https://<host>[:port]/<namespace>/<project>.git` (the port is kept in the link) and
+`ssh://git@<host>[:port]/<namespace>/<project>.git` (the port is dropped), when `<host>` equals
+`FORGE_HOST`; for any other remote it shows a bare hash or a plain path. Commit links of
+sub-repositories from `SUBREPOS_DIR` are built from their own `origin`: first `FORGE`/`FORGE_HOST`, then
+github.com and gitlab.com, otherwise a bare hash. The cron check
 [`bin/check_forge_auth.sh`](INSTALL.md#monitoring-forge-authentication) runs
 `glab auth status --hostname <host>`.
 

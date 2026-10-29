@@ -175,6 +175,8 @@ GitLab (chat and PM modes; review mode after #100; no epics) is in the [GitLab](
 `git pull --rebase` in every clone there, snapshots their HEAD and adds links to their new commits to
 the reply. `SUBREPOS_DIR` must be listed in the managed repository's `.gitignore`: otherwise
 `git add -A` records the clones as gitlinks. The bot only pulls the clones; it does not commit them.
+Commit links of sub-repositories are built from their own `origin`: first `FORGE`/`FORGE_HOST`, then
+github.com and gitlab.com, otherwise a bare hash.
 `TIMEZONE` is used for `date()` and log lines; an unknown value fails the startup.
 
 ### Interface language

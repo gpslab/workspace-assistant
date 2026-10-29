@@ -108,6 +108,14 @@ final class CheckForgeAuthScriptTest extends TestCase
         self::assertSame("glab auth status --hostname gitlab.com\n", $this->calls());
     }
 
+    public function testTrailingWhitespaceInEnvFileValuesIsTrimmed(): void
+    {
+        [$code] = $this->script('check_forge_auth.sh', [], "BOT_TOKEN=t\nALLOWED_USER_IDS=1\nFORGE=gitlab \nFORGE_HOST=gitlab.example.com \n");
+
+        self::assertSame(0, $code);
+        self::assertSame("glab auth status --hostname gitlab.example.com\n", $this->calls());
+    }
+
     public function testForgeAndHostAreReadFromEnvFile(): void
     {
         $this->script('check_forge_auth.sh', [], "BOT_TOKEN=t\nALLOWED_USER_IDS=1\nFORGE=gitlab\nFORGE_HOST=gitlab.example.com\n");
