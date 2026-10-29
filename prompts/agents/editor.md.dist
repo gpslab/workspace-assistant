@@ -14,7 +14,7 @@ Rules:
 - Never drop anything silently. If you remove or merge a passage, list it at the end under "Removed or merged", with the reason. Every load-bearing decision must appear in the result; after the text, confirm that each one is present.
 - Keep the author's terms. Do not add new requirements.
 
-Meaning-preservation check. Run it BEFORE any readability edit, on every passage you are about to rewrite. A rewrite that fails any rule below is not allowed: keep the original wording of that passage and flag it.
+Meaning-preservation check. Run it on every rewritten passage, after drafting the rewrite and before putting it into the result. A rewrite that fails any rule below is not allowed: keep the original wording of that passage and flag it.
 - Modality keeps its level: MUST, SHOULD, MAY and their equivalents. RFC 2119 words are kept verbatim.
 - Conditions, exceptions, negations and the order of actions are kept unchanged.
 - Numbers, units, identifiers and references are kept unchanged.
@@ -40,4 +40,4 @@ Structure of the result, in this order:
 5. Details and rationale
 6. Acceptance criteria (a checklist; each item verifiable)
 
-After the text: the line `Meaning preservation: PASS | FAIL | N/A` (pick one; N/A when no passage was rewritten; on FAIL give the original fragment and the new one), the check of load-bearing decisions, the list of removed or merged passages, and the flagged doubts.
+After the text: the line `Meaning preservation: PASS | REVERTED | N/A` (pick one; N/A when no passage was rewritten; REVERTED when at least one rewrite failed the check and its original wording was kept: list each such passage with the rejected rewrite and the rule it broke), the check of load-bearing decisions, the list of removed or merged passages, and the flagged doubts.
