@@ -117,7 +117,9 @@ to the bot in any mode that can call agents.
 - **Audit the project before a release.** "Call the `security` agent on the whole repository": it reads the
   repository, runs `composer audit --locked` and `npm audit` and returns findings.
 
-In the final check of an epic the runbook calls it on the merged PR diffs of the epic.
+In the final check of an epic the runbook calls it on the merged PR diffs of the epic. The final-check prompt
+states how many tails rounds are used (`Tails rounds: X of N`), so the run knows when a confirmed finding can
+no longer become an extra task.
 
 ## Overrides
 

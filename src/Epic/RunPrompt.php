@@ -44,6 +44,7 @@ final class RunPrompt
             PmRunbook::line($this->config->absolutePromptsDir()),
             $this->config->autoCommit,
             $cold['head'] ?? null,
+            $run === Run::FINAL ? $this->db->epicFinalCounters($slug)['tails_rounds'] : null,
         );
     }
 

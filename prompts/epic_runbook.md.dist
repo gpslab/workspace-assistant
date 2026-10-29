@@ -159,12 +159,12 @@ Scheduled by the bot once every plan task and extra task is closed.
 2. Security check: call the `security` agent, synchronously (`run_in_background: false`), after
    `acceptor`. Scope: the union of the diffs of the merged PRs of the epic's tasks, per repository
    (`git diff` of each merged PR), never the whole repository: the final run is long already and the
-   bot stops a run that is silent for 15 minutes. Give the agent the repositories and the PR list.
+   bot stops a run that stays silent too long (`CLAUDE_STALL_TIMEOUT`). Give the agent the repositories and the PR list.
    Send its findings to `verifier`; a finding the verifier does not confirm is dropped.
 3. Confirmed gaps and confirmed `blocker`/`major` security findings → extra tasks (stages as in
    **Extra task**) → `added`. No report is written: after they close the bot schedules the next final
    check. At most two rounds of gaps and security findings together; the bot drops a third. If that
-   limit is already exhausted (`MAX_TAILS_ROUNDS`), a confirmed `blocker`/`major` finding must not
+   limit is already exhausted (the prompt's `Tails rounds:` line says so), a confirmed `blocker`/`major` finding must not
    stay only in the report: open a separate issue outside the epic in the repository the finding is
    in (label `bug` plus the labels that repository's conventions ask for, without `openronin:do-it`)
    and add a line about it, with the link, to the signal `message`. Confirmed `minor` findings are

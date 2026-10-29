@@ -34,7 +34,7 @@ final class RunPromptTest extends TestCase
         exec('rm -rf '.escapeshellarg($this->root));
     }
 
-    private function runPrompt(?FakeGitHub $gh = null): RunPrompt
+    private function runPrompt(?FakeGitHub $gh = null, ?Database $db = null): RunPrompt
     {
         $config = new Config(
             botToken: 't',
@@ -54,7 +54,7 @@ final class RunPromptTest extends TestCase
             githubOwners: new GithubOwners(['gpslab']),
         );
 
-        return new RunPrompt(new Database($this->root), $config, $gh);
+        return new RunPrompt($db ?? new Database($this->root), $config, $gh);
     }
 
     private function saveCold(): void
@@ -76,6 +76,24 @@ final class RunPromptTest extends TestCase
         self::assertStringContainsString('Reviewed commit: '.self::HEAD, $prompt);
         self::assertStringContainsString('-f commit_id='.self::HEAD, $prompt);
         self::assertStringContainsString('git diff <merge-base>...'.self::HEAD, $prompt);
+    }
+
+    public function testFinalPromptCarriesTheTailsRoundsFromTheDatabase(): void
+    {
+        $db = new Database($this->root);
+        $db->epicCreate('demo', 1, 0, [['task' => 'ws#1', 'after' => []]], []);
+        $pdo = (new \ReflectionProperty(Database::class, 'pdo'))->getValue($db);
+        self::assertInstanceOf(\PDO::class, $pdo);
+        $prompt = $this->runPrompt(null, $db);
+
+        self::assertStringContainsString('Tails rounds: 0 of '.Database::MAX_TAILS_ROUNDS.' used', $prompt->forEpicRun('demo', Run::FINAL, null));
+        self::assertStringNotContainsString('Tails rounds:', $prompt->forEpicRun('demo', Run::TICK, null));
+
+        $pdo->exec('UPDATE epics SET tails_rounds = '.Database::MAX_TAILS_ROUNDS." WHERE slug = 'demo'");
+        $final = $prompt->forEpicRun('demo', Run::FINAL, null);
+
+        self::assertStringContainsString('Tails rounds: '.Database::MAX_TAILS_ROUNDS.' of '.Database::MAX_TAILS_ROUNDS.' used', $final);
+        self::assertStringContainsString('limit is exhausted', $final);
     }
 
     public function testEpicPromptWithoutLoadedFindingsOrOtherRunsHasNoReviewedCommit(): void

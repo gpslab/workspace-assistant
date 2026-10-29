@@ -113,7 +113,7 @@ The author decides three things: whether the tasks are right to run (re-read the
 to close the epic.
 
 The design stage runs a pipeline of read-only sub-agents shipped with the bot (`critic`, `verifier`,
-`editor`, `scope-check`, `acceptor`, `security`), and a gate refuses to create issues until the required stages ran:
+`editor`, `scope-check`, `acceptor`), and a gate refuses to create issues until the required stages ran:
 see [Working out a task](TASKS.md). Any of them can be replaced by your own Claude Code
 sub-agent with the same name, and the persona files and additions in `PROMPTS_DIR` change how the modes
 and epic runs behave, see [PROMPTS.md](PROMPTS.md). Details are in [EPICS.md](EPICS.md).
