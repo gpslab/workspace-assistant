@@ -11,6 +11,7 @@ use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\EditStatus;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\GitHub;
+use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
 use GpsLab\WorkspaceAssistant\GithubOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
@@ -18,6 +19,7 @@ use GpsLab\WorkspaceAssistant\Inbox;
 use GpsLab\WorkspaceAssistant\PmRunbook;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
+use GpsLab\WorkspaceAssistant\ReviewCommitHook;
 use GpsLab\WorkspaceAssistant\ReviewStatusHook;
 use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
@@ -816,6 +818,75 @@ final class QueueFlowTest extends TestCase
         self::assertStringContainsString(ColdFindings::IDS_ENV.'='.$idsPath, $captured);
     }
 
+    public function testManualReviewRecordsHeadShaPerPrAndPassesItToPromptAndHook(): void
+    {
+        require_once __DIR__.'/Epic/OrchestratorTest.php';
+        $gh = new FakeGitHub();
+        $gh->heads['a#1'] = str_repeat('1', 40);
+        $gh->heads['b#2'] = str_repeat('2', 40);
+        $this->bot = $this->makeBot($gh);
+        $this->captureClaude();
+        $this->db->setMode(100, 1, 'review');
+        $this->say(100, 1, 'review a#1 and b#2', 10);
+
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $captured = (string) file_get_contents($this->root.'/captured.txt');
+        self::assertStringContainsString(str_repeat('1', 40), $captured);
+        self::assertStringContainsString(str_repeat('2', 40), $captured);
+        self::assertStringContainsString('commit_id=<that SHA>', $captured);
+        self::assertStringContainsString(ReviewCommitHook::SHAS_ENV.'=', $captured);
+        self::assertStringContainsString('review-commit-hook.php', $captured);
+        $shas = json_decode((string) file_get_contents($this->root.'/shas.json'), true);
+        self::assertIsArray($shas);
+        self::assertCount(2, $shas);
+        $byNumber = [];
+        foreach ($shas as $key => $sha) {
+            $byNumber[substr((string) $key, (int) strrpos((string) $key, '#'))] = $sha;
+        }
+        self::assertSame([str_repeat('1', 40), str_repeat('2', 40)], [$byNumber['#1'], $byNumber['#2']]);
+        self::assertSame([], glob($this->root.'/state/review-shas/*'), 'the file is removed with the run');
+    }
+
+    public function testEpicReviewRunInstallsCommitHookAndPassesTheColdFindingsHead(): void
+    {
+        $head = str_repeat('a', 40);
+        $this->captureClaude();
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
+        ColdFindings::save(ColdFindings::path($this->root.'/state', 'demo', 'gpslab/ws#5'), [
+            'task' => 'gpslab/ws#4',
+            'pr' => 'gpslab/ws#5',
+            'head' => $head,
+            'findings' => [],
+        ]);
+
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::REVIEW, 'gpslab/ws#5'));
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $captured = (string) file_get_contents($this->root.'/captured.txt');
+        self::assertStringContainsString('review-commit-hook.php', $captured);
+        self::assertStringContainsString(ReviewCommitHook::SHAS_ENV.'=', $captured);
+        self::assertSame(['gpslab/ws#5' => $head], json_decode((string) file_get_contents($this->root.'/shas.json'), true));
+        self::assertSame([], glob($this->root.'/state/review-shas/*'), 'the file is removed with the run');
+    }
+
+    public function testEpicTickRunHasNoCommitHook(): void
+    {
+        $this->captureClaude();
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
+
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::TICK));
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $captured = (string) file_get_contents($this->root.'/captured.txt');
+        self::assertStringNotContainsString('review-commit-hook.php', $captured);
+        self::assertStringNotContainsString(ReviewCommitHook::SHAS_ENV, $captured);
+        self::assertFileDoesNotExist($this->root.'/shas.json');
+    }
+
     public function testManualReviewWithoutFindingsSetsNoIdsEnv(): void
     {
         require_once __DIR__.'/Epic/OrchestratorTest.php';
@@ -957,7 +1028,7 @@ final class QueueFlowTest extends TestCase
     private function captureClaude(): void
     {
         $dir = $this->root;
-        file_put_contents($dir.'/claude', "#!/bin/sh\necho x >> \"{$dir}/calls.log\"\n{ printf '%s\\n' \"\$@\"; env | grep '^WORKSPACE_ASSISTANT_REVIEW_IDS='; cat; } > \"{$dir}/captured.txt\" 2>&1\ncat \"{$dir}/out.json\"\n");
+        file_put_contents($dir.'/claude', "#!/bin/sh\necho x >> \"{$dir}/calls.log\"\n{ printf '%s\\n' \"\$@\"; env | grep '^WORKSPACE_ASSISTANT_REVIEW_'; cat; } > \"{$dir}/captured.txt\" 2>&1\ncp \"\$WORKSPACE_ASSISTANT_REVIEW_SHAS\" \"{$dir}/shas.json\" 2>/dev/null\ncat \"{$dir}/out.json\"\n");
     }
 
     public function testModeGateAllowsOtherTopicAndBlocksOwnTopic(): void

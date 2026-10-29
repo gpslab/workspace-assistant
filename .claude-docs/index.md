@@ -31,6 +31,7 @@ Which file to read for which task. Start here when unsure.
 | `bin/install.php`, `src/Installer.php`           | Writes `.env` (options or prompts), checks env/network, prints unit and cron                                                     |
 | `src/InstallerServices.php`                      | Injectable process runner, HTTP, extension and TTY probes of the installer                                                       |
 | `bin/review-stop-hook.php`                       | Claude Stop hook of the `review` mode (`ReviewStatusHook`)                                                                       |
+| `bin/review-commit-hook.php`                     | PreToolUse hook of the `review` mode and the epic review run: a review is published only with `commit_id` = the reviewed SHA, fail-closed (`ReviewCommitHook`) |
 | `bin/pm-gate-hook.php`                           | PreToolUse hook gating issue creation in `pm`/`review` and the epic runs (`tick`, `final`, `review`), fail-closed (`PmGateHook`) |
 | `bootstrap.php`                                  | PSR-4 autoloader + `date_default_timezone_set('UTC')`                                                                            |
 | `src/Bot.php`                                    | Main loop: polling, the front controller, wiring and the routing of a `RunOutcome`; implements `LoopControl`; one-line delegates to `QueueScheduler` and `JobRunner`  |

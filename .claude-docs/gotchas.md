@@ -348,10 +348,10 @@ the topic is encoded in `callback_data` (`ModeAndLang::parseModeCallback()`). `c
 
 ## `review` status is enforced by a Stop hook, not by the prompt
 
-The rule "set `gh pr review --approve / --request-changes`" is in the contract, but a warm session keeps
+The rule "publish the review state with `gh api …/pulls/N/reviews -f commit_id=<SHA> -f event=…`" is in the contract, but a warm session keeps
 its habit (verdict in chat, findings as a comment). So in `review` mode `ClaudeRunner` passes `--settings`
 with a Stop hook `bin/review-stop-hook.php` (logic in `ReviewStatusHook`): PR work in the turn + no
-successful `gh pr review` → the turn does not end and the model is told to set the status and repeat the
+successful review publication → the turn does not end and the model is told to set the status and repeat the
 verdict.
 
 - The hook triggers **without** requiring 🟢/🔴 in the reply (a verdict in prose would otherwise slip
@@ -367,6 +367,27 @@ verdict.
   counts (the last successful one in the turn). A mismatch blocks again.
 - After the hook the final `result` is the message AFTER rework, so the hook's reason asks to repeat the
   whole verdict. Works only in `review` mode.
+
+### The review is pinned to the reviewed commit by a PreToolUse hook
+
+`gh pr review --approve | --request-changes` has no commit argument: GitHub attaches the review to the PR
+head at the moment of sending, and a review takes minutes. So `ReviewCommitHook` (PreToolUse, matcher
+`Bash`, review mode and the epic review run) denies it, and denies a POST to `pulls/N/reviews` with
+`--input`, without `commit_id`, with a `commit_id` that is not a literal 40-hex SHA (`$(…)`, a shell
+variable) or that differs from the SHA recorded for that PR. The denial text carries the correct form.
+
+- The recorded SHA: `ColdFindings` `head` in an epic run (also in the run prompt by `RunPrompt::forEpicRun`),
+  `headRefOid` of each PR the bot recognised in a manual review message (`RunPrompt::manualReviewFindings`,
+  one SHA per PR). Without a recorded SHA (PR not recognised, findings failed to load) only the form is
+  checked: a known limitation, the reviewer records `headRefOid` itself as its first step.
+- Request changes always goes on the SHA; an epic Approve too (the merge gate is protected by
+  `coverage_head`); a manual Approve only if the PR head still equals the SHA. A POST rejected by GitHub
+  sets no status and is not republished on another commit. Both "no status" cases take the ordinary Stop
+  hook path (block, then `missing`); `decide()` has no pass for them.
+- The code is read at the SHA (`git diff <merge-base>...<SHA>`, `git show <SHA>:<path>`, tests in a
+  temporary `git worktree`), not via `gh pr diff` and not with `git checkout` in a working clone (detached
+  HEAD stops `SubRepoSync`).
+- The hook is fail-closed (like `PmGateHook`), unlike the Stop hook.
 
 ---
 

@@ -84,6 +84,14 @@ final class FakeGitHub implements GitHub
         return $out;
     }
 
+    /** @var array<string, string> */
+    public array $heads = [];
+
+    public function prHeadOid(string $pr): string
+    {
+        return $this->heads[$pr] ?? str_repeat('a', 40);
+    }
+
     public function coldFindings(string $pr): array
     {
         $this->coldAsked[] = $pr;

@@ -45,8 +45,8 @@ final class PromptFilesTest extends TestCase
     private const array GOLDEN = [
         'prompt_arch' => '376a2c7b9b26425b7115b8e0d093c5fc27fa31aa690f01c6ee5c7c684c9944ab',
         'prompt_arch_dir' => 'f0418868048d57fb94128286aa81abdd13de9eb83db3e84398d87d502b6a5aa5',
-        'prompt_review' => '1ae07d0aec1bdcdd602da9f6c7c6629e2eabe0a1dfaca42a4f9e6b2d1780c792',
-        'prompt_review_dir' => 'dce27d5c41c197cb63d48a81c8bce70b561a1a517849b01231df0f9b78649a2f',
+        'prompt_review' => '2da2e8ce2a55352509b2da4da3dbc2543e69d8939ab95e4c4dcd03ab0c5acbde',
+        'prompt_review_dir' => 'cfdd44a2913ad8cbd47b15858208a63c48abf9a19283a48f36d6718a8689f64c',
         'prompt_pm' => '1b2058e33a61a35221f255e8a6774df23e0f8671a4c3442613c4e12ce2c21c36',
         'prompt_pm_dir' => 'f833469e528c736dee939a8f094e5eee8c0b2612c4018919e3ea26144af0aaa4',
         'lang_en' => '041abac3c59dfa51c46afb98e6bf7c8d54c2b012b9f836d79e4057d15da4f65c',
@@ -54,12 +54,12 @@ final class PromptFilesTest extends TestCase
         'compact_reseed_prefix' => 'a5de86dc6f44a6a53adb1d450bfb21d3d5a6b9ef6460d126ced385eb6e1abd90',
         'compact_reseed_suffix' => '40b0b818c6c0c970aec56a8b43c493166d550877244bee8690baeeba4b31ffa9',
         'default_file_prompt' => '1b73ee0a4e07d331bd7d9ad5a815dc374ef56ccf7f002c23540953b0dbe5a7a6',
-        'r_noverdict' => 'affc4556c41edfb78d43f802b8a017145df6af38346226bdd795eb0a68b0a249',
-        'r_green_none' => '96bda44fbf93f404206f0a8c7a19cc06207ae964fa282fddf3ec6434727ab70c',
-        'r_red_none' => '37cd751d2e8c6373a039ca27f0e33a24b067b962182a78a2d07ae66130e51cb6',
-        'r_green_opp' => '8d9ccbe9466d1e5b1b0c6e0f5f692aa367b55d2861294ab8d712ead8d1060b80',
-        'r_red_opp' => 'db181f40935c89d0c6485643dbe62321ef9befda48c28a2ce112b66a14053a78',
-        'r_ids' => '5a9496f9c22199f9fcde5e9c5794355c95ede10ea911ed39d86c79f12d33141b',
+        'r_noverdict' => '215bfeea0e92e3fab88c8f856873a7331b55e6f80a12bad4292318b9968b0514',
+        'r_green_none' => '5667160d9b52df76b2e10155a7e755d02c7dca8d3efe147cece671ac790ffcdc',
+        'r_red_none' => '70ead4b7ce9bd5ded46d1873beea4c7ed08f5375f1939fd85d2ddbeff26a50e8',
+        'r_green_opp' => '70cbebf133de5ec57fc73f8d5fb843ba0110c6c6dcde173df6b82de9e3ef2e1d',
+        'r_red_opp' => 'e1f196355d8cd9a953a1d09ba8179b044e384485313abf95dfa7609300a62bb3',
+        'r_ids' => '1be918b3e0299b974e38b24719ffc4f84d5c182fb34ca5127958e4c6f1a567a9',
     ];
 
     private string $dir;

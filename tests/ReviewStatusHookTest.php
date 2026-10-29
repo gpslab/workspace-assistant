@@ -110,7 +110,7 @@ final class ReviewStatusHookTest extends TestCase
         $reason = ReviewStatusHook::reason(['last_assistant_message' => '🟢 Merge'], [self::user('Review PR #1005')]);
 
         self::assertStringContainsString('Approve', $reason);
-        self::assertStringContainsString('no successful `gh pr review`', $reason);
+        self::assertStringContainsString('no successful review publication', $reason);
         // A repeated 🟢 on the same head was judged a "retelling" by the reviewer
         // and no status was set — reason must not leave such a loophole.
         self::assertStringContainsString('in an earlier one, it does not matter', $reason);
@@ -328,7 +328,7 @@ final class ReviewStatusHookTest extends TestCase
 
         self::assertStringContainsString('C2, C3', $reason);
         self::assertStringNotContainsString('C1,', $reason);
-        self::assertStringContainsString('--body-file', $reason);
+        self::assertStringContainsString('-F body=@file', $reason);
     }
 
     public function testNoIdsMeansNoCoverageCheck(): void
@@ -351,7 +351,7 @@ final class ReviewStatusHookTest extends TestCase
         $lines = [self::user('x'), self::bash('t1', 'gh pr view 1'), self::toolResult('t1')];
 
         self::assertSame(ReviewStatusHook::BLOCK, self::decideIds($lines, ['C1']));
-        self::assertStringContainsString('no successful `gh pr review`', ReviewStatusHook::reason(['last_assistant_message' => '🟢 ok'], $lines, ['C1']));
+        self::assertStringContainsString('no successful review publication', ReviewStatusHook::reason(['last_assistant_message' => '🟢 ok'], $lines, ['C1']));
     }
 
     public function testStopScriptSkipsIdCheckInEpicRun(): void
@@ -403,5 +403,64 @@ final class ReviewStatusHookTest extends TestCase
         self::assertNull(ReviewStatusHook::consumeIdsMarker($dir, 'sess-1'));
 
         exec('rm -rf '.escapeshellarg($dir));
+    }
+
+    private const string SHA = '0123456789abcdef0123456789abcdef01234567';
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function apiBodyProvider(): iterable
+    {
+        $head = 'gh api repos/o/r/pulls/7/reviews';
+        yield 'multi-line -f' => ["{$head} \\\n  -f commit_id=".self::SHA." \\\n  -f event=APPROVE \\\n  -f body=\"C1 — fixed\nC2 — open\""];
+        yield '-f' => ["{$head} -f commit_id=".self::SHA.' -f event=APPROVE -f body="C1 — fixed C2 — open"'];
+        yield '-F' => ["{$head} -F commit_id=".self::SHA.' -f event=APPROVE -F body="C1 — fixed C2 — open"'];
+        yield '--field' => ["{$head} -f commit_id=".self::SHA.' -f event=APPROVE --field body=\'C1 — fixed C2 — open\''];
+        yield '--raw-field' => ["{$head} -f commit_id=".self::SHA.' -f event=APPROVE --raw-field "body=C1 — fixed C2 — open"'];
+        yield 'bare value' => ["{$head} -f commit_id=".self::SHA.' -f event=APPROVE -f body=C1,C2'];
+        yield 'heredoc' => ["{$head} -f commit_id=".self::SHA." -f event=APPROVE -F body=@- <<'EOF'\nC1 — fixed\nC2 — open\nEOF"];
+        yield 'continued heredoc' => ["{$head} \\\n  -f commit_id=".self::SHA." \\\n  -f event=\"APPROVE\" \\\n  -F body=@- <<'EOF'\nC1 — fixed\nC2 — open\nEOF"];
+    }
+
+    #[DataProvider('apiBodyProvider')]
+    public function testApiStatusAndBodyIdsAreRecognised(string $command): void
+    {
+        $lines = [self::user('x'), self::bash('t1', $command), self::toolResult('t1')];
+
+        self::assertSame(ReviewStatusHook::PASS, self::decide($lines));
+        self::assertSame([], ReviewStatusHook::missingIds($lines, ['C1', 'C2']));
+        self::assertSame(['C3'], ReviewStatusHook::missingIds($lines, ['C1', 'C3']));
+    }
+
+    public function testApiStatusWithoutIdsInBodyIsMissingThem(): void
+    {
+        $command = "gh api repos/o/r/pulls/7/reviews \\\n  -f commit_id=".self::SHA." \\\n  -f event=REQUEST_CHANGES \\\n  -f body=\"only prose\"";
+        $lines = [self::user('x'), self::bash('t1', $command), self::toolResult('t1')];
+
+        self::assertSame(ReviewStatusHook::PASS, self::decide($lines, '🔴 Blocked'));
+        self::assertSame(ReviewStatusHook::BLOCK, self::decide($lines, '🟢 Merge'));
+        self::assertSame(['C1'], ReviewStatusHook::missingIds($lines, ['C1']));
+    }
+
+    public function testApiBodyIsNotTakenFromOtherFields(): void
+    {
+        $command = 'gh api repos/o/r/pulls/7/reviews -f commit_id='.self::SHA.' -f event=APPROVE -f body=ok -f comments="C1"';
+        $lines = [self::user('x'), self::bash('t1', $command), self::toolResult('t1')];
+
+        self::assertSame(['C1'], ReviewStatusHook::missingIds($lines, ['C1']));
+    }
+
+    public function testReasonNamesTheOnlyLegitimateNoStatusCases(): void
+    {
+        $reason = ReviewStatusHook::reason(['last_assistant_message' => '🟢 Merge'], [self::user('Review PR #1005')]);
+
+        self::assertStringContainsString('commit_id=<SHA>', $reason);
+        self::assertStringContainsString('only legitimate reasons to end without a status', $reason);
+        self::assertStringContainsString('manual Approve over a moved head', $reason);
+        self::assertStringContainsString('GitHub rejects the POST', $reason);
+        self::assertStringContainsString('commit_id=<SHA>', ReviewStatusHook::FALLBACK_REASON);
+        self::assertStringContainsString('only legitimate reasons to leave no status', ReviewStatusHook::FALLBACK_REASON);
+        self::assertSame(ReviewStatusHook::MISSING, self::decide([self::user('x'), self::bash('t1', 'gh pr view 1'), self::toolResult('t1')], '🟢 ok', true));
     }
 }

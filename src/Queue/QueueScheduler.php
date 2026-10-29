@@ -564,13 +564,14 @@ final class QueueScheduler implements QueueControl
             return;
         }
         $idsPath = null;
+        $reviewShas = [];
         if ($head['mode'] === SystemPrompt::MODE_REVIEW) {
-            [$extra, $idsPath] = $this->runPrompt->manualReviewFindings($head['parts']);
+            [$extra, $idsPath, $reviewShas] = $this->runPrompt->manualReviewFindings($head['parts']);
             if ($extra !== []) {
                 $prompt .= "\n\n".implode("\n", $extra);
             }
         }
-        $this->startJobOfItem($head, RunKind::KIND_CHAT, $prompt, $sessionId, $paths, idsPath: $idsPath);
+        $this->startJobOfItem($head, RunKind::KIND_CHAT, $prompt, $sessionId, $paths, idsPath: $idsPath, reviewShas: $reviewShas);
     }
 
     /**
@@ -592,7 +593,7 @@ final class QueueScheduler implements QueueControl
         }
 
         $prompt = $this->runPrompt->forEpicRun($slug, $run, $pr);
-        $this->startJobOfItem($head, RunKind::KIND_EPIC, $prompt, null, [], null, $slug, ['run' => $run, 'pr' => $pr]);
+        $this->startJobOfItem($head, RunKind::KIND_EPIC, $prompt, null, [], null, $slug, ['run' => $run, 'pr' => $pr], reviewShas: $this->runPrompt->epicReviewShas($slug, $run, $pr));
     }
 
     /**
@@ -601,8 +602,9 @@ final class QueueScheduler implements QueueControl
      * @param array{id:int, chat_id:int, thread_id:int, mode:string, locale:?string, placeholder_id:int} $head
      * @param list<string>                                                                               $inboxFiles
      * @param array{run:string, pr:?string}|null                                                         $epicRun
+     * @param array<string, string>                                                                      $reviewShas
      */
-    private function startJobOfItem(array $head, string $kind, string $prompt, ?string $sessionId, array $inboxFiles, ?string $compactOld = null, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null): void
+    private function startJobOfItem(array $head, string $kind, string $prompt, ?string $sessionId, array $inboxFiles, ?string $compactOld = null, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, array $reviewShas = []): void
     {
         $chatId = $head['chat_id'];
         $threadId = $head['thread_id'];
@@ -647,7 +649,7 @@ final class QueueScheduler implements QueueControl
 
         $this->db->queueMarkRunning($head['id']);
         try {
-            $error = $this->launcher->launchJob($chatId, $threadId, $kind, $prompt, $sessionId, $thinkingId, $compactOld, $head['mode'], $head['id'], $epicSlug, $epicRun, $idsPath, $head['locale'] ?? null);
+            $error = $this->launcher->launchJob($chatId, $threadId, $kind, $prompt, $sessionId, $thinkingId, $compactOld, $head['mode'], $head['id'], $epicSlug, $epicRun, $idsPath, $head['locale'] ?? null, $reviewShas);
         } catch (\Throwable $e) {
             // The process is already started and tracked (activeJob is assigned right after
             // start()) - the job goes on as usual, pollJob() will clean up inbox files.

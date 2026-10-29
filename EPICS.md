@@ -296,8 +296,8 @@ In the `review` mode ("check PR …") the bot supplies `claude[bot]` findings it
    reviewer findings" line.
 3. **Check in `ReviewStatusHook`.** The bot writes the id list to `state/review-cold-ids.json` and
    passes the path to the hook via `WORKSPACE_ASSISTANT_REVIEW_IDS`. The hook looks for each id in the
-   review body published in the `gh pr review` command itself: `--body "…"` or a heredoc
-   (`--body-file`/`-F` is not read). An APPROVE with findings must also carry a body listing the ids.
+   review body published in the `gh api …/pulls/N/reviews` command itself: `-f body="…"` (also `-F`,
+   `--field`, `--raw-field`) or a heredoc (a body from a file, `-F body=@file` or `--input`, is not read). An APPROVE with findings must also carry a body listing the ids.
    If ids are missing, the hook blocks once with the list of missing ones; on repeat the turn is
    released and the bot appends a warning with the missing ids to the reply. No findings or no
    recognised PR — the variable is not set and behaviour is unchanged.

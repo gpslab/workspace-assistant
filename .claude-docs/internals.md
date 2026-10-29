@@ -125,7 +125,11 @@ $argv = [$claudeBin, '-p', $prompt, '--output-format', 'stream-json', '--verbose
 // + --settings <json>: in review mode the review Stop hook; in pm/review modes and in the epic runs
 //   (tick, final, review) a PreToolUse hook on Bash, `bin/pm-gate-hook.php <STATE_DIR> <kind> <run id>`,
 //   where <kind> is the run's `skip_allowed` key: pm, review, tick, final, epic_review
-//   (PmRunbook::skipKeyForMode / skipKeyForEpicRun); review mode gets both hooks
+//   (PmRunbook::skipKeyForMode / skipKeyForEpicRun); review mode gets both hooks;
+//   in review mode and the epic review run a second PreToolUse hook on Bash,
+//   `bin/review-commit-hook.php <STATE_DIR>` (ReviewCommitHook): the review goes out only as
+//   `gh api …/pulls/N/reviews -f commit_id=<SHA> …`, the SHA from the file named by
+//   WORKSPACE_ASSISTANT_REVIEW_SHAS (`STATE_DIR/review-shas/<run id>.json`, `owner/repo#N` => SHA)
 // + --agents <STATE_DIR/agents/<id>.json> (built-in sub-agents; absent in both /compact phases
 //   and when CLAUDE_EXTRA_ARGS already contains --agents)
 proc_open($argv, $descriptors, $pipes, $repoPath, $env);

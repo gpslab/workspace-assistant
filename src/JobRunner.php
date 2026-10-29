@@ -124,8 +124,9 @@ final class JobRunner implements JobLauncher, RunControl
      * Returns the start error text or null.
      *
      * @param array{run:string, pr:?string}|null $epicRun
+     * @param array<string, string>              $reviewShas reviewed commit per PR (`owner/repo#N` => SHA) for {@see ReviewCommitHook}
      */
-    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null): ?string
+    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = []): ?string
     {
         // Compact summarize runs in arch regardless of the topic mode: the summary must
         // stay detailed, otherwise after compression in review/pm we would lose the key
@@ -176,6 +177,19 @@ final class JobRunner implements JobLauncher, RunControl
             }
             $env[PmGateHook::SKIP_ENV] = PmGateHook::skipPath($this->config->stateDir, $gateRunId);
             $settingsJson = PmGateHook::settingsJson($this->config->stateDir, $gateKind, $gateRunId, $mode === SystemPrompt::MODE_REVIEW);
+            // A formal review goes onto the reviewed commit: review mode and the epic review run.
+            if ($mode === SystemPrompt::MODE_REVIEW || ($epicRun !== null && $epicRun['run'] === Run::REVIEW)) {
+                try {
+                    if ($reviewShas !== []) {
+                        $env[ReviewCommitHook::SHAS_ENV] = ReviewCommitHook::writeShas($this->config->stateDir, $gateRunId, $reviewShas);
+                    }
+                } catch (\RuntimeException $e) {
+                    PmGateHook::cleanup($this->config->stateDir, $gateRunId);
+
+                    return $e->getMessage();
+                }
+                $settingsJson = ReviewCommitHook::addTo($settingsJson, $this->config->stateDir);
+            }
         }
 
         // AUTO_COMMIT=0: the state of the tree before the process can touch it.
@@ -215,6 +229,7 @@ final class JobRunner implements JobLauncher, RunControl
         } catch (\RuntimeException $e) {
             if ($gateRunId !== null) {
                 PmGateHook::cleanup($this->config->stateDir, $gateRunId);
+                ReviewCommitHook::cleanup($this->config->stateDir, $gateRunId);
             }
 
             return $e->getMessage();
@@ -515,6 +530,7 @@ final class JobRunner implements JobLauncher, RunControl
         $this->db->setPid($chatId, $threadId, null);
         if (($gateRunId = $this->runState->jobContext['pm_gate_run_id'] ?? null) !== null) {
             PmGateHook::cleanup($this->config->stateDir, $gateRunId);
+            ReviewCommitHook::cleanup($this->config->stateDir, $gateRunId);
         }
         $this->runState->activeJob = null;
         $this->runState->jobContext = null;
