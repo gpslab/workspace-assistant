@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests;
 
+use GpsLab\WorkspaceAssistant\ClaudeRunner;
+use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -137,5 +139,82 @@ final class SystemPromptTest extends TestCase
         self::assertTrue(SystemPrompt::isValidMode('pm'));
         self::assertFalse(SystemPrompt::isValidMode('bogus'));
         self::assertFalse(SystemPrompt::isValidMode(''));
+    }
+
+    public function testGithubForgeAddsNothing(): void
+    {
+        $fragment = PromptFiles::loadDist('forge_gitlab');
+
+        foreach (SystemPrompt::MODES as $mode) {
+            $text = SystemPrompt::forMode($mode, null, Config::FORGE_GITHUB);
+            self::assertSame(SystemPrompt::forMode($mode), $text, $mode);
+            self::assertStringNotContainsString($fragment, $text, $mode);
+            self::assertStringNotContainsString('glab', $text, $mode);
+            self::assertSame($text, SystemPrompt::build($mode, null, null, Config::FORGE_GITHUB)['text'], $mode);
+        }
+    }
+
+    public function testGitlabForgeAppendsFragmentInEveryMode(): void
+    {
+        $fragment = PromptFiles::loadDist('forge_gitlab');
+
+        foreach (SystemPrompt::MODES as $mode) {
+            $github = SystemPrompt::forMode($mode);
+            $built = SystemPrompt::build($mode, null, null, Config::FORGE_GITLAB);
+
+            self::assertSame($github."\n\n".$fragment, $built['text'], $mode);
+            self::assertSame($built['text'], SystemPrompt::forMode($mode, null, Config::FORGE_GITLAB), $mode);
+            self::assertSame(SystemPrompt::build($mode)['warnings'], $built['warnings'], $mode);
+        }
+    }
+
+    public function testGitlabFragmentMapsEveryGhCommand(): void
+    {
+        $fragment = PromptFiles::loadDist('forge_gitlab');
+
+        self::assertStringContainsString('GitLab', $fragment);
+        self::assertSame([], PromptFiles::placeholders($fragment));
+        foreach (['gh issue view', 'gh issue list', 'gh issue create', 'gh pr view', 'gh pr diff', 'gh pr checks', 'gh pr comment', 'gh pr review', 'gh api',
+            'glab issue view', 'glab issue list', 'glab issue create', 'glab mr view', 'glab mr diff', 'glab ci status', 'glab mr note', 'glab mr approve', 'glab api',
+            '`!N`', '<namespace>/<project>!N', 'merge request', 'pipelines'] as $needle) {
+            self::assertStringContainsString($needle, $fragment, $needle);
+        }
+    }
+
+    public function testAgentPromptsNameBothCli(): void
+    {
+        foreach (['critic', 'verifier', 'acceptor', 'scope-check'] as $agent) {
+            $text = (string) file_get_contents(dirname(__DIR__).'/prompts/agents/'.$agent.'.md.dist');
+            self::assertStringContainsString('`gh ... view`/`list` on GitHub, `glab ... view`/`list` on GitLab', $text, $agent);
+        }
+    }
+
+    public function testRunnerPassesForgeToSystemPrompt(): void
+    {
+        $dir = sys_get_temp_dir().'/forge-runner-'.bin2hex(random_bytes(4));
+        mkdir($dir);
+        $fake = $dir.'/claude.sh';
+        file_put_contents($fake, "#!/bin/sh\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$0.argv\"\n");
+        chmod($fake, 0755);
+
+        try {
+            foreach ([Config::FORGE_GITHUB => false, Config::FORGE_GITLAB => true] as $forge => $expected) {
+                @unlink($fake.'.argv');
+                $runner = new ClaudeRunner($fake, $dir, 10, [], 0, '', SystemPrompt::MODE_PM, withAgents: false, forge: $forge);
+                $runner->start('hi', null);
+                for ($i = 0; $i < 50 && !is_file($fake.'.argv'); ++$i) {
+                    usleep(100000);
+                }
+                usleep(200000);
+                $runner->kill();
+
+                $args = explode("\0", (string) file_get_contents($fake.'.argv'));
+                $prompt = $args[array_search('--append-system-prompt', $args, true) + 1];
+                self::assertSame($expected, str_contains($prompt, PromptFiles::loadDist('forge_gitlab')), $forge);
+            }
+        } finally {
+            array_map('unlink', glob($dir.'/*') ?: []);
+            rmdir($dir);
+        }
     }
 }

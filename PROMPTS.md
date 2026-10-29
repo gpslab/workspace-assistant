@@ -1,6 +1,6 @@
 # Prompts
 
-The bot's prompts are files in `prompts/`: 19 texts (`prompts/*.md.dist`) and 6 built-in agents
+The bot's prompts are files in `prompts/`: 20 texts (`prompts/*.md.dist`) and 6 built-in agents
 (`prompts/agents/*.md.dist`). This page says which file is used in which run, how the prompt of a run is
 assembled from the files, the settings in `.env` and the texts built in code, and how to override each
 file. The settings are in [INSTALL.md](INSTALL.md), the built-in agents in
@@ -37,6 +37,7 @@ There are three kinds of file:
 | `role_review`                       | persona  | Role block of the `review` mode (`SystemPrompt`)                    |                                 |
 | `role_pm`                           | persona  | Role block of the `pm` mode (`SystemPrompt`)                        |                                 |
 | `default_file_prompt`               | setting  | A file sent without text (`Inbox`)                                  |                                 |
+| `forge_gitlab`                      | setting  | End of the system prompt of every mode when `FORGE=gitlab` (`SystemPrompt`) |                         |
 | `agents/acceptor`                   | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/critic`                     | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/editor`                     | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
@@ -52,7 +53,7 @@ agent also yields to an agent with the same `name:` in `.claude/agents/`, see
 
 ### System prompt of every Claude run
 
-`SystemPrompt::build` assembles parts 1–5; `ClaudeRunner` appends 6 and 7 and passes the result with one
+`SystemPrompt::build` assembles parts 1–6; `ClaudeRunner` appends 7 and 8 and passes the result with one
 `--append-system-prompt`. The parts, in order:
 
 1. `common`;
@@ -60,8 +61,10 @@ agent also yields to an agent with the same `name:` in `.claude/agents/`, see
 3. `contract_review` (`review` mode only);
 4. the common persona block;
 5. the role block of the mode;
-6. `CLAUDE_APPEND_SYSTEM_PROMPT` from `.env`;
-7. `language_line`, always last, so it wins over a persona.
+6. `forge_gitlab` (only with `FORGE=gitlab`; it maps the `gh` commands of the prompts to `glab`, and with
+   `FORGE=github` nothing is added);
+7. `CLAUDE_APPEND_SYSTEM_PROMPT` from `.env`;
+8. `language_line`, always last, so it wins over a persona.
 
 ### Chat message
 

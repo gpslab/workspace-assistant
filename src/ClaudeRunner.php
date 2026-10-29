@@ -113,6 +113,7 @@ final class ClaudeRunner
         private readonly string $homeDir = '',
         private readonly bool $updateOnResume = false,
         private readonly ?string $savedPromptHash = null,
+        private readonly string $forge = Config::FORGE_GITHUB,
     ) {
     }
 
@@ -169,7 +170,7 @@ final class ClaudeRunner
         // of the current mode. An optional per-instance addition from .env
         // (CLAUDE_APPEND_SYSTEM_PROMPT) is appended AFTER it, so the base rules
         // stay unchanged. A single --append-system-prompt flag, to avoid conflicts.
-        $built = SystemPrompt::build($this->mode, $this->promptsDir !== '' ? $this->repoPath.'/'.$this->promptsDir : null, $this->promptsDir !== '' ? $this->promptsDir : null);
+        $built = SystemPrompt::build($this->mode, $this->promptsDir !== '' ? $this->repoPath.'/'.$this->promptsDir : null, $this->promptsDir !== '' ? $this->promptsDir : null, $this->forge);
         $this->promptWarnings = $built['warnings'];
         $systemPrompt = $built['text'];
         if ($this->appendSystemPrompt !== '') {

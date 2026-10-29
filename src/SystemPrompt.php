@@ -24,7 +24,7 @@ namespace GpsLab\WorkspaceAssistant;
  *
  * The text is passed by `ClaudeRunner` via `--append-system-prompt`, in order:
  * contract (+ common_limits outside arch, + review contract in review), common
- * persona, mode role persona. An optional instance addition
+ * persona, mode role persona, `forge_gitlab` when FORGE=gitlab. An optional instance addition
  * (`CLAUDE_APPEND_SYSTEM_PROMPT` in `.env`) is appended AFTER that text.
  */
 final class SystemPrompt
@@ -46,16 +46,17 @@ final class SystemPrompt
     /**
      * Final system prompt for a mode: the contract (`common`, `common_limits` outside
      * arch, `contract_review` in review), then the common persona, then the mode's
-     * role persona. An unknown $mode is silently treated as MODE_ARCH — the DB
+     * role persona (on GitLab the `forge_gitlab` fragment follows). An unknown $mode is silently treated as MODE_ARCH — the DB
      * value is validated by {@see Database::getMode()} before this is called.
      *
      * @param string|null $promptsDir absolute path to the persona files, or null to use the shipped personas
+     * @param string      $forge      `FORGE` setting, see {@see build()}
      *
      * @throws \RuntimeException when a shipped `.dist` file is missing
      */
-    public static function forMode(string $mode, ?string $promptsDir = null): string
+    public static function forMode(string $mode, ?string $promptsDir = null, string $forge = Config::FORGE_GITHUB): string
     {
-        return self::build($mode, $promptsDir)['text'];
+        return self::build($mode, $promptsDir, null, $forge)['text'];
     }
 
     /**
@@ -65,12 +66,13 @@ final class SystemPrompt
      * Files are read on every call, so an edit takes effect on the next run.
      *
      * @param string|null $displayDir directory name shown in warnings instead of the absolute path
+     * @param string      $forge      `FORGE` setting: with `gitlab` the `forge_gitlab` fragment is appended to every mode
      *
      * @return array{text: string, warnings: list<string>}
      *
      * @throws \RuntimeException when a shipped `.dist` file is missing
      */
-    public static function build(string $mode, ?string $promptsDir = null, ?string $displayDir = null): array
+    public static function build(string $mode, ?string $promptsDir = null, ?string $displayDir = null, string $forge = Config::FORGE_GITHUB): array
     {
         $mode = self::isValidMode($mode) ? $mode : self::MODE_ARCH;
 
@@ -86,6 +88,9 @@ final class SystemPrompt
             $parts[] = PromptFiles::load('contract_review', $warnings);
         }
         array_push($parts, $common, $role);
+        if ($forge === Config::FORGE_GITLAB) {
+            $parts[] = PromptFiles::load('forge_gitlab', $warnings);
+        }
         if ($mode === self::MODE_PM) {
             array_push($warnings, ...PmRunbook::config($promptsDir)['warnings']);
         }
