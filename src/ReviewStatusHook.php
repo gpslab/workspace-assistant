@@ -71,8 +71,8 @@ final class ReviewStatusHook
     /** PR (MR) work during the turn — a sign that the verdict comes from a review, not a retelling. */
     private const string PR_ACTIVITY_RE = '/\bgh\s+(?:pr\s+(?:view|diff|checks|comment|review)\b|api\b[^\n]*\bpulls\b)|\bglab\s+(?:mr\s+(?:view|diff|note|approve|revoke|checkout)\b|api\b[^\n]*merge_requests)/';
 
-    /** A GitLab note command start; the segment of one note runs to the next start. */
-    private const string GITLAB_NOTE_RE = '/(?:^|[;&|(\n]\s*)glab\s+mr\s+note\b/';
+    /** A GitLab note command (a segment from {@see PmGateHook::commands()}). */
+    private const string GITLAB_NOTE_RE = '/^glab\s+mr\s+note\b/';
 
     /** Any `verdict:` marker, valid or not; the valid one is {@see GITLAB_MARKER_RE}. */
     private const string GITLAB_MARKER_ANY_RE = '/<!--\s*verdict:/';
@@ -270,38 +270,41 @@ final class ReviewStatusHook
     /**
      * The `glab mr note` commands of a Bash command: the inline body (`-m`/`--message` values and heredocs;
      * `-F`/body files are not read) and the verdict its marker sets — null when the marker is missing,
-     * malformed (not a 40-hex sha) or conflicting. Identical repeated markers count once: a heredoc inside
-     * `-m "$(cat <<EOF …)"` is seen by both readers.
+     * malformed (not a 40-hex sha) or repeated: more than one marker is not a verdict. Only the note's own
+     * command is read, not commands chained after it.
      *
      * @return list<array{body: string, state: self::APPROVE|self::REQUEST_CHANGES|null}>
      */
     private static function gitlabNotes(string $command): array
     {
-        if (preg_match_all(self::GITLAB_NOTE_RE, $command, $starts, PREG_OFFSET_CAPTURE) === 0) {
-            return [];
-        }
-        $offsets = array_map(static fn (array $s): int => (int) $s[1], $starts[0]);
         $notes = [];
-        foreach ($offsets as $i => $offset) {
-            $rest = substr($command, $offset, ($offsets[$i + 1] ?? strlen($command)) - $offset);
+        // One command at a time: the body is read only from the `glab mr note` command itself, never from
+        // a chained command after `;`, `&&` or `|`.
+        foreach (PmGateHook::commands($command) as $segment) {
+            if (preg_match(self::GITLAB_NOTE_RE, $segment) !== 1) {
+                continue;
+            }
             $body = '';
-            if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $rest, $m, PREG_SET_ORDER) > 0) {
+            $spans = [];
+            if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
                 foreach ($m as $hit) {
-                    $body .= "\n".(($hit[1] ?? '') !== '' ? $hit[1] : ($hit[2] ?? ''));
+                    $spans[] = [$hit[0][1], $hit[0][1] + strlen($hit[0][0])];
+                    $body .= "\n".(($hit[1][0] ?? '') !== '' ? $hit[1][0] : ($hit[2][0] ?? ''));
                 }
             }
-            if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $rest, $m, PREG_SET_ORDER) > 0) {
+            if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
                 foreach ($m as $hit) {
-                    $body .= "\n".$hit[3];
+                    // A heredoc inside a `-m "$(cat <<EOF …)"` value is already part of that value.
+                    $inside = array_filter($spans, static fn (array $span): bool => $hit[0][1] >= $span[0] && $hit[0][1] < $span[1]);
+                    if ($inside === []) {
+                        $body .= "\n".$hit[3][0];
+                    }
                 }
             }
             $state = null;
-            $any = preg_match_all(self::GITLAB_MARKER_ANY_RE, $body, $unused);
-            if ($any > 0 && preg_match_all(self::GITLAB_MARKER_RE, $body, $valid, PREG_SET_ORDER) === $any) {
-                $distinct = array_unique(array_map(static fn (array $v): string => $v['state'].' '.$v['sha'], $valid));
-                if (count($distinct) === 1 && $any === count($valid)) {
-                    $state = $valid[0]['state'] === 'approve' ? self::APPROVE : self::REQUEST_CHANGES;
-                }
+            if (preg_match_all(self::GITLAB_MARKER_ANY_RE, $body, $unused) === 1
+                && preg_match_all(self::GITLAB_MARKER_RE, $body, $valid, PREG_SET_ORDER) === 1) {
+                $state = $valid[0]['state'] === 'approve' ? self::APPROVE : self::REQUEST_CHANGES;
             }
             $notes[] = ['body' => $body, 'state' => $state];
         }
@@ -521,7 +524,7 @@ final class ReviewStatusHook
      * JSON for `claude --settings`: a Stop hook on bin/review-stop-hook.php of this
      * bot copy (path from __DIR__ — claude runs with the managed repository as cwd).
      */
-    public static function settingsJson(string $stateDir, string $forge = Config::FORGE_GITHUB): string
+    public static function settingsJson(string $stateDir, string $forge): string
     {
         // `--forge=` goes after the state directory ($argv[1] stays the state directory); the hook
         // does not load the config, and a missing or unknown value means github.

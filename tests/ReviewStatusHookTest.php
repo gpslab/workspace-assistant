@@ -257,7 +257,7 @@ final class ReviewStatusHookTest extends TestCase
 
     public function testSettingsJsonPointsAtHookScriptWithStateDir(): void
     {
-        $settings = json_decode(ReviewStatusHook::settingsJson('/srv/state'), true);
+        $settings = json_decode(ReviewStatusHook::settingsJson('/srv/state', 'github'), true);
         self::assertIsArray($settings);
         $command = $settings['hooks']['Stop'][0]['hooks'][0]['command'];
 
@@ -297,6 +297,9 @@ final class ReviewStatusHookTest extends TestCase
         yield 'revoke alone' => ['glab mr revoke 12', '🔴 Blocked', $no];
         yield 'note with approve side effect' => [self::glabNote('<!-- verdict:approve sha='.self::SHA.' -->').' && glab mr approve 12 --sha '.self::SHA, '🟢 Merge', $ok];
         yield 'heredoc body' => ["glab mr note 12 -m \"\$(cat <<'EOF'\nC1 — fixed\n<!-- verdict:approve sha=".self::SHA." -->\nEOF\n)\"", '🟢 Merge', $ok];
+        yield 'identical repeated markers' => [self::glabNote('<!-- verdict:approve sha='.self::SHA.' --> <!-- verdict:approve sha='.self::SHA.' -->'), '🟢 Merge', $no];
+        yield 'marker only in a chained commit message' => ['glab mr note 12 -m "C1 fixed" && git commit -m "<!-- verdict:approve sha='.self::SHA.' -->"', '🟢 Merge', $no];
+        yield 'marker only in a chained echo' => ['glab mr note 12 -m "x"; echo -m \'<!-- verdict:approve sha='.self::SHA.' -->\'', '🟢 Merge', $no];
         yield 'plain mr comment' => ['glab mr view 12', '🟢 Merge', $no];
     }
 

@@ -447,7 +447,7 @@ final class PmGateHook
      *
      * @param bool $reviewStop also attach the review Stop hook (review mode)
      */
-    public static function settingsJson(string $stateDir, string $kind, string $runId, bool $reviewStop, string $forge = Config::FORGE_GITHUB): string
+    public static function settingsJson(string $stateDir, string $kind, string $runId, bool $reviewStop, string $forge): string
     {
         $inner = escapeshellarg(PHP_BINARY).' '
             .escapeshellarg(dirname(__DIR__).'/bin/pm-gate-hook.php').' '

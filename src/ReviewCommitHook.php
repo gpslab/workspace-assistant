@@ -20,13 +20,17 @@ namespace GpsLab\WorkspaceAssistant;
  *  - a POST to `pulls/N/reviews` without `commit_id`;
  *  - a `commit_id` that is not a literal 40-hex SHA (`$(…)`, a shell variable resolve at publish time,
  *    which is the bug itself);
- *  - a `commit_id` that differs from the SHA the bot recorded for the PR of the POST path.
+ *  - a `commit_id` that differs from the SHA the bot recorded for the PR of the POST path;
+ *  - on GitLab: `glab mr approve` without a literal 40-hex `--sha`, and a `glab mr note` whose
+ *    `verdict:` marker carries a `sha` that is not a literal 40-hex value.
  *
  * Recorded SHAs ($shas, `owner/repo#N` => SHA): the `ColdFindings` head in an epic run, `headRefOid` of
  * every PR the bot recognised in a manual review message. A PR without a recorded SHA is checked by form
  * only (a literal 40-hex `commit_id`). This is a known limitation: when the bot did not recognise the PR
  * (or the findings failed to load), the reviewer records `headRefOid` itself and the hook cannot tell
- * whether that value is the one the code was read at.
+ * whether that value is the one the code was read at. On GitLab the bot records no SHAs yet (there is no
+ * GitLab client): the check is by form only, so a literal 40-hex `sha` that is not the reviewed commit is
+ * not caught.
  *
  * Fail-closed, like {@see PmGateHook} (see bin/review-commit-hook.php).
  */
@@ -36,6 +40,10 @@ final class ReviewCommitHook
     public const string SHAS_ENV = 'WORKSPACE_ASSISTANT_REVIEW_SHAS';
 
     private const string GH_PR_REVIEW_RE = '/^gh\s+pr\s+review\b/';
+    private const string GLAB_APPROVE_RE = '/^glab\s+mr\s+approve\b/';
+    private const string GLAB_APPROVE_SHA_RE = '/(?:^|\s)--sha(?:=|\s+)["\']?[0-9a-fA-F]{40}["\']?(?=\s|$)/';
+    private const string GLAB_NOTE_RE = '/^glab\s+mr\s+note\b/';
+    private const string MARKER_SHA_RE = '/<!--\s*verdict:[a-z]+\s+sha=(?<sha>[^\s>]*)/';
     private const string STATE_FLAG_RE = '/(?:^|\s)(?:--approve|--request-changes|-a|-r)(?=[\s=]|$)/';
     private const string GH_API_RE = '/^gh\s+api\b(?<args>.*)$/s';
     private const string REVIEWS_ENDPOINT_RE = '~(?<![\w.-])(?:(?:https?://api\.github\.com)?/?repos/(?<owner>[^\s/"\']+)/(?<repo>[^\s/"\']+)/)?pulls/(?<n>\d+)/reviews(?=[\s"\'?]|$)~';
@@ -60,6 +68,16 @@ final class ReviewCommitHook
         foreach (PmGateHook::commands($command) as $segment) {
             if (preg_match(self::GH_PR_REVIEW_RE, $segment) === 1 && preg_match(self::STATE_FLAG_RE, $segment) === 1) {
                 return self::deny('`gh pr review --approve | --request-changes` attaches the review to the PR head at the moment of sending, not to the commit you reviewed.', null);
+            }
+            if (preg_match(self::GLAB_APPROVE_RE, $segment) === 1 && preg_match(self::GLAB_APPROVE_SHA_RE, $segment) !== 1) {
+                return 'MR approval denied: `glab mr approve` without a literal 40-hex `--sha` approves whatever the MR head is when it runs, not the commit you reviewed. Run `glab mr approve <N> --sha <SHA>` with the literal 40-hex commit you reviewed.';
+            }
+            if (preg_match(self::GLAB_NOTE_RE, $segment) === 1 && preg_match_all(self::MARKER_SHA_RE, $segment, $markers, PREG_SET_ORDER) > 0) {
+                foreach ($markers as $marker) {
+                    if (preg_match('/^[0-9a-fA-F]{40}$/', $marker['sha']) !== 1) {
+                        return 'MR note denied: the `sha` of the verdict marker must be the literal 40-hex commit you reviewed, written out in the command (`$(…)` and shell variables resolve at publish time).';
+                    }
+                }
             }
             if (preg_match(self::GH_API_RE, $segment, $call) === 1) {
                 $reason = self::checkApi($call['args'], $shas);

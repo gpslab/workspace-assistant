@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Epic;
 
-use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\Locale;
 
@@ -149,11 +148,8 @@ final class ColdFindings
      *
      * @throws \RuntimeException FORGE_OWNERS is not set
      */
-    public static function extractPrs(array $parts, ForgeOwners $owners, string $forge = Config::FORGE_GITHUB, string $forgeHost = 'github.com'): array
+    public static function extractPrs(array $parts, ForgeOwners $owners): array
     {
-        if ($forge === Config::FORGE_GITLAB) {
-            return self::extractMrs($parts, $forgeHost);
-        }
         $ownersRe = $owners->pattern();
         $found = [];
         foreach ($parts as $part) {
@@ -187,44 +183,6 @@ final class ColdFindings
     }
 
     /**
-     * GitLab merge requests mentioned in the request parts: `!N`, `<namespace>/<project>!N` (nested
-     * namespaces allowed) and `https://<host>/<namespace>/<project>/-/merge_requests/N`. A bare `#N`
-     * is an issue on GitLab and is never recognised.
-     *
-     * @param list<array<string, mixed>> $parts
-     *
-     * @return list<string> `!N` or `<namespace>/<project>!N`, without repeats, in order of appearance
-     */
-    public static function extractMrs(array $parts, string $forgeHost): array
-    {
-        $path = '[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)+';
-        $found = [];
-        foreach ($parts as $part) {
-            $text = $part['text'] ?? null;
-            if (!is_string($text) || $text === '') {
-                continue;
-            }
-            $hits = [];
-            if (preg_match_all('~https?://'.preg_quote($forgeHost, '~').'(?::\d+)?/('.$path.')/-/merge_requests/(\d+)(?!\d)~i', $text, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
-                foreach ($m as $hit) {
-                    $hits[$hit[0][1]] = $hit[1][0].'!'.$hit[2][0];
-                }
-            }
-            if (preg_match_all('~(?<![A-Za-z0-9._/#!&-])(?:('.$path.')|)!(\d+)(?!\d)~', $text, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
-                foreach ($m as $hit) {
-                    $hits[$hit[0][1]] = $hit[1][0].'!'.$hit[2][0];
-                }
-            }
-            ksort($hits);
-            foreach ($hits as $mr) {
-                $found[$mr] = true;
-            }
-        }
-
-        return array_map('strval', array_keys($found));
-    }
-
-    /**
      * Bare PR numbers (`#47`, `PR #47`, or `#47` after any prefix word) from the request parts: only those with no explicit link
      * or `<repo>#<n>` entry in the same part. Numbers beyond $slots are cut off; numbers longer than 7 digits and `#0` are not counted as PR numbers
      * (GraphQL Int is 32 bits, one garbage number fails the whole query).
@@ -233,11 +191,8 @@ final class ColdFindings
      *
      * @return list<int> without repeats, in order of appearance
      */
-    public static function extractBareNumbers(array $parts, int $slots, ForgeOwners $owners, string $forge = Config::FORGE_GITHUB): array
+    public static function extractBareNumbers(array $parts, int $slots, ForgeOwners $owners): array
     {
-        if ($forge === Config::FORGE_GITLAB) {
-            return [];
-        }
         $found = [];
         foreach ($parts as $part) {
             $text = $part['text'] ?? null;
