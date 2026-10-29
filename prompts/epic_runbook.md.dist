@@ -156,10 +156,20 @@ Scheduled by the bot once every plan task and extra task is closed.
    criterion of every task is in `master` (file:line, test, tag); seams between PRs of
    different tasks; the plan's releases; documentation drift. Call the `acceptor`
    agent, synchronously (`run_in_background: false`).
-2. Confirmed gaps → extra tasks (stages as in **Extra task**) → `added`. No report is written: after they
-   close the bot schedules the next final check. At most two rounds of gaps; the bot drops
-   a third.
-3. No gaps (or this is the last allowed round) → an **HTML report** in the outbox
+2. Security check: call the `security` agent, synchronously (`run_in_background: false`), after
+   `acceptor`. Scope: the union of the diffs of the merged PRs of the epic's tasks, per repository
+   (`git diff` of each merged PR), never the whole repository: the final run is long already and the
+   bot stops a run that is silent for 15 minutes. Give the agent the repositories and the PR list.
+   Send its findings to `verifier`; a finding the verifier does not confirm is dropped.
+3. Confirmed gaps and confirmed `blocker`/`major` security findings → extra tasks (stages as in
+   **Extra task**) → `added`. No report is written: after they close the bot schedules the next final
+   check. At most two rounds of gaps and security findings together; the bot drops a third. If that
+   limit is already exhausted (`MAX_TAILS_ROUNDS`), a confirmed `blocker`/`major` finding must not
+   stay only in the report: open a separate issue outside the epic in the repository the finding is
+   in (label `bug` plus the labels that repository's conventions ask for, without `openronin:do-it`)
+   and add a line about it, with the link, to the signal `message`. Confirmed `minor` findings are
+   not tasks: they go to the report.
+4. No gaps (or this is the last allowed round) → an **HTML report** in the outbox
    directory from the prompt as `1-epic-<slug>-report.html` and the signal
    `{"done": true}`. Put the same copy into `<plans directory>/<slug>.report.html` and
    commit it with the journal: the outbox is emptied after sending, the report is an epic
@@ -172,6 +182,7 @@ The report is one self-contained HTML file (inline styles), read on a phone:
 - extra tasks and gaps: where they came from;
 - **decisions without the author**: the question, options, choice, why, how to roll
   back — the main section for the author, who decides on it whether to close the epic;
+- security findings of severity `minor`, as a separate block: id, claim, `file:line`, fix;
 - parked and open questions;
 - failures: from the journal and `failures.log`;
 - the epic's cost: duration (first and last journal entry), number of runs by kind

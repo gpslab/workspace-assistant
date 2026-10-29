@@ -186,7 +186,7 @@ final class ClaudeRunner
         $agents = [];
         if ($this->withAgents) {
             if ($this->hasAgentsArg()) {
-                $this->promptWarnings[] = 'CLAUDE_EXTRA_ARGS contains --agents: the built-in sub-agents (critic, verifier, editor, scope-check, acceptor) are not passed. Remove it to get them.';
+                $this->promptWarnings[] = 'CLAUDE_EXTRA_ARGS contains --agents: the built-in sub-agents (critic, verifier, editor, scope-check, acceptor, security) are not passed. Remove it to get them.';
             } else {
                 $agents = BuiltinAgents::build($this->repoPath, $this->homeDir, $this->promptWarnings);
             }

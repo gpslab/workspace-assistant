@@ -54,6 +54,15 @@ final class BuiltinAgentsTest extends TestCase
         self::assertNotContains('Edit', array_merge(...array_values(BuiltinAgents::TOOLS)));
     }
 
+    public function testSecurityAgentIsRegisteredReadOnly(): void
+    {
+        $text = (string) file_get_contents(dirname(__DIR__).'/prompts/agents/security.md.dist');
+        self::assertStringContainsString('`composer audit --locked`', $text);
+        self::assertStringContainsString('`npm audit`', $text);
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
+        self::assertSame(['Read', 'Grep', 'Glob', 'Bash'], $agents['security']['tools']);
+    }
+
     public function testBuildContainsAllAgentsFromFiles(): void
     {
         $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
@@ -88,7 +97,7 @@ final class BuiltinAgentsTest extends TestCase
         $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
 
         self::assertArrayNotHasKey('acceptor', $agents);
-        self::assertCount(4, $agents);
+        self::assertCount(5, $agents);
     }
 
     public function testFileNameAloneIsNotAMatchAndBrokenFrontmatterIsIgnored(): void

@@ -113,10 +113,15 @@ The author decides three things: whether the tasks are right to run (re-read the
 to close the epic.
 
 The design stage runs a pipeline of read-only sub-agents shipped with the bot (`critic`, `verifier`,
-`editor`, `scope-check`, `acceptor`), and a gate refuses to create issues until the required stages ran:
+`editor`, `scope-check`, `acceptor`, `security`), and a gate refuses to create issues until the required stages ran:
 see [Working out a task](TASKS.md). Any of them can be replaced by your own Claude Code
 sub-agent with the same name, and the persona files and additions in `PROMPTS_DIR` change how the modes
 and epic runs behave, see [PROMPTS.md](PROMPTS.md). Details are in [EPICS.md](EPICS.md).
+
+The `security` agent also works on demand, without a new mode or command. To check the security of a
+PR or task, ask the bot to call the `security` agent on that PR; to audit the project before a release, ask
+it to call the agent on the whole repository (it also runs `composer audit --locked` and `npm audit`).
+In an epic it runs as a step of the final check, on the merged PR diffs.
 
 ## Requirements
 
