@@ -23,6 +23,11 @@ namespace GpsLab\WorkspaceAssistant;
  * Skip: where `skip_allowed` of the run kind is true and the model wrote a reason into the file
  * of {@see SKIP_ENV}, the command passes. One reason lifts all missing stages of the window.
  *
+ * Detected issue-creating forms, on both forges and regardless of `FORGE`: `gh issue create`, `gh api
+ * repos/<o>/<r>/issues` (POST), `glab issue create|new`, `glab api projects/<id>/issues` (POST) and a
+ * `createIssue` mutation sent with `gh api graphql` / `glab api graphql` as `-f query=…`. Limitation:
+ * `-F query=@file` is not supported, body files are not read.
+ *
  * The hook is fail-closed (see bin/pm-gate-hook.php): the opposite of the review Stop hook.
  */
 final class PmGateHook
@@ -42,6 +47,11 @@ final class PmGateHook
     private const string GH_ISSUE_CREATE_RE = '/^gh\s+issue\s+create\b/';
     private const string GH_API_RE = '/^gh\s+api\b(?<args>.*)$/s';
     private const string ISSUES_ENDPOINT_RE = '~(?<![\w/.-])(?:https?://api\.github\.com)?/?repos/[^\s/"\']+/[^\s/"\']+/issues(?=[\s"\'?]|$)~';
+    private const string GLAB_ISSUE_CREATE_RE = '/^glab\s+issue\s+(?:create|new)\b/';
+    private const string GLAB_API_RE = '/^glab\s+api\b(?<args>.*)$/s';
+    private const string GLAB_ISSUES_ENDPOINT_RE = '~(?<![\w/.-])(?:https?://[^\s/"\']+/)?/?(?:api/v4/)?projects/[^\s/"\'?]+/issues(?=[\s"\'?]|$)~';
+    private const string GRAPHQL_ENDPOINT_RE = '~(?:^|\s)["\']?graphql(?=[\s"\']|$)~';
+    private const string CREATE_ISSUE_MUTATION_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field)(?:\s+|=)["\']?query=[^@].*\bmutation\b.*\bcreateIssue\b/s';
     private const string METHOD_RE = '/(?:^|\s)(?:-X\s*|--method(?:=|\s+))["\']?(?<method>[A-Za-z]+)/';
     private const string BODY_FLAG_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field|--input)(?:[\s=]|$)/';
 
@@ -53,6 +63,15 @@ final class PmGateHook
                 return true;
             }
             if (preg_match(self::GH_API_RE, $segment, $call) === 1 && self::apiCreatesIssue($call['args'])) {
+                return true;
+            }
+            if (preg_match(self::GLAB_ISSUE_CREATE_RE, $segment) === 1) {
+                return true;
+            }
+            if (preg_match(self::GLAB_API_RE, $segment, $call) === 1 && self::glabApiCreatesIssue($call['args'])) {
+                return true;
+            }
+            if (preg_match('/^g(?:h|lab)\s+api\b(?<args>.*)$/s', $segment, $call) === 1 && self::graphqlCreatesIssue($call['args'])) {
                 return true;
             }
         }
@@ -81,7 +100,22 @@ final class PmGateHook
 
     private static function apiCreatesIssue(string $args): bool
     {
-        if (preg_match(self::ISSUES_ENDPOINT_RE, $args) !== 1) {
+        return self::isPost($args, self::ISSUES_ENDPOINT_RE);
+    }
+
+    private static function glabApiCreatesIssue(string $args): bool
+    {
+        return self::isPost($args, self::GLAB_ISSUES_ENDPOINT_RE);
+    }
+
+    private static function graphqlCreatesIssue(string $args): bool
+    {
+        return preg_match(self::GRAPHQL_ENDPOINT_RE, $args) === 1 && preg_match(self::CREATE_ISSUE_MUTATION_RE, $args) === 1;
+    }
+
+    private static function isPost(string $args, string $endpointRe): bool
+    {
+        if (preg_match($endpointRe, $args) !== 1) {
             return false;
         }
         if (preg_match(self::METHOD_RE, $args, $m) === 1) {

@@ -80,6 +80,35 @@ final class PmGateHookTest extends TestCase
         yield 'here-string word' => ["cat <<< hi\ngh issue create -t a", true];
         yield 'arithmetic shift' => ["echo \$((1<<3))\ngh issue create -t a", true];
         yield 'issue list' => ['gh issue list', false];
+        yield 'glab issue create' => ['glab issue create -t x', true];
+        yield 'glab issue create chained' => ['cd x && glab issue create -t x -d y', true];
+        yield 'glab issue new' => ['timeout 60 glab issue new -t x', true];
+        yield 'glab issue create env prefix' => ['env GITLAB_HOST=h.example glab issue create -t x', true];
+        yield 'glab issue list' => ['glab issue list', false];
+        yield 'glab api numeric id' => ['glab api projects/12/issues -X POST -f title=t', true];
+        yield 'glab api method flag' => ['glab api --method POST projects/12/issues -f title=t', true];
+        yield 'glab api body flags only' => ['glab api projects/12/issues -F title=t', true];
+        yield 'glab api --input' => ['glab api projects/12/issues --input b.json', true];
+        yield 'glab api encoded path' => ['glab api projects/group%2Fsub%2Fproj/issues -X POST -f title=t', true];
+        yield 'glab api :id' => ['glab api projects/:id/issues -f title=t', true];
+        yield 'glab api :fullpath' => ['glab api "projects/:fullpath/issues" -X POST', true];
+        yield 'glab api leading slash' => ['glab api /projects/12/issues -f title=t', true];
+        yield 'glab api v4 prefix' => ['glab api api/v4/projects/12/issues -f title=t', true];
+        yield 'glab api leading slash v4' => ['glab api /api/v4/projects/:id/issues -f title=t', true];
+        yield 'glab api full url' => ['glab api https://gitlab.example.com/api/v4/projects/g%2Fp/issues -X POST', true];
+        yield 'glab api prefixed chain' => ['FOO=1 env -u X glab api projects/12/issues -f title=t && echo ok', true];
+        yield 'glab api GET' => ['glab api projects/1/issues', false];
+        yield 'glab api GET with method' => ['glab api projects/1/issues -X GET -F per_page=5', false];
+        yield 'glab api one issue' => ['glab api projects/1/issues/5 -X PUT -f state_event=close', false];
+        yield 'glab api notes' => ['glab api projects/1/issues/5/notes -f body=x', false];
+        yield 'gh api graphql createIssue' => ['gh api graphql -f query=\'mutation { createIssue(input: {repositoryId: "R", title: "t"}) { issue { id } } }\'', true];
+        yield 'gh api graphql prefixed' => ['cd x && GH_TOKEN=t timeout 30 gh api graphql -f query="mutation{createIssue(input:{title:\"t\"}){issue{id}}}"', true];
+        yield 'glab api graphql createIssue' => ['glab api graphql -f query=\'mutation { createIssue(input: {projectPath: "g/p", title: "t"}) { issue { iid } } }\'', true];
+        yield 'glab api graphql chained' => ['env X=1 glab api graphql --raw-field query="mutation{createIssue(input:{title:\"t\"}){errors}}"; echo', true];
+        yield 'graphql query only' => ['gh api graphql -f query=\'{ viewer { login } }\'', false];
+        yield 'graphql query keyword' => ['glab api graphql -f query=\'query { project(fullPath: "g/p") { issues { nodes { id } } } }\'', false];
+        yield 'graphql other mutation' => ['gh api graphql -f query=\'mutation { addComment(input: {}) { clientMutationId } }\'', false];
+        yield 'graphql createIssue text in grep' => ['grep -rn "mutation createIssue" docs', false];
     }
 
     #[DataProvider('commandProvider')]
