@@ -50,7 +50,13 @@ final class PmGateHook
     private const string ISSUES_ENDPOINT_RE = '~(?<![\w/.-])(?:https?://api\.github\.com)?/?repos/[^\s/"\']+/[^\s/"\']+/issues(?=[\s"\'?]|$)~';
     private const string GLAB_ISSUE_CREATE_RE = '/^glab\s+issue\s+(?:create|new)\b/';
     private const string GLAB_API_RE = '/^glab\s+api\b(?<args>.*)$/s';
-    private const string GLAB_ISSUES_ENDPOINT_RE = '~(?<![\w/.-])(?:https?://[^\s/"\']+/)?/?(?:api/v4/)?projects/[^\s/"\'?]+/issues(?=[\s"\'?]|$)~';
+    /**
+     * The `projects/<id>` part of a GitLab API path, shared with {@see ReviewCommitHook}: `<id>` is numeric,
+     * a URL-encoded path or `:id`/`:fullpath`; the path may start with `/`, `api/v4/` or `https://<host>/api/v4/`.
+     */
+    public const string GLAB_PROJECT_PATH = '(?<![\w/.-])(?:https?://[^\s/"\']+/)?/?(?:api/v4/)?projects/[^\s/"\'?]+';
+
+    private const string GLAB_ISSUES_ENDPOINT_RE = '~'.self::GLAB_PROJECT_PATH.'/issues(?=[\s"\'?]|$)~';
     private const string GRAPHQL_ENDPOINT_RE = '~(?:^|\s)["\']?(?:https?://[^\s"\']+/|/)?(?:api/)?graphql(?=[\s"\'?]|$)~';
     private const string CREATE_ISSUE_MUTATION_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field)(?:\s+|=)["\']?query=[^@].*\bmutation\b.*\bcreateIssue\b/s';
     private const string METHOD_RE = '/(?:^|\s)(?:-X\s*|--method(?:=|\s+))["\']?(?<method>[A-Za-z]+)/';
