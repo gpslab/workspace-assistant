@@ -43,8 +43,8 @@ final class TaskState
      * @param bool         $changedAfterReview     there are comments or foreign reviews after the last epic review (commits are separate: {@see $headOnlyMasterMerge})
      * @param bool         $headOnlyMasterMerge    the head differs from the task's `coverage_head` only by a conflict-free merge of master (false when they are equal or `coverage_head` is unknown)
      * @param bool         $behindMaster           the PR is behind master
-     * @param int          $epicChangesRequested   epic reviews with the marker and REQUEST_CHANGES (manual ones do not count)
-     * @param list<int>    $epicChangesRequestedAt unix time each such review was submitted (0 — time unknown)
+     * @param int          $epicChangesRequested   rounds of epic REQUEST_CHANGES with the marker, counted per reviewed commit (several on one commit are one round; manual ones do not count)
+     * @param list<int>    $epicChangesRequestedAt unix time each such round was submitted, one per counted commit: the latest review on it (0 — time unknown)
      * @param bool         $executorLastWord       the last comment of a trusted openronin executor (marker + `OPENRONIN_LOGINS`) is strictly newer than every other commit, comment and review on the PR and issue
      * @param bool         $coldSummary            the cold reviewer left its summary comment on the PR after it left draft
      */

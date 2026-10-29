@@ -197,8 +197,7 @@ final class GhClient implements GitHub
 
         $reviewed = false;
         $last = null;
-        $changesRequested = 0;
-        $changesRequestedAt = [];
+        $changesRequestedByCommit = [];
         foreach ($pr['reviews']['nodes'] ?? [] as $review) {
             if (!$this->isEpicMarked($review, $marker)) {
                 continue;
@@ -208,10 +207,17 @@ final class GhClient implements GitHub
                 $reviewed = true;
             }
             if (($review['state'] ?? '') === 'CHANGES_REQUESTED') {
-                ++$changesRequested;
-                $changesRequestedAt[] = self::ts($review['submittedAt'] ?? null) ?? 0;
+                $at = self::ts($review['submittedAt'] ?? null) ?? 0;
+                $oid = (string) ($review['commit']['oid'] ?? '');
+                // An unknown commit is fail-closed: every such review is its own round.
+                $key = $oid !== '' ? $oid : 'unknown#'.count($changesRequestedByCommit);
+                // The latest time answers "is there a fresh review on this commit"; unknown time (0) wins.
+                $prev = $changesRequestedByCommit[$key] ?? null;
+                $changesRequestedByCommit[$key] = $prev === 0 || $at === 0 ? 0 : max($prev ?? 0, $at);
             }
         }
+        $changesRequestedAt = array_values($changesRequestedByCommit);
+        $changesRequested = count($changesRequestedAt);
         $verdict = $last === null ? null : (string) ($last['state'] ?? '');
         $reviewHead = $last === null ? null : (string) ($last['commit']['oid'] ?? '');
         $reviewAt = $last === null ? null : self::ts($last['submittedAt'] ?? null);

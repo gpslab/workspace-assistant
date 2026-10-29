@@ -526,6 +526,46 @@ final class GhClientTest extends TestCase
         self::assertTrue($s->changedAfterReview);
     }
 
+    public function testChangesRequestedAreCountedPerReviewedCommit(): void
+    {
+        $cr = static fn (string $oid, string $at): array => ['author' => ['login' => self::BOT], 'body' => 'changes '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => $at, 'commit' => ['oid' => $oid]];
+        $payload = self::approvedPayload('rev', [], [
+            $cr('c1', '2026-01-01T12:00:00Z'),
+            $cr('c1', '2026-01-01T11:00:00Z'),
+            $cr('c2', '2026-01-01T13:00:00Z'),
+        ]);
+        $s = self::clientFor($payload, ['compare/' => ['behind_by' => 0]])->taskState('r#1', self::MARKER);
+        // the fixture's own review on 'old' (09:00) is a third commit; c1 and c2 add two more rounds
+        self::assertSame(3, $s->epicChangesRequested);
+        self::assertSame([
+            strtotime('2026-01-01T09:00:00Z'),
+            strtotime('2026-01-01T12:00:00Z'),
+            strtotime('2026-01-01T13:00:00Z'),
+        ], $s->epicChangesRequestedAt);
+    }
+
+    public function testChangesRequestedWithUnknownCommitAreCountedSeparately(): void
+    {
+        $noCommit = ['author' => ['login' => self::BOT], 'body' => 'changes '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => '2026-01-01T12:00:00Z'];
+        $nullCommit = ['commit' => null, 'submittedAt' => '2026-01-01T13:00:00Z'] + $noCommit;
+        $s = self::clientFor(self::approvedPayload('rev', [], [$noCommit, $nullCommit]), ['compare/' => ['behind_by' => 0]])->taskState('r#1', self::MARKER);
+        // the fixture's own review on 'old' plus two reviews of an unknown commit
+        self::assertSame(3, $s->epicChangesRequested);
+    }
+
+    public function testUnknownSubmittedAtWinsOverKnownTimeOnTheSameCommitInEitherOrder(): void
+    {
+        $known = ['author' => ['login' => self::BOT], 'body' => 'changes '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => '2026-01-01T12:00:00Z', 'commit' => ['oid' => 'same']];
+        $unknown = ['submittedAt' => null] + $known;
+        foreach ([[$known, $unknown], [$unknown, $known]] as $reviews) {
+            $s = self::clientFor(self::approvedPayload('rev', [], $reviews), ['compare/' => ['behind_by' => 0]])->taskState('r#1', self::MARKER);
+            // the fixture's own review on 'old' is one round, the two reviews of 'same' are another with an unknown time
+            self::assertSame(2, $s->epicChangesRequested);
+            self::assertContains(0, $s->epicChangesRequestedAt);
+            self::assertCount(1, array_filter($s->epicChangesRequestedAt, static fn (int $at): bool => $at === 0));
+        }
+    }
+
     public function testEpicMarkerReviewFromStrangerIsNotAVerdict(): void
     {
         $fake = ['author' => ['login' => 'stranger'], 'body' => 'no '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => '2026-01-01T12:00:00Z', 'commit' => ['oid' => 'rev']];
