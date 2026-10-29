@@ -60,6 +60,10 @@ final class ReviewCommitHookTest extends TestCase
         yield 'approve -s literal then command substitution' => ['glab mr approve 12 -s '.self::SHA.' -s $(git rev-parse HEAD)'];
         yield 'note marker in -m"…" without a space' => ['glab mr note 12 -m"ok <!-- verdict:approve sha='.self::SHA.' -->"'];
         yield 'note marker in ANSI-C quoting' => ['glab mr note 12 -m $\'ok <!-- verdict:approve sha='.self::SHA.' -->\''];
+        yield 'approve literal then attached variable' => ['glab mr approve 12 --sha '.self::SHA.' -s$SHA'];
+        yield 'approve literal then attached quoted variable' => ['glab mr approve 12 --sha '.self::SHA.' -s"$SHA"'];
+        yield 'approve literal then attached substitution' => ['glab mr approve 12 --sha '.self::SHA.' -s$(git rev-parse HEAD)'];
+        yield 'approve attached variable' => ['glab mr approve 12 -s$SHA'];
         yield 'approve -s with a variable sha' => ['glab mr approve 12 -s $SHA'];
         yield 'note with a command substitution sha' => ['glab mr note 12 -m "ok <!-- verdict:approve sha=$(git rev-parse HEAD) -->"'];
         yield 'note with a short sha' => ['glab mr note 12 -m "ok <!-- verdict:changes sha=0123abc -->"'];
@@ -78,6 +82,7 @@ final class ReviewCommitHookTest extends TestCase
     {
         yield 'approve with a literal sha' => ['glab mr approve 12 --sha '.self::SHA];
         yield 'approve with -s' => ['glab mr approve 12 -s '.self::SHA];
+        yield 'approve with attached -s' => ['glab mr approve 12 -s'.self::SHA];
         yield 'approve with -s=' => ['glab mr approve 12 -s='.self::SHA];
         yield 'approve with --sha=' => ['glab mr approve 12 --sha='.self::SHA];
         yield 'note with a literal sha' => ['glab mr note 12 -m "ok <!-- verdict:approve sha='.self::SHA.' -->"'];

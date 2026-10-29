@@ -43,7 +43,7 @@ final class ReviewCommitHook
 
     private const string GH_PR_REVIEW_RE = '/^gh\s+pr\s+review\b/';
     private const string GLAB_APPROVE_RE = '/^glab\s+mr\s+approve\b/';
-    private const string GLAB_APPROVE_SHA_RE = '/(?:^|\s)(?:--sha|-s)(?:=|\s+)(?<sha>\S*)/';
+    private const string GLAB_APPROVE_SHA_RE = '/(?:^|\s)(?:--sha(?:=|\s+)|-s(?:=|\s+)?)(?<sha>\S*)/';
     private const string GLAB_NOTE_RE = '/^glab\s+mr\s+note\b/';
     private const string MARKER_LOOSE_RE = '/<!--\s*verdict:(?<state>[^\s>]*)\s+sha=(?<sha>[^\s>]*)/';
     private const string GLAB_API_RE = '/^glab\s+api\b(?<args>.*)$/s';
