@@ -56,6 +56,10 @@ final class ReviewCommitHookTest extends TestCase
         yield 'approve chained' => ['cd x && glab mr approve 12'];
         yield 'approve with an uppercase sha' => ['glab mr approve 12 --sha '.self::UPPER];
         yield 'approve -s with an uppercase sha' => ['glab mr approve 12 -s '.self::UPPER];
+        yield 'approve literal then a variable sha' => ['glab mr approve 12 --sha '.self::SHA.' --sha $SHA'];
+        yield 'approve -s literal then command substitution' => ['glab mr approve 12 -s '.self::SHA.' -s $(git rev-parse HEAD)'];
+        yield 'note marker in -m"…" without a space' => ['glab mr note 12 -m"ok <!-- verdict:approve sha='.self::SHA.' -->"'];
+        yield 'note marker in ANSI-C quoting' => ['glab mr note 12 -m $\'ok <!-- verdict:approve sha='.self::SHA.' -->\''];
         yield 'approve -s with a variable sha' => ['glab mr approve 12 -s $SHA'];
         yield 'note with a command substitution sha' => ['glab mr note 12 -m "ok <!-- verdict:approve sha=$(git rev-parse HEAD) -->"'];
         yield 'note with a short sha' => ['glab mr note 12 -m "ok <!-- verdict:changes sha=0123abc -->"'];
@@ -110,7 +114,40 @@ final class ReviewCommitHookTest extends TestCase
     #[DataProvider('markerProvider')]
     public function testMarkerPairProperty(string $marker, bool $counted): void
     {
-        $command = 'glab mr note 12 -m "C1 — fixed '.$marker.'"';
+        self::assertSame($counted, self::bothAgree('glab mr note 12 -m "C1 — fixed '.$marker.'"', $marker));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function quotingProvider(): iterable
+    {
+        yield 'double quotes' => ['glab mr note 12 -m "ok %s"'];
+        yield 'single quotes' => ["glab mr note 12 -m 'ok %s'"];
+        yield '--message=' => ['glab mr note 12 --message="ok %s"'];
+        yield 'heredoc' => ["glab mr note 12 -m \"\$(cat <<'EOF'\nok %s\nEOF\n)\""];
+    }
+
+    #[DataProvider('quotingProvider')]
+    public function testMarkerPairPropertyAcrossQuoting(string $template): void
+    {
+        $marker = '<!-- verdict:approve sha='.self::SHA.' -->';
+
+        self::assertTrue(self::bothAgree(sprintf($template, $marker), $marker));
+    }
+
+    /** Forms the Stop hook never reads a body from are denied, not published uncounted. */
+    public function testMarkerOutsideReadBodyDenied(): void
+    {
+        $marker = '<!-- verdict:approve sha='.self::SHA.' -->';
+
+        self::assertStringContainsString('outside a body', (string) ReviewCommitHook::check('glab mr note 12 -m"ok '.$marker.'"'));
+        self::assertStringContainsString('outside a body', (string) ReviewCommitHook::check("glab mr note 12 -m \$'ok ".$marker."'"));
+    }
+
+    /** True when the Stop hook counts the note and the commit hook lets it through. */
+    private static function bothAgree(string $command, string $marker): bool
+    {
         $denied = ReviewCommitHook::check($command) !== null;
         $lines = [
             (string) json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => 'review !12']]),
@@ -118,9 +155,9 @@ final class ReviewCommitHookTest extends TestCase
             (string) json_encode(['type' => 'user', 'message' => ['content' => [['type' => 'tool_result', 'tool_use_id' => 't1', 'content' => 'ok', 'is_error' => false]]]]),
         ];
         $stop = ReviewStatusHook::decide(['last_assistant_message' => str_contains($marker, 'verdict:changes') ? '🔴 Blocked' : '🟢 Merge', 'stop_hook_active' => false], $lines);
+        $stopCounts = $stop === ReviewStatusHook::PASS;
 
-        self::assertSame($counted, !$denied);
-        self::assertSame($counted, $stop === ReviewStatusHook::PASS, 'Stop hook counting differs from the commit hook');
+        return $denied !== $stopCounts && $stopCounts;
     }
 
     public function testMarkerDenialTexts(): void

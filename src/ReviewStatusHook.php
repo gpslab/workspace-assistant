@@ -289,23 +289,7 @@ final class ReviewStatusHook
             if (preg_match(self::GITLAB_NOTE_RE, $segment) !== 1) {
                 continue;
             }
-            $body = '';
-            $spans = [];
-            if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
-                foreach ($m as $hit) {
-                    $spans[] = [$hit[0][1], $hit[0][1] + strlen($hit[0][0])];
-                    $body .= "\n".(($hit[1][0] ?? '') !== '' ? $hit[1][0] : ($hit[2][0] ?? ''));
-                }
-            }
-            if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
-                foreach ($m as $hit) {
-                    // A heredoc inside a `-m "$(cat <<EOF …)"` value is already part of that value.
-                    $inside = array_filter($spans, static fn (array $span): bool => $hit[0][1] >= $span[0] && $hit[0][1] < $span[1]);
-                    if ($inside === []) {
-                        $body .= "\n".$hit[3][0];
-                    }
-                }
-            }
+            $body = self::gitlabNoteBody($segment);
             $state = null;
             if (preg_match_all(self::GITLAB_MARKER_ANY_RE, $body, $unused) === 1
                 && preg_match_all(self::GITLAB_MARKER_RE, $body, $valid, PREG_SET_ORDER) === 1) {
@@ -315,6 +299,33 @@ final class ReviewStatusHook
         }
 
         return $notes;
+    }
+
+    /**
+     * The body of one `glab mr note` command as the Stop hook reads it: the `-m`/`--message` values in
+     * `"…"` or `'…'` and the heredocs. Anything else in the command is not part of the body.
+     */
+    public static function gitlabNoteBody(string $segment): string
+    {
+        $body = '';
+        $spans = [];
+        if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
+            foreach ($m as $hit) {
+                $spans[] = [$hit[0][1], $hit[0][1] + strlen($hit[0][0])];
+                $body .= "\n".(($hit[1][0] ?? '') !== '' ? $hit[1][0] : ($hit[2][0] ?? ''));
+            }
+        }
+        if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
+            foreach ($m as $hit) {
+                // A heredoc inside a `-m "$(cat <<EOF …)"` value is already part of that value.
+                $inside = array_filter($spans, static fn (array $span): bool => $hit[0][1] >= $span[0] && $hit[0][1] < $span[1]);
+                if ($inside === []) {
+                    $body .= "\n".$hit[3][0];
+                }
+            }
+        }
+
+        return $body;
     }
 
     /**

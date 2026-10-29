@@ -43,7 +43,7 @@ final class ReviewCommitHook
 
     private const string GH_PR_REVIEW_RE = '/^gh\s+pr\s+review\b/';
     private const string GLAB_APPROVE_RE = '/^glab\s+mr\s+approve\b/';
-    private const string GLAB_APPROVE_SHA_RE = '/(?:^|\s)(?:--sha|-s)(?:=|\s+)["\']?(?<sha>[0-9a-fA-F]{40})["\']?(?=\s|$)/';
+    private const string GLAB_APPROVE_SHA_RE = '/(?:^|\s)(?:--sha|-s)(?:=|\s+)(?<sha>\S*)/';
     private const string GLAB_NOTE_RE = '/^glab\s+mr\s+note\b/';
     private const string MARKER_LOOSE_RE = '/<!--\s*verdict:(?<state>[^\s>]*)\s+sha=(?<sha>[^\s>]*)/';
     private const string GLAB_API_RE = '/^glab\s+api\b(?<args>.*)$/s';
@@ -109,12 +109,15 @@ final class ReviewCommitHook
 
     private static function checkApprove(string $segment): ?string
     {
+        // Every value counts: pflag keeps the last one, so a literal followed by a variable is unpinned.
         if (preg_match_all(self::GLAB_APPROVE_SHA_RE, $segment, $hits) === 0) {
             return 'MR approval denied: `glab mr approve` without a literal lowercase 40-hex `-s|--sha` approves whatever the MR head is when it runs, not the commit you reviewed. Run `glab mr approve <N> --sha <SHA>` with the literal lowercase 40-hex commit you reviewed.';
         }
-        foreach ($hits['sha'] as $sha) {
-            if ($sha !== strtolower($sha)) {
-                return 'MR approval denied: the `--sha` must be lowercase 40-hex (GitLab compares it strictly with the lowercase MR head SHA and answers 409 otherwise).';
+        foreach ($hits['sha'] as $value) {
+            if (preg_match(self::LOWER_SHA_RE, $value) !== 1) {
+                return preg_match(self::ANY_CASE_SHA_RE, $value) === 1
+                    ? 'MR approval denied: the `--sha` must be lowercase 40-hex (GitLab compares it strictly with the lowercase MR head SHA and answers 409 otherwise).'
+                    : 'MR approval denied: every `-s|--sha` must be the literal lowercase 40-hex commit you reviewed (`$(…)`, shell variables and short SHAs resolve or match differently at publish time, and the last `--sha` wins).';
             }
         }
 
@@ -131,6 +134,13 @@ final class ReviewCommitHook
         if ($any === 0) {
             return null;
         }
+        // The Stop hook reads only `-m "…"`, `-m '…'`, `--message` and heredoc bodies; a marker elsewhere
+        // (`-m"…"`, `$'…'`) would be published but never counted.
+        $body = ReviewStatusHook::gitlabNoteBody($segment);
+        if (preg_match_all(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $body) !== $any) {
+            return 'MR note denied: the `verdict:` marker is outside a body the Stop hook reads. Pass the note as `-m "…"`, `-m \'…\'`, `--message="…"` or a heredoc (no `-m"…"`, no `$\'…\'`): '.self::MARKER_FORM.'.';
+        }
+        $segment = $body;
         if ($any > 1) {
             return 'MR note denied: the note carries '.$any.' `verdict:` markers, a note with more than one counts as no verdict. Write exactly one: '.self::MARKER_FORM.'.';
         }
