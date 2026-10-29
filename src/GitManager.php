@@ -24,6 +24,8 @@ final class GitManager
         private readonly string $repoPath,
         private readonly int $netTimeout = 120,
         private readonly Locale $locale = new Locale(),
+        private readonly string $forge = Config::FORGE_GITHUB,
+        private readonly string $forgeHost = 'github.com',
     ) {
     }
 
@@ -127,13 +129,13 @@ final class GitManager
 
         $ssh = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10';
 
-        // SSH multiplexing: keep one connection to github.com and
+        // SSH multiplexing: keep one connection to the forge host and
         // reuse it for subsequent git operations (fetch for all docs/*,
         // push). Without it each fetch pays ~3s for the SSH handshake. ControlMaster
         // =auto brings up the master on the first connect, ControlPersist=60s keeps
         // it for 60s after last use. Key for parallel
         // fetch: the managed repository pull before docs/* already brings up this master (same
-        // git@github.com -> same %C socket), so all parallel fetches
+        // user@host -> same %C socket), so all parallel fetches
         // are multiplexed over one connection, with no thundering herd on
         // handshakes. ControlPath=.../%C is a short hash of the parameters (avoids problems with
         // unix socket length). Requires an existing ~/.ssh; otherwise no muxing.
@@ -527,66 +529,97 @@ final class GitManager
     /**
      * Factory: creates a GitManager for an arbitrary path, or null if the path is not a git repository.
      */
-    public static function forPath(string $repoPath, int $netTimeout = 120): ?self
-    {
+    public static function forPath(
+        string $repoPath,
+        int $netTimeout = 120,
+        string $forge = Config::FORGE_GITHUB,
+        string $forgeHost = 'github.com',
+    ): ?self {
         if (!is_dir($repoPath.'/.git')) {
             return null;
         }
 
-        return new self($repoPath, $netTimeout);
+        return new self($repoPath, $netTimeout, new Locale(), $forge, $forgeHost);
     }
 
     /**
-     * GitHub link to a commit, built from the origin remote.
-     * If origin is not GitHub or no remote is set, returns just the hash.
+     * Forge link to a commit, built from the origin remote.
+     * If origin is not on the configured forge host or no remote is set, returns just the hash.
      */
-    public function githubCommitUrl(string $hash): string
+    public function forgeCommitUrl(string $hash): string
     {
         $result = $this->git(['remote', 'get-url', 'origin']);
         if ($result['exit'] !== 0) {
             return $hash;
         }
 
-        $base = self::githubBaseUrl(trim($result['stdout']));
-
-        return $base !== '' ? "{$base}/commit/{$hash}" : $hash;
+        return self::buildCommitUrl(trim($result['stdout']), $hash, $this->forge, $this->forgeHost);
     }
 
     /**
-     * GitHub link to a repository file on the current branch, built from the
-     * origin remote. null if origin is not GitHub, no remote is set or the branch is undetermined.
+     * Forge link to a repository file on the current branch, built from the
+     * origin remote. null if origin is not on the configured forge host, no remote is set
+     * or the branch is undetermined.
      */
-    public function githubFileUrl(string $path): ?string
+    public function forgeFileUrl(string $path): ?string
     {
         $remote = $this->git(['remote', 'get-url', 'origin']);
         $branch = $this->git(['symbolic-ref', '--short', '-q', 'HEAD']);
         if ($remote['exit'] !== 0 || $branch['exit'] !== 0) {
             return null;
         }
-        $base = self::githubBaseUrl(trim($remote['stdout']));
-        $ref = trim($branch['stdout']);
-        if ($base === '' || $ref === '') {
+
+        return self::buildFileUrl(trim($remote['stdout']), trim($branch['stdout']), $path, $this->forge, $this->forgeHost);
+    }
+
+    /**
+     * Commit link for a remote URL; the bare hash when the remote is not on $host.
+     */
+    public static function buildCommitUrl(string $remote, string $hash, string $forge, string $host): string
+    {
+        $base = self::forgeBaseUrl($remote, $host);
+        if ($base === '') {
+            return $hash;
+        }
+
+        return $base.($forge === Config::FORGE_GITLAB ? '/-/commit/' : '/commit/').$hash;
+    }
+
+    /**
+     * File link for a remote URL and branch; null when the remote is not on $host or the branch is empty.
+     */
+    public static function buildFileUrl(string $remote, string $branch, string $path, string $forge, string $host): ?string
+    {
+        $base = self::forgeBaseUrl($remote, $host);
+        if ($base === '' || $branch === '') {
             return null;
         }
 
         $encode = static fn (string $p): string => implode('/', array_map(rawurlencode(...), explode('/', $p)));
 
-        return "{$base}/blob/".$encode($ref).'/'.$encode(ltrim($path, '/'));
+        return $base.($forge === Config::FORGE_GITLAB ? '/-/blob/' : '/blob/').$encode($branch).'/'.$encode(ltrim($path, '/'));
     }
 
     /**
-     * Parses a remote URL and returns the base https://github.com/org/repo,
-     * or an empty string if not GitHub.
+     * Parses a remote URL (scp-style, https or ssh://, optional port and .git suffix) and returns
+     * the base https://host/namespace/project, or an empty string if the host is not $host.
      */
-    private static function githubBaseUrl(string $remoteUrl): string
+    private static function forgeBaseUrl(string $remoteUrl, string $host): string
     {
-        // SSH: git@github.com:org/repo.git
-        if (preg_match('#^git@github\.com:(.+?)(?:\.git)?$#', $remoteUrl, $m)) {
-            return 'https://github.com/'.$m[1];
+        $h = preg_quote($host, '#');
+        $patterns = [
+            "#^[\\w.-]+@{$h}:(.+?)(?:\\.git)?/?$#",
+            "#^ssh://[\\w.-]+@{$h}(?::\\d+)?/(.+?)(?:\\.git)?/?$#",
+        ];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $remoteUrl, $m)) {
+                return "https://{$host}/".$m[1];
+            }
         }
-        // HTTPS: https://github.com/org/repo.git
-        if (preg_match('#^https?://github\.com/(.+?)(?:\.git)?$#', $remoteUrl, $m)) {
-            return 'https://github.com/'.$m[1];
+
+        // The port of an http(s) remote is the web port, so it stays in the link (unlike the SSH port).
+        if (preg_match("#^https?://{$h}(:\\d+)?/(.+?)(?:\\.git)?/?$#", $remoteUrl, $m)) {
+            return "https://{$host}{$m[1]}/".$m[2];
         }
 
         return '';

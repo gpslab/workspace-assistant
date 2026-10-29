@@ -321,7 +321,7 @@ final class GitManagerTest extends TestCase
     public function testGithubCommitUrlWithNoRemote(): void
     {
         $hash = str_repeat('a', 40);
-        self::assertSame($hash, $this->git->githubCommitUrl($hash));
+        self::assertSame($hash, $this->git->forgeCommitUrl($hash));
     }
 
     public function testGithubCommitUrlWithSshRemote(): void
@@ -331,7 +331,7 @@ final class GitManagerTest extends TestCase
 
         self::assertSame(
             'https://github.com/anime-db/test-repo/commit/'.$hash,
-            $this->git->githubCommitUrl($hash)
+            $this->git->forgeCommitUrl($hash)
         );
     }
 
@@ -342,13 +342,13 @@ final class GitManagerTest extends TestCase
 
         self::assertSame(
             'https://github.com/anime-db/test-repo/commit/'.$hash,
-            $this->git->githubCommitUrl($hash)
+            $this->git->forgeCommitUrl($hash)
         );
     }
 
     public function testGithubFileUrlWithNoRemote(): void
     {
-        self::assertNull($this->git->githubFileUrl('context/epics/a.md'));
+        self::assertNull($this->git->forgeFileUrl('context/epics/a.md'));
     }
 
     public function testGithubFileUrlUsesCurrentBranch(): void
@@ -358,7 +358,7 @@ final class GitManagerTest extends TestCase
 
         self::assertSame(
             'https://github.com/anime-db/test-repo/blob/'.$branch.'/context/epics/a.md',
-            $this->git->githubFileUrl('context/epics/a.md')
+            $this->git->forgeFileUrl('context/epics/a.md')
         );
     }
 
@@ -369,7 +369,7 @@ final class GitManagerTest extends TestCase
 
         self::assertSame(
             'https://github.com/anime-db/test-repo/blob/feature/x/docs/a%20b%23c.md',
-            $this->git->githubFileUrl('docs/a b#c.md')
+            $this->git->forgeFileUrl('docs/a b#c.md')
         );
     }
 
@@ -379,7 +379,7 @@ final class GitManagerTest extends TestCase
         exec('git -C '.escapeshellarg($this->repo).' commit -q --allow-empty -m init');
         exec('git -C '.escapeshellarg($this->repo).' checkout -q --detach');
 
-        self::assertNull($this->git->githubFileUrl('context/epics/a.md'));
+        self::assertNull($this->git->forgeFileUrl('context/epics/a.md'));
     }
 
     public function testChangedPathsInListsRenameUntrackedAndDeletedWithoutSourcePaths(): void

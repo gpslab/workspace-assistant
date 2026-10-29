@@ -75,6 +75,7 @@ not "fix" `gmdate` to `date`.
 
 `SUBREPOS_DIR` (relative to `REPO_PATH`) is empty by default: pulling, HEAD snapshots and commit links of
 sub-repositories are off and the bot does not touch clones there.
+Their commit links use each clone's own `origin`: `FORGE`/`FORGE_HOST` first, then github.com and gitlab.com, else a bare hash (`SubRepoSync::commitUrl`).
 
 ---
 

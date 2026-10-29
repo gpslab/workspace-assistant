@@ -12,7 +12,7 @@ final class Config
     public const string FORGE_GITHUB = 'github';
     public const string FORGE_GITLAB = 'gitlab';
 
-    private const array DEFAULT_HOSTS = [
+    public const array DEFAULT_HOSTS = [
         self::FORGE_GITHUB => 'github.com',
         self::FORGE_GITLAB => 'gitlab.com',
     ];
@@ -195,6 +195,18 @@ final class Config
         }
 
         return $value !== '' ? $value : $old;
+    }
+
+    /** Display name of the forge for texts: GitHub or GitLab. */
+    public function forgeName(): string
+    {
+        return $this->forge === self::FORGE_GITLAB ? 'GitLab' : 'GitHub';
+    }
+
+    /** Command line client of the forge: gh or glab. */
+    public function forgeCli(): string
+    {
+        return $this->forge === self::FORGE_GITLAB ? 'glab' : 'gh';
     }
 
     /** Epics need a forge client; none exists for GitLab yet. */

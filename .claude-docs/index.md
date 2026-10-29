@@ -10,7 +10,7 @@ Which file to read for which task. Start here when unsure.
 |--------------------------------------------------------------------------|----------------------------------|
 | How the bot works: components, message flow, state, configuration        | [internals.md](internals.md)     |
 | The bot hangs / "Thinking…" is silent / 409 / starting and updating it   | [operations.md](operations.md)   |
-| `gh` is not authorized / the `check_gh_auth.sh` cron check               | [operations.md](operations.md)   |
+| `gh`/`glab` is not authorized / the `check_forge_auth.sh` cron check     | [operations.md](operations.md)   |
 | Editing code and unsure why something is done "oddly"                    | [gotchas.md](gotchas.md)         |
 | Unfamiliar term, or unsure about entity names (Bot, Orchestrator, epic)  | [glossary.md](glossary.md)       |
 | Who calls the bot, the threat model, deliberate design decisions         | [context.md](context.md)         |
@@ -26,8 +26,8 @@ Which file to read for which task. Start here when unsure.
 |--------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
 | `bin/bot.php`                                    | Entry point: builds Config/Database/Telegram/Git, then `Bot::run`                                                                |
 | `bin/ctl.sh`                                     | start/stop/restart/status/fg/logs (nohup, pid file)                                                                              |
-| `bin/check_gh_auth.sh`                           | Cron: checks `gh auth status`, notifies in Telegram on failure                                                                   |
-| `bin/env.sh`                                     | Bash `.env` parser (`load_env_file`) used by `check_gh_auth.sh`                                                                  |
+| `bin/check_forge_auth.sh`                        | Cron: checks `gh`/`glab auth status` by `FORGE`, notifies in Telegram on failure; `bin/check_gh_auth.sh` only delegates to it    |
+| `bin/env.sh`                                     | Bash `.env` parser (`load_env_file`) used by `check_forge_auth.sh`                                                                |
 | `bin/install.php`, `src/Installer.php`           | Writes `.env` (options or prompts), checks env/network, prints unit and cron                                                     |
 | `src/InstallerServices.php`                      | Injectable process runner, HTTP, extension and TTY probes of the installer                                                       |
 | `bin/review-stop-hook.php`                       | Claude Stop hook of the `review` mode (`ReviewStatusHook`)                                                                       |

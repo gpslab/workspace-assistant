@@ -130,6 +130,19 @@ final class ConfigTest extends TestCase
         self::assertSame(['group/sub', 'proj', 12], $config->forgeOwners->parse('group/sub/proj#12'));
     }
 
+    public function testForgeNameAndCliFollowTheForge(): void
+    {
+        $this->writeEnv();
+        $github = Config::load($this->envFile);
+        self::assertSame('GitHub', $github->forgeName());
+        self::assertSame('gh', $github->forgeCli());
+
+        $this->writeEnv("FORGE=gitlab\n");
+        $gitlab = Config::load($this->envFile);
+        self::assertSame('GitLab', $gitlab->forgeName());
+        self::assertSame('glab', $gitlab->forgeCli());
+    }
+
     public function testExplicitForgeHostOverridesTheDefault(): void
     {
         $this->writeEnv("FORGE=gitlab\nFORGE_HOST=git.example.org\n");

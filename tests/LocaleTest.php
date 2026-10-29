@@ -53,6 +53,26 @@ final class LocaleTest extends TestCase
         self::assertSame('German', $locale->languageName());
     }
 
+    public function testForgePlaceholdersDefaultToGithubAndFollowTheConfig(): void
+    {
+        $this->write($this->builtin, 'en', ['_language' => 'English', 'poll' => 'Polling {forge} via `{cli}`: {x}']);
+        $default = new Locale('en', null, $this->builtin);
+        self::assertSame('Polling GitHub via `gh`: 1', $default->t('poll', ['x' => 1]));
+        self::assertSame('Polling GitHub via `gh`: {x}', $default->t('poll'));
+
+        $dir = sys_get_temp_dir().'/forge_locale_'.uniqid('', true);
+        mkdir($dir.'/.git', 0777, true);
+        file_put_contents($dir.'/.env', "BOT_TOKEN=t\nALLOWED_USER_IDS=1\nREPO_PATH={$dir}\nSTATE_DIR={$dir}/state\nFORGE=gitlab\n");
+        try {
+            $config = \GpsLab\WorkspaceAssistant\Config::load($dir.'/.env');
+            $gitlab = Locale::fromConfig($config);
+            self::assertSame('Last GitLab poll: 5', $gitlab->t('card.last_poll', ['time' => 5]));
+            self::assertSame('Last GitLab poll: 5', $gitlab->with('en')->t('card.last_poll', ['time' => 5]));
+        } finally {
+            exec('rm -rf '.escapeshellarg($dir));
+        }
+    }
+
     public function testSubstitutedValuesAreNotExpandedAgain(): void
     {
         $locale = new Locale('en', null, $this->builtin);

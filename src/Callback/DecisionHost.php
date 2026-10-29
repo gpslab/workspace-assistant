@@ -10,6 +10,6 @@ interface DecisionHost
     /** Tells the topic which prompt/locale files the run changed (nothing when none did). */
     public function deliverPromptFilesWarning(int $chatId, int $threadId): void;
 
-    /** Link to a commit of the managed repository, or the bare hash when no GitHub repository is configured. */
+    /** Link to a commit of the managed repository, or the bare hash when no forge repository is configured. */
     public function commitUrl(string $hash): string;
 }

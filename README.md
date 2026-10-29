@@ -130,6 +130,8 @@ In an epic it runs as a step of the final check, on the merged PR diffs.
 - git with access to the workspace's remote (for example an SSH key).
 - [GitHub CLI](https://cli.github.com/) (`gh`), authenticated with `gh auth login` as the user that
   runs the bot. Both Claude (issues, pull requests) and the bot itself (epic polling) call it.
+  With `FORGE=gitlab` the [GitLab CLI](https://gitlab.com/gitlab-org/cli) (`glab`) is used instead,
+  see [GitLab](#gitlab).
 - Composer, for development tooling only. The runtime has no Composer dependencies.
 
 ### Recommended
@@ -141,6 +143,36 @@ In an epic it runs as a step of the final check, on the merged PR diffs.
   Code. Installed for the managed repository, it gives every run the project's conventions and known
   pitfalls (`CLAUDE.md` plus on-demand docs) and keeps working state across `/compact` and new sessions.
   The bot does not require it.
+
+## GitLab
+
+`FORGE=gitlab` (with `FORGE_HOST` for a self-hosted instance) makes the bot use GitLab instead of GitHub.
+Minimum versions: **GitLab 16.0** and **glab 1.40**.
+
+1. Install [glab](https://gitlab.com/gitlab-org/cli) on the server and make sure `glab --version` works
+   for the user that runs the bot.
+2. Authenticate as that user: `glab auth login --hostname gitlab.com` (for a self-hosted instance,
+   `glab auth login --hostname gitlab.example.com`). The access token needs the scopes `api` and
+   `write_repository`.
+3. Set `FORGE=gitlab` in `.env`, plus `FORGE_HOST=gitlab.example.com` for a self-hosted instance (the
+   default is `gitlab.com`). The installer asks for both (`--forge`, `--forge-host`) and checks `glab`.
+
+With `FORGE=gitlab` the bot builds commit and file links (`…/-/commit/<sha>`, `…/-/blob/<branch>/<path>`)
+for `origin` remotes in the forms `git@<host>:<namespace>/<project>.git`,
+`https://<host>[:port]/<namespace>/<project>.git` (the port is kept in the link) and
+`ssh://git@<host>[:port]/<namespace>/<project>.git` (the port is dropped), when `<host>` equals
+`FORGE_HOST`; for any other remote it shows a bare hash or a plain path. Commit links of
+sub-repositories from `SUBREPOS_DIR` are built from their own `origin`: first `FORGE`/`FORGE_HOST`, then
+github.com and gitlab.com, otherwise a bare hash. The cron check
+[`bin/check_forge_auth.sh`](INSTALL.md#monitoring-forge-authentication) runs
+`glab auth status --hostname <host>`.
+
+| Feature                 | GitHub    | GitLab                                  |
+|-------------------------|-----------|-----------------------------------------|
+| Chat mode               | supported | supported                               |
+| PM mode                 | supported | supported                               |
+| Review mode             | supported | after the review task (#100), not yet   |
+| Epics (`/epic`)         | supported | not supported                           |
 
 ## Installation
 

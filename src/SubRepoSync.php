@@ -20,7 +20,7 @@ final class SubRepoSync
 
     /**
      * Best-effort `git pull --rebase` in all docs/* repositories before running
-     * Claude. Component development happens in GitHub, local clones lag behind —
+     * Claude. Component development happens on the forge, local clones lag behind —
      * refresh them so Claude does not work on stale code.
      *
      * Not critical for the run: any failure only ends up in the returned note,
@@ -63,7 +63,7 @@ final class SubRepoSync
         $clean = [];
         $paths = [];
         foreach (glob($docsDir.'/*', GLOB_ONLYDIR) ?: [] as $dir) {
-            $mgr = GitManager::forPath($dir, $this->config->gitTimeout);
+            $mgr = GitManager::forPath($dir, $this->config->gitTimeout, $this->config->forge, $this->config->forgeHost);
             if ($mgr === null) {
                 continue;
             }
@@ -222,7 +222,7 @@ final class SubRepoSync
         }
 
         foreach (glob($docsDir.'/*', GLOB_ONLYDIR) ?: [] as $dir) {
-            $mgr = GitManager::forPath($dir, $this->config->gitTimeout);
+            $mgr = GitManager::forPath($dir, $this->config->gitTimeout, $this->config->forge, $this->config->forgeHost);
             if ($mgr !== null) {
                 $snapshot[$dir] = $mgr->headHashOrNull();
             }
@@ -232,7 +232,7 @@ final class SubRepoSync
     }
 
     /**
-     * Compares the current HEADs with the snapshot; returns GitHub links for the
+     * Compares the current HEADs with the snapshot; returns forge links for the
      * repositories that got new commits.
      *
      * @param array<string, string|null> $snapshot
@@ -243,16 +243,38 @@ final class SubRepoSync
     {
         $links = [];
         foreach ($snapshot as $repoPath => $beforeHash) {
-            $mgr = GitManager::forPath($repoPath, $this->config->gitTimeout);
+            $mgr = GitManager::forPath($repoPath, $this->config->gitTimeout, $this->config->forge, $this->config->forgeHost);
             if ($mgr === null) {
                 continue;
             }
             $afterHash = $mgr->headHashOrNull();
             if ($afterHash !== null && $afterHash !== $beforeHash) {
-                $links[] = $mgr->githubCommitUrl($afterHash);
+                $links[] = $this->commitUrl($repoPath, $mgr, $afterHash);
             }
         }
 
         return $links;
+    }
+
+    /**
+     * Sub-repositories have their own origins, so the forge is detected per repository: the
+     * configured FORGE/FORGE_HOST first, then the well-known github.com and gitlab.com.
+     */
+    private function commitUrl(string $repoPath, GitManager $mgr, string $hash): string
+    {
+        $url = $mgr->forgeCommitUrl($hash);
+        if ($url !== $hash) {
+            return $url;
+        }
+
+        foreach ([[Config::FORGE_GITHUB, 'github.com'], [Config::FORGE_GITLAB, 'gitlab.com']] as [$forge, $host]) {
+            $known = GitManager::forPath($repoPath, $this->config->gitTimeout, $forge, $host);
+            $url = $known?->forgeCommitUrl($hash) ?? $hash;
+            if ($url !== $hash) {
+                return $url;
+            }
+        }
+
+        return $hash;
     }
 }
