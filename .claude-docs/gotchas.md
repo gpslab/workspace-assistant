@@ -386,7 +386,8 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
   `headRefOid` of each PR the bot recognised in a manual review message (`RunPrompt::manualReviewFindings`,
   one SHA per PR). Without a recorded SHA (PR not recognised, findings failed to load) only the form is
   checked: a known limitation, the reviewer records `headRefOid` itself as its first step.
-- On GitLab `ReviewCommitHook` also denies `glab mr approve` without a literal 40-hex `--sha`, and a
+- The hook takes no forge argument, so the `glab` checks apply whatever `FORGE` is set to: it also denies
+  `glab mr approve` without a literal 40-hex `--sha`, and a
   `glab mr note` whose verdict marker carries a `sha` that is not a literal 40-hex value (`$(…)` and shell
   variables resolve at publish time). Known limitation: the bot records no SHAs on GitLab (there is no
   GitLab API client), so the SHA is checked by form only and is not compared with the MR head.
