@@ -49,6 +49,8 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
  * `<!-- verdict:approve|changes sha=<40-hex> -->`. The marker is the source of truth; `glab mr approve` /
  * `glab mr revoke` are side effects and never count. Detection accepts the `gh` and the `glab` forms
  * whatever the forge; the forge (the `--forge=` argument of the hook script) only selects the reason text.
+ * The marker's sha is checked for its form only (a literal of 40 hex digits); it is not compared with the
+ * MR head, because the bot has no GitLab client yet.
  */
 final class ReviewStatusHook
 {

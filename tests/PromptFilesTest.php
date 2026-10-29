@@ -432,6 +432,21 @@ final class PromptFilesTest extends TestCase
         self::assertStringContainsString('review_status_reason.md.dist', $errors[0]);
     }
 
+    public function testGitlabReasonFallsBackToHardcodedGitlabTextWhenLoadingFails(): void
+    {
+        $this->isolate('review_status_reason_steps_gitlab');
+        $lines = [(string) json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => 'q']])];
+        $errors = [];
+
+        $reason = ReviewStatusHook::reasonOrFallback(['last_assistant_message' => '🟢 ok'], $lines, null, static function (\Throwable $e) use (&$errors): void {
+            $errors[] = $e->getMessage();
+        }, 'gitlab');
+
+        self::assertSame(ReviewStatusHook::FALLBACK_REASON_GITLAB, $reason);
+        self::assertCount(1, $errors);
+        self::assertStringContainsString('review_status_reason_steps_gitlab.md.dist', $errors[0]);
+    }
+
     public function testHookScriptStillBlocksWhenReasonTextsAreMissing(): void
     {
         $transcript = $this->dir.'/transcript.jsonl';

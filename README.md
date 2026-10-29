@@ -167,6 +167,10 @@ github.com and gitlab.com, otherwise a bare hash. The cron check
 [`bin/check_forge_auth.sh`](INSTALL.md#monitoring-forge-authentication) runs
 `glab auth status --hostname <host>`.
 
+In review mode on GitLab the verdict is a `glab mr note` whose body carries a
+`<!-- verdict:approve|changes sha=<40-hex> -->` marker. The marker's sha is checked only for its form (a
+literal of 40 hex digits); it is not compared with the MR head, because the bot has no GitLab client yet.
+
 | Feature                 | GitHub    | GitLab                                  |
 |-------------------------|-----------|-----------------------------------------|
 | Chat mode               | supported | supported                               |
