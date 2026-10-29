@@ -134,8 +134,14 @@ system prompt, with these differences:
   repeated. If the summary only restates the inline findings, its verdict equals the
   worst of them, `where`: "summary of C1–C5"; if it has its own point, handle it
   separately.
-- Publish a **formal** review (`gh pr review --approve | --request-changes`) with the
-  marker in the body. A comment without a verdict is invisible to the merge gate.
+- Read the code at the reviewed SHA from the run prompt (`git diff <merge-base>...<SHA>`,
+  `git show <SHA>:<path>`; tests and mutations in a temporary `git worktree add /tmp/… <SHA>`
+  removed at the end), not via `gh pr diff` and not with `git checkout` in a working clone.
+- Publish a **formal** review only as `gh api repos/<owner>/<repo>/pulls/<N>/reviews
+  -f commit_id=<SHA> -f event=<APPROVE|REQUEST_CHANGES> -f body=…` (a hook denies anything else),
+  with the marker in the body, both Approve and Request changes on the reviewed SHA. If GitHub
+  rejects the POST, no state is set: say why in the signal `message` and do not republish on another
+  commit. A comment without a verdict is invisible to the merge gate.
 - No blockers — APPROVE: the bot merges.
 - A side finding outside the task — a separate issue (through the PM runbook without an
   author, see **Extra task**), and `added` in the signal only if

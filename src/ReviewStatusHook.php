@@ -8,8 +8,8 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 
 /**
  * Claude Code Stop hook for review mode: a turn that worked on a PR without a formal
- * review status on the PR (`gh pr review --approve / --request-changes`) is not
- * released — with a 🟢/🔴 verdict or without one.
+ * review status on the PR (`gh api repos/<o>/<r>/pulls/<N>/reviews -f commit_id=<SHA> -f event=…`,
+ * see {@see ReviewCommitHook}) is not released — with a 🟢/🔴 verdict or without one.
  *
  * Why code rather than a prompt rule: the rule in the review role prompt lost three times in a row
  * to the habit of a warm session (the verdict in chat, remarks via
@@ -31,11 +31,17 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
  *              the hook releases the turn (no loops) but leaves a marker, and the bot
  *              appends a warning to the reply — the failure does not pass silently.
  *
+ * Two cases legitimately end without a status and take this same path (block, then missing on the
+ * repeated stop; decide() has no pass for them): a manual Approve whose PR head moved past the reviewed
+ * commit, and a POST that GitHub rejected. The reason text names exactly these two.
+ *
  * Cold reviewer findings (manual review): if the bot managed to collect
  * the findings, it passes the hook a list of ids ($ids). The status then counts
- * only when the body of the published review (`--body "…"` or a heredoc in the
- * `gh pr review` command itself) contains every id; otherwise the same block / missing.
- * The hook does not read `--body-file`/`-F`. In an epic run $ids = null: there coverage is
+ * only when the body of the published review contains every id; otherwise the same block / missing.
+ * The body is read from the publishing command itself: `-f`/`-F`/`--field`/`--raw-field body=…` of a
+ * `gh api …/pulls/N/reviews` call (line continuations with `\` joined) or a heredoc; the legacy
+ * `gh pr review --body "…"` is read too, but its `--body-file`/`-F` is not. A body read from a file
+ * (`body=@file`, `--input`) is not seen. In an epic run $ids = null: there coverage is
  * checked by the signal (ColdFindings::check), a second check is not needed.
  */
 final class ReviewStatusHook
@@ -51,17 +57,18 @@ final class ReviewStatusHook
      * Hardcoded reason for a block when the reason texts cannot be loaded: the hook must not
      * fail open on that path.
      */
-    public const string FALLBACK_REASON = 'Review-status check: this turn worked with a PR but the PR has no matching review state. Publish it now with `gh pr review <N> -R <owner/repo> --approve` (🟢) or `--request-changes --body <findings>` (🔴), then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴.';
+    public const string FALLBACK_REASON = 'Review-status check: this turn worked with a PR but the PR has no matching review state. Publish it now with `gh api repos/<owner>/<repo>/pulls/<N>/reviews -f commit_id=<SHA> -f event=APPROVE -f body=…` (🟢) or `-f event=REQUEST_CHANGES` (🔴), where <SHA> is the literal 40-hex commit you reviewed. The only legitimate reasons to leave no status: a manual Approve when the PR head no longer equals <SHA> (name the unreviewed commits in the reply), or a POST that GitHub rejected (say why; do not republish on another commit). Then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴.';
 
     /** PR work during the turn — a sign that the verdict comes from a review, not a retelling. */
     private const string PR_ACTIVITY_RE = '/\bgh\s+(?:pr\s+(?:view|diff|checks|comment|review)\b|api\b[^\n]*\bpulls\b)/';
 
     /**
-     * The command that sets the status: `gh pr review … --approve/--request-changes` or
-     * a POST to pulls/N/reviews with an event. The `state` group is which status exactly.
+     * The command that sets the status: a POST to pulls/N/reviews with an event (the form
+     * {@see ReviewCommitHook} allows; line continuations are joined by bashCalls()) or the legacy
+     * `gh pr review … --approve/--request-changes`. The `state` group is which status exactly.
      */
     private const string STATUS_CMD_RE = '/(?:^|[;&|(\n]\s*)gh\s+pr\s+review\b[\s\S]*?(?<state>--approve|--request-changes|\s-a\b|\s-r\b)/';
-    private const string STATUS_API_RE = '/(?:^|[;&|(\n]\s*)gh\s+api\b[^\n]*pulls\/\d+\/reviews\b[^\n]*\bevent=(?<state>APPROVE|REQUEST_CHANGES)/';
+    private const string STATUS_API_RE = '/(?:^|[;&|(\n]\s*)gh\s+api\b[^\n]*pulls\/\d+\/reviews\b[^\n]*\bevent=["\']?(?<state>APPROVE|REQUEST_CHANGES)/';
 
     /**
      * @param array<string, mixed> $input           Stop hook stdin
@@ -121,7 +128,7 @@ final class ReviewStatusHook
             'verdict' => $verdict === self::APPROVE ? '🟢' : '🔴',
             'state' => $verdict === self::APPROVE ? 'Approve' : 'Request changes',
             'problem' => match ($actual) {
-                null => 'no successful `gh pr review` call happened in this turn, so the PR still has no review state.',
+                null => 'no successful review publication happened in this turn, so the PR still has no review state.',
                 default => 'the last state you set in this turn is the opposite one — replace it.',
             },
         ])."\n".PromptFiles::load('review_status_reason_steps');
@@ -177,7 +184,7 @@ final class ReviewStatusHook
 
     /**
      * Ids of findings missing from the body of the published review: the union of the bodies of successful
-     * `gh pr review` calls in the turn (GitHub honours the latest review, but the findings of one PR
+     * review publications in the turn (GitHub honours the latest review, but the findings of one PR
      * the model may spread over reviews of different PRs).
      *
      * @param list<string> $transcriptLines
@@ -203,14 +210,14 @@ final class ReviewStatusHook
     }
 
     /**
-     * The review body from `gh pr review` commands (including chains via `&&`/`;`):
-     * `--body`/`-b` values and heredocs. `--body-file`/`-F` are not read.
-     * For a status via `gh api …/reviews` the whole command counts as the body (`-f body=…`).
+     * The review body of a publishing command: for `gh api …/reviews` the values of
+     * `-f`/`-F`/`--field`/`--raw-field body=…` and heredocs; for `gh pr review` (including chains via
+     * `&&`/`;`) the `--body`/`-b` values and heredocs. `gh pr review --body-file`/`-F` are not read.
      */
     private static function reviewBody(string $command): string
     {
         if (preg_match(self::STATUS_API_RE, $command) === 1) {
-            return $command;
+            return self::apiBody($command);
         }
         $body = '';
         if (preg_match_all('/(?:^|[;&|(\n]\s*)gh\s+pr\s+review\b/', $command, $starts, PREG_OFFSET_CAPTURE) === 0) {
@@ -227,6 +234,28 @@ final class ReviewStatusHook
                 foreach ($m as $hit) {
                     $body .= "\n".$hit[3];
                 }
+            }
+        }
+
+        return $body;
+    }
+
+    /**
+     * `body=` values of the fields of a `gh api` call and its heredocs (`body=@-`, or
+     * `body="$(cat <<'EOF' …)"`).
+     */
+    private static function apiBody(string $command): string
+    {
+        $body = '';
+        $re = '/(?<![\w-])(?:-f|-F|--field|--raw-field)(?:=|\s+)(?:"body=((?:[^"\\\\]|\\\\.)*)"|\'body=([^\']*)\'|body=(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\'|(\S+)))/s';
+        if (preg_match_all($re, $command, $m, PREG_SET_ORDER) > 0) {
+            foreach ($m as $hit) {
+                $body .= "\n".implode('', array_slice($hit, 1));
+            }
+        }
+        if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $command, $m, PREG_SET_ORDER) > 0) {
+            foreach ($m as $hit) {
+                $body .= "\n".$hit[3];
             }
         }
 
@@ -354,7 +383,8 @@ final class ReviewStatusHook
                 if (($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'Bash') {
                     $command = $block['input']['command'] ?? null;
                     if (is_string($command)) {
-                        $calls[(string) ($block['id'] ?? count($calls))] = $command;
+                        // A command continued with `\` + newline is one line for the patterns.
+                        $calls[(string) ($block['id'] ?? count($calls))] = str_replace(["\\\r\n", "\\\n"], ' ', $command);
                     }
                 }
             }

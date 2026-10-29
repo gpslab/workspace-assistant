@@ -44,6 +44,9 @@ interface GitHub
      */
     public function coldFindings(string $pr): array;
 
+    /** The head commit (`headRefOid`) of the PR `repo#N` right now. */
+    public function prHeadOid(string $pr): string;
+
     /**
      * Open PRs of the GITHUB_OWNERS owners with the given numbers: one GraphQL query for all numbers.
      * "No PR" (including NOT_FOUND, an issue number) is normal; a failure is \RuntimeException.

@@ -43,7 +43,40 @@ final class RunPrompt
             Run::addition($this->config->absolutePromptsDir()),
             PmRunbook::line($this->config->absolutePromptsDir()),
             $this->config->autoCommit,
+            $cold['head'] ?? null,
         );
+    }
+
+    /**
+     * The commit the epic `review` run reviews, for {@see ReviewCommitHook}: the head the findings were
+     * collected on (it becomes `coverage_head`). Empty when it is not known (not a review run, the file
+     * failed to load): the hook then checks only the form of the command.
+     *
+     * @return array<string, string> `owner/repo#N` => SHA
+     */
+    public function epicReviewShas(string $slug, string $run, ?string $pr): array
+    {
+        $cold = $run === Run::REVIEW && $pr !== null
+            ? ColdFindings::load(ColdFindings::path($this->config->stateDir, $slug, $pr))
+            : null;
+        if ($cold === null) {
+            return [];
+        }
+        try {
+            return [$this->shaKey($pr) => $cold['head']];
+        } catch (\RuntimeException $e) {
+            Log::line('epic review: '.$e->getMessage());
+
+            return [];
+        }
+    }
+
+    /** `owner/repo#N` (lowercase) of a `repo#N` / `owner/repo#N` reference. */
+    private function shaKey(string $pr): string
+    {
+        [$owner, $repo, $number] = $this->config->githubOwners->parse($pr);
+
+        return strtolower("{$owner}/{$repo}#{$number}");
     }
 
     /**
@@ -53,19 +86,19 @@ final class RunPrompt
      *
      * @param list<array<string, mixed>> $parts
      *
-     * @return array{list<string>, ?string}
+     * @return array{list<string>, ?string, array<string, string>} prompt lines, the id file, the head commit of each recognised PR (`owner/repo#N` => SHA)
      */
     public function manualReviewFindings(array $parts): array
     {
         if ($this->github === null) {
-            return [[], null];
+            return [[], null, []];
         }
         try {
             $prs = ColdFindings::extractPrs($parts, $this->config->githubOwners);
         } catch (\RuntimeException $e) {
             Log::line('manual review: '.$e->getMessage());
 
-            return [['Cold reviewer (claude[bot]) findings were NOT collected by the bot: '.$e->getMessage().' — check PRs for cold reviewer findings manually (`gh api`).'], null];
+            return [['Cold reviewer (claude[bot]) findings were NOT collected by the bot: '.$e->getMessage().' — check PRs for cold reviewer findings manually (`gh api`).'], null, []];
         }
         $unavailable = array_slice($prs, ColdFindings::MAX_MANUAL_PRS);
         $prs = array_slice($prs, 0, ColdFindings::MAX_MANUAL_PRS);
@@ -109,7 +142,16 @@ final class RunPrompt
             }
         }
         if ($byPr === [] && $unavailable === []) {
-            return [$notes, null];
+            return [$notes, null, []];
+        }
+        // The commit each PR is reviewed at, fixed now: a push during the review must not move the verdict.
+        $shas = [];
+        foreach ($prs as $pr) {
+            try {
+                $shas[$this->shaKey($pr)] = $this->github->prHeadOid($pr);
+            } catch (\Throwable $e) {
+                Log::line("manual review: head of {$pr} not recorded: ".$e->getMessage());
+            }
         }
         $findings = ColdFindings::qualify($byPr);
         $idsPath = null;
@@ -125,7 +167,7 @@ final class RunPrompt
             }
         }
 
-        return [ColdFindings::manualPromptLines($findings, $unavailable, $notes), $idsPath];
+        return [[...ColdFindings::manualPromptLines($findings, $unavailable, $notes), ...ColdFindings::manualShaLines($shas)], $idsPath, $shas];
     }
 
     /**

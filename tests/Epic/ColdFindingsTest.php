@@ -241,7 +241,7 @@ final class ColdFindingsTest extends TestCase
         self::assertStringContainsString('[C1] inline (src/A.php:12):', $text);
         self::assertStringContainsString('one line per finding', $text);
         self::assertStringContainsString('fixed', $text);
-        self::assertStringContainsString('--body-file', $text);
+        self::assertStringContainsString('-F body=@file', $text);
     }
 
     public function testManualPromptStatesThereAreNoFindings(): void

@@ -239,8 +239,29 @@ final class ColdFindings
     }
 
     /**
+     * Manual `review` prompt lines: the commit each recognised PR is reviewed at.
+     *
+     * @param array<string, string> $shas `owner/repo#N` => head SHA recorded by the bot
+     *
+     * @return list<string>
+     */
+    public static function manualShaLines(array $shas): array
+    {
+        if ($shas === []) {
+            return [];
+        }
+        $lines = ['Reviewed commits, recorded by the bot when the request arrived (a push may land while you review):'];
+        foreach ($shas as $pr => $sha) {
+            $lines[] = "- {$pr}: {$sha}";
+        }
+        $lines[] = 'Read each PR at its SHA (`git diff <merge-base>...<SHA>`, `git show <SHA>:<path>`; tests and mutations in a temporary `git worktree add /tmp/… <SHA>` removed at the end) and publish its review with `-f commit_id=<that SHA>`. A different `commit_id` for a listed PR is denied.';
+
+        return $lines;
+    }
+
+    /**
      * Manual `review` prompt lines: findings and the requirement of an "id — verdict" line for each
-     * in the body of `gh pr review`.
+     * in the body of the published review.
      *
      * @param list<Finding> $findings
      * @param list<string>  $unavailable `repo#N` (or `#N`) whose findings were not collected
@@ -268,7 +289,7 @@ final class ColdFindings
                 $lines[] = '    '.$row;
             }
         }
-        $lines[] = 'Check each finding against the code of the PR diff. The body of your `gh pr review` (--approve included) must carry one line per finding: its id and a verdict — fixed (resolved in the diff), open (not resolved) or refuted (wrong, refuted by your own verification), e.g. "'.$findings[0]['id'].' — fixed: <where>". Pass the body in the command itself (`--body "…"` or a heredoc): a `--body-file`/`-F` body is not read, and the Stop hook blocks the turn until every id is in the body. Do not approve while any finding is open.';
+        $lines[] = 'Check each finding against the code of the PR diff. The body of your review (an Approve included) must carry one line per finding: its id and a verdict — fixed (resolved in the diff), open (not resolved) or refuted (wrong, refuted by your own verification), e.g. "'.$findings[0]['id'].' — fixed: <where>". Pass the body in the `gh api …/reviews` command itself (`-f body="…"`, or a heredoc): a body read from a file (`-F body=@file`, `--input`) is not read, and the Stop hook blocks the turn until every id is in the body. Do not approve while any finding is open.';
 
         return $lines;
     }

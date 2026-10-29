@@ -48,10 +48,7 @@ final class PmGateHook
     /** Whether the command creates an issue (`gh issue create`, or `gh api repos/X/Y/issues` with a body). */
     public static function createsIssue(string $command): bool
     {
-        foreach (self::segments(str_replace("\\\n", ' ', $command)) as $segment) {
-            while (preg_match(self::PREFIX_RE, $segment, $prefix) === 1) {
-                $segment = substr($segment, strlen($prefix[0]));
-            }
+        foreach (self::commands($command) as $segment) {
             if (preg_match(self::GH_ISSUE_CREATE_RE, $segment) === 1) {
                 return true;
             }
@@ -61,6 +58,25 @@ final class PmGateHook
         }
 
         return false;
+    }
+
+    /**
+     * Simple commands of a command line, line continuations joined and wrappers/assignments
+     * ({@see PREFIX_RE}) stripped from the front of each: what a PreToolUse hook matches `gh …` against.
+     *
+     * @return list<string>
+     */
+    public static function commands(string $command): array
+    {
+        $commands = [];
+        foreach (self::segments(str_replace("\\\n", ' ', $command)) as $segment) {
+            while (preg_match(self::PREFIX_RE, $segment, $prefix) === 1) {
+                $segment = substr($segment, strlen($prefix[0]));
+            }
+            $commands[] = $segment;
+        }
+
+        return $commands;
     }
 
     private static function apiCreatesIssue(string $args): bool

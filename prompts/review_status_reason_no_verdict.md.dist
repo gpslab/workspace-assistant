@@ -1,2 +1,2 @@
-Review-status check: this turn worked with a PR, but your reply carries no 🟢/🔴 verdict and no successful `gh pr review` call happened in this turn, so the PR still has no review state. A PR review ends with exactly one of two states on the PR: Approve or Request changes.
+Review-status check: this turn worked with a PR, but your reply carries no 🟢/🔴 verdict and no successful review publication happened in this turn, so the PR still has no review state. A PR review ends with exactly one of two states on the PR: Approve or Request changes.
 - Decide the verdict: 🟢 if the PR implements its task and has no must-fix findings; otherwise 🔴 — a PR that implements only part of its task is 🔴.

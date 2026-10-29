@@ -587,6 +587,17 @@ final class GhClient implements GitHub
         $this->gh(['release', 'create', $version, '--generate-notes', '--repo', $this->slug($repo)]);
     }
 
+    public function prHeadOid(string $pr): string
+    {
+        [$owner, $repo, $number] = $this->split($pr);
+        $sha = $this->api("repos/{$owner}/{$repo}/pulls/{$number}")['head']['sha'] ?? null;
+        if (!is_string($sha) || preg_match('/^[0-9a-f]{40}$/i', $sha) !== 1) {
+            throw new \RuntimeException("{$pr}: head commit not found");
+        }
+
+        return strtolower($sha);
+    }
+
     public function coldFindings(string $pr): array
     {
         [$owner, $repo, $number] = $this->split($pr);

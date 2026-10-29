@@ -1,3 +1,3 @@
 Review-status check: the published review does not cover every cold reviewer finding the prompt listed. Ids missing from the review body: {ids}.
-- Publish the review again with a body that has one line per finding — its id and a verdict (fixed | open | refuted); an approve needs the body too. Pass the body in the command itself (`--body "…"` or a heredoc): the hook does not read `--body-file`/`-F`.
+- Publish the review again with a body that has one line per finding — its id and a verdict (fixed | open | refuted); an approve needs the body too. Publish it again only as `gh api repos/<owner>/<repo>/pulls/<N>/reviews -f commit_id=<SHA> -f event=… -f body=…` on the same `<SHA>`. Pass the body in the command itself (`-f body="…"`, or a heredoc): the hook does not read a body from a file (`-F body=@file`, `--input`).
 - Then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴 — only the final message reaches the user.
