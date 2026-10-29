@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 
 use GpsLab\WorkspaceAssistant\Epic\Signal;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use PHPUnit\Framework\TestCase;
 
 final class SignalTest extends TestCase
 {
     public function testDefaultOwnerFormsAreNormalizedToShortOnes(): void
     {
-        $owners = new GithubOwners(['anime-db', 'gpslab']);
+        $owners = new ForgeOwners(['anime-db', 'gpslab']);
 
         $s = Signal::parse('{"added":[{"task":"anime-db/p#12","after":["anime-db/x#1","gpslab/y#2"]}],"hold":["ANIME-DB/p#12"]}', $owners);
 
@@ -22,7 +22,7 @@ final class SignalTest extends TestCase
 
     public function testForeignOwnerIsRejected(): void
     {
-        $owners = new GithubOwners(['anime-db']);
+        $owners = new ForgeOwners(['anime-db']);
 
         foreach ([
             '{"added":[{"task":"foreign/r#1"}]}',
@@ -33,7 +33,7 @@ final class SignalTest extends TestCase
                 Signal::parse($json, $owners);
                 self::fail('foreign owner must be rejected: '.$json);
             } catch (\InvalidArgumentException $e) {
-                self::assertStringContainsString('GITHUB_OWNERS', $e->getMessage());
+                self::assertStringContainsString('FORGE_OWNERS', $e->getMessage());
             }
         }
     }
@@ -41,8 +41,8 @@ final class SignalTest extends TestCase
     public function testWithoutOwnersFails(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage(GithubOwners::NOT_SET);
+        $this->expectExceptionMessage(ForgeOwners::NOT_SET);
 
-        Signal::parse('{}', new GithubOwners());
+        Signal::parse('{}', new ForgeOwners());
     }
 }

@@ -10,7 +10,7 @@ use GpsLab\WorkspaceAssistant\GhClient;
  * The epic orchestrator's access to GitHub. Implemented by {@see GhClient}; replaced in tests.
  * Network and `gh` errors are \RuntimeException (the epic poll is skipped this time).
  */
-interface GitHub
+interface Forge
 {
     /** Snapshot of the task `owner/repo#N` (or `repo#N` of the default owner); $marker is the epic marker `<!-- epic:<slug> -->`;
      * $coverageHead is the task's `coverage_head`, the base of the "only master merge" check. */
@@ -48,7 +48,7 @@ interface GitHub
     public function prHeadOid(string $pr): string;
 
     /**
-     * Open PRs of the GITHUB_OWNERS owners with the given numbers: one GraphQL query for all numbers.
+     * Open PRs of the FORGE_OWNERS owners with the given numbers: one GraphQL query for all numbers.
      * "No PR" (including NOT_FOUND, an issue number) is normal; a failure is \RuntimeException.
      *
      * @param list<int> $numbers

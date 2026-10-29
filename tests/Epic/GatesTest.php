@@ -9,7 +9,7 @@ use GpsLab\WorkspaceAssistant\Epic\Gates;
 use GpsLab\WorkspaceAssistant\Epic\MergeGate;
 use GpsLab\WorkspaceAssistant\Epic\Orchestrator;
 use GpsLab\WorkspaceAssistant\Epic\TaskState;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\Locale;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -988,8 +988,8 @@ final class GatesTest extends TestCase
         self::assertSame(['a#1 7'], $this->gh->merged);
     }
 
-    private static function owners(): GithubOwners
+    private static function owners(): ForgeOwners
     {
-        return new GithubOwners(['anime-db', 'gpslab']);
+        return new ForgeOwners(['anime-db', 'gpslab']);
     }
 }

@@ -35,6 +35,7 @@
     "epic.status_plan": "План: {plan}",
     "epic.status_reason": "Причина зупинки: {reason}",
     "epic.topic_has_epic": "У цій темі вже є епік {slug} ({status}).",
+    "epic.unavailable_on_gitlab": "Епіки поки що недоступні на GitLab.",
     "epic.usage": "Використання: /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ Запуск епіку {slug} збійний: покриття знахідок {pr} неповне — {reason}",
     "coldfindings.no_verdict": "у сигналі немає verdict (approve | request_changes)",

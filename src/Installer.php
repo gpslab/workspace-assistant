@@ -16,13 +16,21 @@ final class Installer
     private const REQUIRED_KEYS = ['BOT_TOKEN', 'ALLOWED_USER_IDS', 'REPO_PATH'];
 
     private const OPTIONAL_KEYS = [
-        'GITHUB_OWNERS',
-        'GITHUB_REPO',
+        'FORGE',
+        'FORGE_HOST',
+        'FORGE_OWNERS',
+        'FORGE_REPO',
         'CLAUDE_BIN',
         'BOT_LOCALE',
         'TIMEZONE',
         'OPENRONIN_LOGINS',
         'CLAUDE_EXTRA_ARGS',
+    ];
+
+    /** Deprecated keys still accepted as options and as defaults; the new key replaces them in .env. */
+    private const LEGACY_KEYS = [
+        'GITHUB_OWNERS' => 'FORGE_OWNERS',
+        'GITHUB_REPO' => 'FORGE_REPO',
     ];
 
     private const REQUIRED_EXTENSIONS = ['curl', 'pdo_sqlite', 'pcntl', 'posix'];
@@ -130,6 +138,9 @@ final class Installer
         $previous = [];
         foreach ([...self::REQUIRED_KEYS, ...self::OPTIONAL_KEYS] as $key) {
             $old = $defaults?->get($key);
+            if (($old === null || $old === '') && ($legacy = array_search($key, self::LEGACY_KEYS, true)) !== false) {
+                $old = $defaults?->get($legacy) ?? $old;
+            }
             $required = in_array($key, self::REQUIRED_KEYS, true);
             if ($required && $old !== null && $old === ($placeholders[$key] ?? null)) {
                 $old = null;
@@ -159,6 +170,11 @@ final class Installer
             return $this->fail($errors, $err);
         }
 
+        foreach (self::LEGACY_KEYS as $legacy => $current) {
+            if (isset($values[$current])) {
+                $base = (string) preg_replace('/^\s*'.$legacy.'\s*=.*\R?/m', '', $base);
+            }
+        }
         $merged = self::merge($base, $values);
         $tmpPath = $this->rootDir.'/.env.tmp-'.getmypid();
         $backupPath = $this->rootDir.'/.env.bak';
@@ -573,6 +589,9 @@ final class Installer
         $keyByOption = [];
         foreach ([...self::REQUIRED_KEYS, ...self::OPTIONAL_KEYS] as $key) {
             $keyByOption[strtolower(str_replace('_', '-', $key))] = $key;
+        }
+        foreach (self::LEGACY_KEYS as $legacy => $current) {
+            $keyByOption[strtolower(str_replace('_', '-', $legacy))] = $current;
         }
 
         $options = [];

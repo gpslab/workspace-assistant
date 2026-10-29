@@ -35,6 +35,7 @@
     "epic.status_plan": "План: {plan}",
     "epic.status_reason": "Причина остановки: {reason}",
     "epic.topic_has_epic": "В этой теме уже есть эпик {slug} ({status}).",
+    "epic.unavailable_on_gitlab": "Эпики пока недоступны на GitLab.",
     "epic.usage": "Использование: /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ Прогон эпика {slug} сбойный: покрытие находок {pr} неполное — {reason}",
     "coldfindings.no_verdict": "в сигнале нет verdict (approve | request_changes)",

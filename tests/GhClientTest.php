@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\Epic\TaskState;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GhClient;
-use GpsLab\WorkspaceAssistant\GithubOwners;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -93,7 +93,7 @@ final class GhClientTest extends TestCase
      */
     private static function client(array $result): GhClient
     {
-        return new GhClient(new GithubOwners(['o']), 5, static fn (array $cmd): array => $result);
+        return new GhClient(new ForgeOwners(['o']), 5, static fn (array $cmd): array => $result);
     }
 
     public function testColdReviewNoRunsOnHeadIsDone(): void
@@ -147,7 +147,7 @@ final class GhClientTest extends TestCase
                 ]]]],
             ]]],
         ]]]];
-        $gh = new GhClient(new GithubOwners(['o']), 5, static fn (array $cmd): array => $cmd === ['gh', 'api', 'user']
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static fn (array $cmd): array => $cmd === ['gh', 'api', 'user']
             ? ['exit' => 0, 'stdout' => '{"login":"Epic-Bot"}', 'stderr' => '']
             : (str_contains(implode(' ', $cmd), 'workflows')
             ? ['exit' => 0, 'stdout' => '{"workflow_runs":[]}', 'stderr' => '']
@@ -172,7 +172,7 @@ final class GhClientTest extends TestCase
     public function testFullTaskUsesItsOwnerInRepoArgument(): void
     {
         $calls = [];
-        $gh = new GhClient(new GithubOwners(['o', 'second']), 5, static function (array $cmd) use (&$calls): array {
+        $gh = new GhClient(new ForgeOwners(['o', 'second']), 5, static function (array $cmd) use (&$calls): array {
             $calls[] = $cmd;
 
             return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
@@ -188,7 +188,7 @@ final class GhClientTest extends TestCase
     public function testForeignOwnerNeverReachesGh(): void
     {
         $calls = [];
-        $gh = new GhClient(new GithubOwners(['o', 'second']), 5, static function (array $cmd) use (&$calls): array {
+        $gh = new GhClient(new ForgeOwners(['o', 'second']), 5, static function (array $cmd) use (&$calls): array {
             $calls[] = $cmd;
 
             return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
@@ -206,7 +206,7 @@ final class GhClientTest extends TestCase
     public function testSeveralOwnersAreWalkedAndKeepTheirOwner(): void
     {
         $calls = [];
-        $gh = new GhClient(new GithubOwners(['first', 'second']), 15, static function (array $cmd) use (&$calls): array {
+        $gh = new GhClient(new ForgeOwners(['first', 'second']), 15, static function (array $cmd) use (&$calls): array {
             $calls[] = $cmd;
             if ($cmd[1] === 'repo') {
                 return ['exit' => 0, 'stdout' => $cmd[3] === 'first' ? '[{"name":"a"}]' : '[{"name":"b"}]', 'stderr' => ''];
@@ -234,7 +234,7 @@ final class GhClientTest extends TestCase
     public function testSecondOwnerIsUsedByTaskStateColdFindingsMasterCiAndAddLabel(): void
     {
         $calls = [];
-        $gh = new GhClient(new GithubOwners(['first', 'second']), 5, static function (array $cmd) use (&$calls): array {
+        $gh = new GhClient(new ForgeOwners(['first', 'second']), 5, static function (array $cmd) use (&$calls): array {
             $calls[] = $cmd;
 
             return ['exit' => 0, 'stdout' => '{"data":{"repository":{"issue":{"state":"OPEN"}}}}', 'stderr' => ''];
@@ -266,10 +266,10 @@ final class GhClientTest extends TestCase
 
     public function testShortTaskWithoutOwnersFails(): void
     {
-        $gh = new GhClient(new GithubOwners(), 5, static fn (array $cmd): array => ['exit' => 0, 'stdout' => '', 'stderr' => '']);
+        $gh = new GhClient(new ForgeOwners(), 5, static fn (array $cmd): array => ['exit' => 0, 'stdout' => '', 'stderr' => '']);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage(GithubOwners::NOT_SET);
+        $this->expectExceptionMessage(ForgeOwners::NOT_SET);
 
         $gh->addLabel('r#1', 'l');
     }
@@ -310,7 +310,7 @@ final class GhClientTest extends TestCase
      */
     private static function clientFor(array $payload, array $rest = []): GhClient
     {
-        return new GhClient(new GithubOwners(['o']), 5, static function (array $cmd) use ($payload, $rest): array {
+        return new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd) use ($payload, $rest): array {
             $line = implode(' ', $cmd);
             if ($cmd === ['gh', 'api', 'user']) {
                 return ['exit' => 0, 'stdout' => '{"login":"'.self::BOT.'"}', 'stderr' => ''];
@@ -346,7 +346,7 @@ final class GhClientTest extends TestCase
             $pr['commits']['nodes'][0]['commit']['committedDate'] = $commit;
         }
         $pr['timelineItems'] = ['nodes' => array_map(static fn (string $at): array => ['createdAt' => $at], $ready)];
-        $gh = new GhClient(new GithubOwners(['o']), 5, static function (array $cmd) use ($payload): array {
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd) use ($payload): array {
             $line = implode(' ', $cmd);
 
             return match (true) {
@@ -479,7 +479,7 @@ final class GhClientTest extends TestCase
     private static function executorChanged(string $author, array $logins): bool
     {
         $comment = [['body' => "<!-- openronin:bot -->\nreply", 'createdAt' => '2026-01-01T11:00:00Z', 'author' => ['__typename' => 'User', 'login' => $author]]];
-        $gh = new GhClient(new GithubOwners(['o']), 5, static function (array $cmd): array {
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd): array {
             return match (true) {
                 $cmd === ['gh', 'api', 'user'] => ['exit' => 0, 'stdout' => '{"login":"Epic-Bot"}', 'stderr' => ''],
                 str_contains(implode(' ', $cmd), 'graphql') => ['exit' => 0, 'stdout' => (string) json_encode(self::approvedPayload('rev', self::$pending)), 'stderr' => ''],
@@ -578,7 +578,7 @@ final class GhClientTest extends TestCase
     public function testSelfLoginIsFetchedOnce(): void
     {
         $calls = 0;
-        $gh = new GhClient(new GithubOwners(['o']), 5, static function (array $cmd) use (&$calls): array {
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd) use (&$calls): array {
             if ($cmd === ['gh', 'api', 'user']) {
                 ++$calls;
 
@@ -594,7 +594,7 @@ final class GhClientTest extends TestCase
 
     public function testSelfLoginFailureThrows(): void
     {
-        $gh = new GhClient(new GithubOwners(['o']), 5, static fn (array $cmd): array => $cmd === ['gh', 'api', 'user']
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static fn (array $cmd): array => $cmd === ['gh', 'api', 'user']
             ? ['exit' => 1, 'stdout' => '', 'stderr' => 'bad credentials']
             : ['exit' => 0, 'stdout' => (string) json_encode(self::approvedPayload('rev')), 'stderr' => '']);
         $this->expectException(\RuntimeException::class);
@@ -835,7 +835,7 @@ final class GhClientTest extends TestCase
             ],
         ];
         $calls = [];
-        $gh = new GhClient(new GithubOwners(['anime-db']), 15, function (array $cmd) use ($pages, &$calls): array {
+        $gh = new GhClient(new ForgeOwners(['anime-db']), 15, function (array $cmd) use ($pages, &$calls): array {
             $calls[] = $cmd;
 
             return ['exit' => 0, 'stdout' => json_encode($pages[$cmd[2]] ?? []), 'stderr' => ''];
@@ -861,7 +861,7 @@ final class GhClientTest extends TestCase
      */
     private function prResolver(array $graphql, array &$calls, int &$now): GhClient
     {
-        return new GhClient(new GithubOwners(['anime-db']), 15, function (array $cmd) use (&$graphql, &$calls): array {
+        return new GhClient(new ForgeOwners(['anime-db']), 15, function (array $cmd) use (&$graphql, &$calls): array {
             $calls[] = $cmd;
             if ($cmd[1] === 'repo') {
                 return ['exit' => 0, 'stdout' => '[{"name":"a"},{"name":"b"}]', 'stderr' => ''];
@@ -950,7 +950,7 @@ final class GhClientTest extends TestCase
         /** @var list<list<string>> $calls */
         $calls = [];
         $pr = ['merged' => $merged, 'head' => $head, 'base' => ['repo' => ['full_name' => 'o/r', 'default_branch' => 'master']]];
-        $gh = new GhClient(new GithubOwners(['o']), 5, static function (array $cmd) use (&$calls, $pr, $delete): array {
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd) use (&$calls, $pr, $delete): array {
             $calls[] = array_values($cmd);
             if (in_array('DELETE', $cmd, true)) {
                 return $delete;
@@ -1003,7 +1003,7 @@ final class GhClientTest extends TestCase
     public function testMergeIgnoresPrLookupFailure(): void
     {
         $calls = [];
-        $gh = new GhClient(new GithubOwners(['o']), 5, static function (array $cmd) use (&$calls): array {
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd) use (&$calls): array {
             $calls[] = $cmd;
 
             return $cmd[1] === 'api' ? ['exit' => 1, 'stdout' => '', 'stderr' => 'down'] : ['exit' => 0, 'stdout' => '', 'stderr' => ''];
@@ -1017,7 +1017,7 @@ final class GhClientTest extends TestCase
     public function testMergeFailureSkipsBranchDeletion(): void
     {
         $calls = [];
-        $gh = new GhClient(new GithubOwners(['o']), 5, static function (array $cmd) use (&$calls): array {
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd) use (&$calls): array {
             $calls[] = $cmd;
 
             return ['exit' => 1, 'stdout' => '', 'stderr' => 'not mergeable'];

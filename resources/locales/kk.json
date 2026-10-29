@@ -35,6 +35,7 @@
     "epic.status_plan": "Жоспар: {plan}",
     "epic.status_reason": "Тоқтау себебі: {reason}",
     "epic.topic_has_epic": "Бұл тақырыпта {slug} эпигі әлдеқашан бар ({status}).",
+    "epic.unavailable_on_gitlab": "GitLab-та эпиктер әзірге қолжетімді емес.",
     "epic.usage": "Қолданылуы: /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ {slug} эпигінің жүргізілімі сәтсіз: {pr} бойынша тұжырымдардың қамтылуы толық емес — {reason}",
     "coldfindings.no_verdict": "сигналда verdict жоқ (approve | request_changes)",

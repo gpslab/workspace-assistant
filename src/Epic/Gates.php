@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Epic;
 
 use GpsLab\WorkspaceAssistant\Database;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
 
@@ -34,13 +34,13 @@ final class Gates
      */
     public function __construct(
         private readonly Database $db,
-        private readonly GitHub $github,
+        private readonly Forge $github,
         private readonly \Closure $enqueue,
         private readonly \Closure $block,
         private readonly ?\Closure $notify = null,
         private readonly int $masterRedHours = 6,
         private readonly ?\Closure $now = null,
-        private readonly GithubOwners $owners = new GithubOwners(),
+        private readonly ForgeOwners $owners = new ForgeOwners(),
         private readonly Locale $locale = new Locale(),
     ) {
     }

@@ -7,7 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests;
 use GpsLab\WorkspaceAssistant\Bot;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\RunState;
@@ -92,7 +92,7 @@ final class AutoCommitTest extends TestCase
             botToken: 't',
             allowedUserIds: [self::USER],
             repoPath: $this->work,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: $this->root.'/claude',
             claudeTimeout: $timeout,
             claudeStallTimeout: 900,
@@ -104,7 +104,7 @@ final class AutoCommitTest extends TestCase
             pollTimeout: 30,
             gitTimeout: 30,
             promptsDir: 'prompts',
-            githubOwners: new GithubOwners(['gpslab']),
+            forgeOwners: new ForgeOwners(['gpslab']),
             subreposDir: $subreposDir,
             botLocale: 'en',
             autoCommit: $autoCommit,

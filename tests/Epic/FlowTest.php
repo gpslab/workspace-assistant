@@ -8,10 +8,10 @@ use GpsLab\WorkspaceAssistant\Bot;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
-use GpsLab\WorkspaceAssistant\Epic\GitHub;
+use GpsLab\WorkspaceAssistant\Epic\Forge;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Epic\TaskState;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\MarkdownConverter;
 use GpsLab\WorkspaceAssistant\PmRunbook;
@@ -77,14 +77,14 @@ final class FlowTest extends TestCase
         $this->buildBot(0);
     }
 
-    private function buildBot(int $claudeTimeout, string $promptsDir = '', ?GithubOwners $owners = null, ?GitHub $github = null, string $locale = 'en'): void
+    private function buildBot(int $claudeTimeout, string $promptsDir = '', ?ForgeOwners $owners = null, ?Forge $github = null, string $locale = 'en', string $forge = Config::FORGE_GITHUB): void
     {
         $r = $this->root;
         $config = new Config(
             botToken: 't',
             allowedUserIds: [555],
             repoPath: $this->work,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: $r.'/claude',
             claudeTimeout: $claudeTimeout,
             claudeStallTimeout: 900,
@@ -97,8 +97,9 @@ final class FlowTest extends TestCase
             gitTimeout: 30,
             epicsDir: 'context/epics',
             promptsDir: $promptsDir,
-            githubOwners: $owners ?? new GithubOwners(['anime-db', 'gpslab']),
+            forgeOwners: $owners ?? new ForgeOwners(['anime-db', 'gpslab']),
             botLocale: $locale,
+            forge: $forge,
         );
         $this->bot = new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($r), $github);
     }
@@ -189,6 +190,18 @@ final class FlowTest extends TestCase
             usleep(50000);
         }
         self::assertFalse($this->activeJob(), 'the job did not finish');
+    }
+
+    public function testEpicOnGitlabAnswersNotAvailableAndStartsNothing(): void
+    {
+        $this->buildBot(0, forge: Config::FORGE_GITLAB);
+        $this->writePlan('demo');
+
+        $this->command('/epic start demo');
+        $this->command('/epic');
+
+        self::assertSame(2, substr_count($this->allText(), 'Epics are not available on GitLab yet.'));
+        self::assertNull($this->db->epicGet('demo'));
     }
 
     public function testStartAndStatusLinkPlanAndJournalToGithub(): void
@@ -906,15 +919,15 @@ final class FlowTest extends TestCase
         self::assertSame([false, false], array_column($this->db->epicTasks('demo'), 'hold'));
     }
 
-    public function testStartWithoutGithubOwnersIsRefused(): void
+    public function testStartWithoutForgeOwnersIsRefused(): void
     {
-        $this->buildBot(0, '', new GithubOwners());
+        $this->buildBot(0, '', new ForgeOwners());
         $this->writePlan('demo');
 
         $this->command('/epic start demo');
 
         self::assertNull($this->db->epicGet('demo'));
-        self::assertStringContainsString(GithubOwners::NOT_SET, $this->allText());
+        self::assertStringContainsString(ForgeOwners::NOT_SET, $this->allText());
     }
 
     public function testSignalWithDefaultOwnerFormHoldsExistingTaskWithoutDuplicates(): void

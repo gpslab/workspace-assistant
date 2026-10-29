@@ -9,15 +9,24 @@ namespace GpsLab\WorkspaceAssistant;
  */
 final class Config
 {
+    public const string FORGE_GITHUB = 'github';
+    public const string FORGE_GITLAB = 'gitlab';
+
+    private const array DEFAULT_HOSTS = [
+        self::FORGE_GITHUB => 'github.com',
+        self::FORGE_GITLAB => 'gitlab.com',
+    ];
+
     /**
      * @param int[]    $allowedUserIds
      * @param string[] $claudeExtraArgs
+     * @param string[] $configWarnings  warnings found while reading `.env`, logged once at startup
      */
     public function __construct(
         public readonly string $botToken,
         public readonly array $allowedUserIds,
         public readonly string $repoPath,
-        public readonly string $githubRepo,
+        public readonly string $forgeRepo,
         public readonly string $claudeBin,
         public readonly int $claudeTimeout,
         public readonly int $claudeStallTimeout,
@@ -36,7 +45,7 @@ final class Config
         public readonly int $epicQuietMinutes = 10,
         public readonly int $epicAnswerTimeoutMinutes = 120,
         public readonly int $epicMasterRedHours = 6,
-        public readonly GithubOwners $githubOwners = new GithubOwners(),
+        public readonly ForgeOwners $forgeOwners = new ForgeOwners(),
         public readonly string $subreposDir = '',
         public readonly string $timezone = Timezone::DEFAULT,
         public readonly string $botLocale = Locale::DEFAULT,
@@ -44,6 +53,9 @@ final class Config
         /** @var list<string> */
         public readonly array $openroninLogins = [],
         public readonly bool $autoCommit = true,
+        public readonly string $forge = self::FORGE_GITHUB,
+        public readonly string $forgeHost = 'github.com',
+        public readonly array $configWarnings = [],
     ) {
     }
 
@@ -119,13 +131,25 @@ final class Config
             throw new \RuntimeException("Invalid AUTO_COMMIT={$autoCommit} in .env: expected 1 or 0.");
         }
 
+        $forge = trim((string) $env->get('FORGE', ''));
+        if ($forge === '') {
+            $forge = self::FORGE_GITHUB;
+        } elseif (!isset(self::DEFAULT_HOSTS[$forge])) {
+            throw new \RuntimeException("Invalid FORGE={$forge} in .env: expected github or gitlab.");
+        }
+        $forgeHost = trim((string) $env->get('FORGE_HOST', '')) ?: self::DEFAULT_HOSTS[$forge];
+
+        $configWarnings = [];
+        $forgeRepo = self::withAlias($env, 'FORGE_REPO', 'GITHUB_REPO', $configWarnings);
+        $forgeOwners = self::withAlias($env, 'FORGE_OWNERS', 'GITHUB_OWNERS', $configWarnings);
+
         $epicsDir = trim((string) $env->get('EPICS_DIR', '.workspace-assistant/epics'), '/') ?: '.workspace-assistant/epics';
 
         return new self(
             botToken: $token,
             allowedUserIds: $allowed,
             repoPath: rtrim($repoPath, '/'),
-            githubRepo: trim((string) $env->get('GITHUB_REPO', ''), '/'),
+            forgeRepo: trim($forgeRepo, '/'),
             claudeBin: (string) $env->get('CLAUDE_BIN', 'claude'),
             claudeTimeout: (int) $env->get('CLAUDE_TIMEOUT', '0'),
             claudeStallTimeout: (int) $env->get('CLAUDE_STALL_TIMEOUT', '900'),
@@ -144,14 +168,39 @@ final class Config
             epicQuietMinutes: max(0, (int) $env->get('EPIC_QUIET_MINUTES', '10')),
             epicAnswerTimeoutMinutes: max(1, (int) $env->get('EPIC_ANSWER_TIMEOUT_MINUTES', '120')),
             epicMasterRedHours: max(1, (int) $env->get('EPIC_MASTER_RED_HOURS', '6')),
-            githubOwners: new GithubOwners($env->list('GITHUB_OWNERS')),
+            forgeOwners: new ForgeOwners(explode(',', $forgeOwners), $forge === self::FORGE_GITLAB),
             subreposDir: trim((string) $env->get('SUBREPOS_DIR', ''), '/'),
             timezone: $timezone,
             botLocale: trim((string) $env->get('BOT_LOCALE', '')) ?: Locale::DEFAULT,
             localesDir: trim((string) $env->get('LOCALES_DIR', ''), '/'),
             openroninLogins: array_values($env->list('OPENRONIN_LOGINS')),
             autoCommit: $autoCommit === '1',
+            forge: $forge,
+            forgeHost: $forgeHost,
+            configWarnings: $configWarnings,
         );
+    }
+
+    /**
+     * Value of a renamed key: the new key wins over its deprecated alias; both set is a warning.
+     *
+     * @param list<string> $warnings
+     */
+    private static function withAlias(Env $env, string $key, string $alias, array &$warnings): string
+    {
+        $value = (string) $env->get($key, '');
+        $old = (string) $env->get($alias, '');
+        if ($value !== '' && $old !== '') {
+            $warnings[] = "Both {$key} and its deprecated alias {$alias} are set: {$key} is used, {$alias} is ignored.";
+        }
+
+        return $value !== '' ? $value : $old;
+    }
+
+    /** Epics need a forge client; none exists for GitLab yet. */
+    public function epicsAvailable(): bool
+    {
+        return $this->forge === self::FORGE_GITHUB;
     }
 
     /**
@@ -161,7 +210,10 @@ final class Config
      */
     public function startupWarnings(): array
     {
-        $warnings = $this->openroninLogins === [] ? ['OPENRONIN_LOGINS is not set: the openronin marker is accepted from any author'] : [];
+        $warnings = array_values($this->configWarnings);
+        if ($this->openroninLogins === []) {
+            $warnings[] = 'OPENRONIN_LOGINS is not set: the openronin marker is accepted from any author';
+        }
 
         return $warnings;
     }

@@ -40,7 +40,7 @@ and does not start the bot. The output is in English.
 | `--bot-token-file=PATH`     | read `BOT_TOKEN` from a file (a trailing line break is trimmed)    |
 | `--allowed-user-ids`        | `ALLOWED_USER_IDS` (required; digits separated by commas)          |
 | `--repo-path`               | `REPO_PATH` (required)                                             |
-| `--github-owners`, `--github-repo`, `--claude-bin`, `--bot-locale`, `--timezone`, `--openronin-logins`, `--claude-extra-args` | the key of the same name (optional) |
+| `--forge`, `--forge-host`, `--forge-owners`, `--forge-repo` (`--github-owners` and `--github-repo` are accepted as aliases), `--claude-bin`, `--bot-locale`, `--timezone`, `--openronin-logins`, `--claude-extra-args` | the key of the same name (optional) |
 | `--non-interactive`         | never ask questions (implied when stdin is not a terminal)         |
 | `--skip-network-checks`     | report a failed `getMe` / `git ls-remote` as a warning, not an error |
 | `--unit-file=PATH`          | also write the systemd unit to `PATH` (the directory must exist)   |
@@ -130,8 +130,10 @@ from the `.env` next to it and stays silent when everything is fine. Run it from
 | `BOT_TOKEN` | required | Bot token from @BotFather |
 | `ALLOWED_USER_IDS` | required | Whitelist of Telegram user ids |
 | `REPO_PATH` | required | Absolute path to the workspace git repository |
-| `GITHUB_REPO` | empty | Workspace repository as `owner/name`, for commit links |
-| `GITHUB_OWNERS` | empty | GitHub owners the bot works with; the first is the default owner |
+| `FORGE` | `github` | Forge: `github` or `gitlab`; anything else is a startup error. Epics are not available on `gitlab` yet |
+| `FORGE_HOST` | `github.com` / `gitlab.com` | Forge host, by `FORGE` |
+| `FORGE_REPO` | empty | Workspace repository as `owner/name`, for commit links (alias: `GITHUB_REPO`; the new key wins, a warning is logged when both are set) |
+| `FORGE_OWNERS` | empty | Owners the bot works with; the first is the default owner; with `FORGE=gitlab` an owner may be a namespace path `group/subgroup` (alias: `GITHUB_OWNERS`) |
 | `OPENRONIN_LOGINS` | empty | Logins allowed to author the `<!-- openronin:bot -->` marker |
 | `CLAUDE_BIN` | `claude` | Path or name of the `claude` binary |
 | `CLAUDE_TIMEOUT` | `0` | Overall limit of one Claude call, seconds (0 = off) |

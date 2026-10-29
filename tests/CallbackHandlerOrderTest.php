@@ -12,7 +12,7 @@ use GpsLab\WorkspaceAssistant\Callback\LangHandler;
 use GpsLab\WorkspaceAssistant\Callback\ModeHandler;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -67,7 +67,7 @@ final class CallbackHandlerOrderTest extends TestCase
             botToken: 'test-token',
             allowedUserIds: [1],
             repoPath: $dir,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: 'claude',
             claudeTimeout: 0,
             claudeStallTimeout: 900,
@@ -78,7 +78,7 @@ final class CallbackHandlerOrderTest extends TestCase
             inboxDir: $dir,
             pollTimeout: 30,
             gitTimeout: 30,
-            githubOwners: new GithubOwners(['anime-db']),
+            forgeOwners: new ForgeOwners(['anime-db']),
         );
         $bot = new Bot($config, $db, new FakeTelegram(), new GitManager($dir, 30), new SessionFiles($dir));
         $handlers = (new \ReflectionProperty(Bot::class, 'callbackHandlers'))->getValue($bot);

@@ -7,7 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Epic\Signal;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\Locale;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -31,7 +31,7 @@ final class ColdFindingsTest extends TestCase
 
     private static function signal(string $verdict, string $cold): Signal
     {
-        return Signal::parse('{"verdict":"'.$verdict.'","cold_findings":'.$cold.'}', new GithubOwners(['anime-db']));
+        return Signal::parse('{"verdict":"'.$verdict.'","cold_findings":'.$cold.'}', new ForgeOwners(['anime-db']));
     }
 
     public function testFullCoverageHasNoProblems(): void
@@ -60,7 +60,7 @@ final class ColdFindingsTest extends TestCase
     public function testProblemsAreEnglishByDefaultAndFollowTheLocale(): void
     {
         // Deliberately Cyrillic: the ru expectations check that the passed locale is used
-        $signal = Signal::parse('{}', new GithubOwners(['anime-db']));
+        $signal = Signal::parse('{}', new ForgeOwners(['anime-db']));
         $en = ColdFindings::check($signal, self::findings())['problems'];
         self::assertSame(['the signal has no verdict (approve | request_changes)', 'no verdict on the cold reviewer findings: C1, C2'], $en);
         self::assertDoesNotMatchRegularExpression('/\p{Cyrillic}/u', implode(' ', $en));
@@ -81,7 +81,7 @@ final class ColdFindingsTest extends TestCase
 
     public function testMissingVerdictIsAProblemEvenWithoutFindings(): void
     {
-        $result = ColdFindings::check(Signal::parse('{}', new GithubOwners(['anime-db'])), []);
+        $result = ColdFindings::check(Signal::parse('{}', new ForgeOwners(['anime-db'])), []);
         self::assertCount(1, $result['problems']);
         self::assertStringContainsString('verdict', $result['problems'][0]);
         self::assertSame([], ColdFindings::check(self::signal('approve', '[]'), [])['problems']);
@@ -103,7 +103,7 @@ final class ColdFindingsTest extends TestCase
     public function testInvalidSignalFieldsAreRejected(string $json): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        Signal::parse($json, new GithubOwners(['anime-db']));
+        Signal::parse($json, new ForgeOwners(['anime-db']));
     }
 
     public function testSignalFieldsAreParsed(): void
@@ -111,7 +111,7 @@ final class ColdFindingsTest extends TestCase
         $signal = self::signal('request_changes', '[{"id":"C1","verdict":"open"}]');
         self::assertSame('request_changes', $signal->verdict);
         self::assertSame([['id' => 'C1', 'verdict' => 'open', 'where' => '']], $signal->coldFindings);
-        self::assertNull(Signal::parse('{}', new GithubOwners(['anime-db']))->verdict);
+        self::assertNull(Signal::parse('{}', new ForgeOwners(['anime-db']))->verdict);
     }
 
     public function testSaveAndLoadRoundTrip(): void
@@ -184,15 +184,15 @@ final class ColdFindingsTest extends TestCase
     #[DataProvider('prProvider')]
     public function testExtractPrs(array $parts, array $expected): void
     {
-        self::assertSame($expected, ColdFindings::extractPrs($parts, new GithubOwners(['anime-db', 'gpslab'])));
+        self::assertSame($expected, ColdFindings::extractPrs($parts, new ForgeOwners(['anime-db', 'gpslab'])));
     }
 
     public function testExtractPrsRequiresOwners(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage(GithubOwners::NOT_SET);
+        $this->expectExceptionMessage(ForgeOwners::NOT_SET);
 
-        ColdFindings::extractPrs([['text' => 'a#1']], new GithubOwners());
+        ColdFindings::extractPrs([['text' => 'a#1']], new ForgeOwners());
     }
 
     public function testPathKeepsOwnerOutOfDirectories(): void
@@ -202,9 +202,9 @@ final class ColdFindingsTest extends TestCase
         self::assertSame('/s/epics/x/cold-a-1.json', ColdFindings::path('/s', 'x', 'a#1'));
     }
 
-    private static function owners(): GithubOwners
+    private static function owners(): ForgeOwners
     {
-        return new GithubOwners(['anime-db', 'gpslab']);
+        return new ForgeOwners(['anime-db', 'gpslab']);
     }
 
     public function testExtractBareNumbers(): void

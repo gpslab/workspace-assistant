@@ -70,7 +70,7 @@ final class RunLifecycle
             if ($raw === false) {
                 throw new \InvalidArgumentException('signal file not created');
             }
-            $signal = Signal::parse($raw, $this->config->githubOwners);
+            $signal = Signal::parse($raw, $this->config->forgeOwners);
 
             $known = array_column($this->db->epicTasks($slug), 'task');
             $known = [...$known, ...array_column($signal->added, 'task')];

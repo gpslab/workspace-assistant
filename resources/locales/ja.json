@@ -35,6 +35,7 @@
     "epic.status_plan": "プラン：{plan}",
     "epic.status_reason": "停止理由：{reason}",
     "epic.topic_has_epic": "このトピックにはすでにエピック {slug}（{status}）があります。",
+    "epic.unavailable_on_gitlab": "エピックは GitLab ではまだ利用できません。",
     "epic.usage": "使い方：/epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ エピック {slug} の実行に失敗しました：{pr} の指摘事項への対応が不完全です — {reason}",
     "coldfindings.no_verdict": "シグナルに判定（approve | request_changes）がありません",

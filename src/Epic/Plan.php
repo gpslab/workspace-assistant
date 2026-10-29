@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Epic;
 
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 
 /**
  * Epic plan: JSON in the first fenced ```json block of the md file `<slug>.md`.
@@ -17,18 +17,25 @@ use GpsLab\WorkspaceAssistant\GithubOwners;
  *     }
  *
  * `tasks[].task` is `owner/repo#N` or the short `repo#N`; `releases[].repo` is `owner/repo` or the
- * short `repo`. The short forms belong to the default owner (the first of `GITHUB_OWNERS`).
+ * short `repo`. The short forms belong to the default owner (the first of `FORGE_OWNERS`).
  *
  * Pure parsing with no DB or network access. Any plan error is an \InvalidArgumentException
  * with a human-readable reason (it goes to the author in reply to /epic start).
  */
 final class Plan
 {
+    private const string NAME = '[A-Za-z0-9][A-Za-z0-9._-]*';
+
     /** `owner/repo#N` or the short `repo#N` (the default owner). */
-    private const string TASK_RE = '~^(?:[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*#[1-9][0-9]*$~';
+    private const string TASK_RE = '~^(?:'.self::NAME.'/)?'.self::NAME.'#[1-9][0-9]*$~';
 
     /** `owner/repo` or the short `repo` (the default owner). */
-    private const string REPO_RE = '~^(?:[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*$~';
+    private const string REPO_RE = '~^(?:'.self::NAME.'/)?'.self::NAME.'$~';
+
+    /** Same with a namespace path as the owner (`FORGE=gitlab`). */
+    private const string NESTED_TASK_RE = '~^(?:'.self::NAME.'/)*'.self::NAME.'#[1-9][0-9]*$~';
+
+    private const string NESTED_REPO_RE = '~^(?:'.self::NAME.'/)*'.self::NAME.'$~';
 
     private const string BLOCK_RE = '/^```json[ \t]*\R(.*?)\R```[ \t]*$/ms';
 
@@ -42,22 +49,24 @@ final class Plan
     ) {
     }
 
-    public static function isTaskRef(string $value): bool
+    /** @param bool $nested the owner may be a multi-segment namespace path (`FORGE=gitlab`) */
+    public static function isTaskRef(string $value, bool $nested = false): bool
     {
-        return preg_match(self::TASK_RE, $value) === 1;
+        return preg_match($nested ? self::NESTED_TASK_RE : self::TASK_RE, $value) === 1;
     }
 
-    public static function isRepoRef(string $value): bool
+    /** @param bool $nested see {@see isTaskRef()} */
+    public static function isRepoRef(string $value, bool $nested = false): bool
     {
-        return preg_match(self::REPO_RE, $value) === 1;
+        return preg_match($nested ? self::NESTED_REPO_RE : self::REPO_RE, $value) === 1;
     }
 
     /**
-     * @param GithubOwners $owners references are normalized (`<default owner>/repo#N`
-     *                             becomes `repo#N`, so both forms are one task) and the plan is
-     *                             rejected while `GITHUB_OWNERS` is not set
+     * @param ForgeOwners $owners references are normalized (`<default owner>/repo#N`
+     *                            becomes `repo#N`, so both forms are one task) and the plan is
+     *                            rejected while `FORGE_OWNERS` is not set
      */
-    public static function load(string $path, GithubOwners $owners): self
+    public static function load(string $path, ForgeOwners $owners): self
     {
         if (!is_file($path)) {
             throw new \InvalidArgumentException("plan file not found: {$path}");
@@ -73,10 +82,10 @@ final class Plan
     /**
      * @see load()
      */
-    public static function parse(string $markdown, GithubOwners $owners): self
+    public static function parse(string $markdown, ForgeOwners $owners): self
     {
         if ($owners->isEmpty()) {
-            throw new \InvalidArgumentException(GithubOwners::NOT_SET);
+            throw new \InvalidArgumentException(ForgeOwners::NOT_SET);
         }
         $norm = static fn (string $ref): string => $owners->canonical($ref);
 
@@ -100,14 +109,14 @@ final class Plan
         $tasks = [];
         foreach ($rawTasks as $i => $raw) {
             $ref = is_array($raw) ? ($raw['task'] ?? null) : null;
-            if (!is_string($ref) || !self::isTaskRef($ref)) {
+            if (!is_string($ref) || !self::isTaskRef($ref, $owners->isNested())) {
                 throw new \InvalidArgumentException("tasks[{$i}]: a task must look like repo#N or owner/repo#N");
             }
             $ref = $norm($ref);
             if (isset($tasks[$ref])) {
                 throw new \InvalidArgumentException("task {$ref} is listed twice in the plan");
             }
-            $tasks[$ref] = ['task' => $ref, 'after' => self::refList($raw['after'] ?? [], "tasks[{$i}].after", $norm)];
+            $tasks[$ref] = ['task' => $ref, 'after' => self::refList($raw['after'] ?? [], "tasks[{$i}].after", $norm, $owners->isNested())];
         }
         foreach ($tasks as $task) {
             foreach ($task['after'] as $dep) {
@@ -126,7 +135,7 @@ final class Plan
         foreach ($rawReleases as $i => $raw) {
             $repo = is_array($raw) ? ($raw['repo'] ?? null) : null;
             $version = is_array($raw) ? ($raw['version'] ?? null) : null;
-            if (!is_string($repo) || !self::isRepoRef($repo)) {
+            if (!is_string($repo) || !self::isRepoRef($repo, $owners->isNested())) {
                 throw new \InvalidArgumentException("releases[{$i}]: repo is required — a repository name like repo or owner/repo");
             }
             $repo = $norm($repo);
@@ -139,7 +148,7 @@ final class Plan
             if (!isset($raw['after'])) {
                 throw new \InvalidArgumentException("releases[{$i}]: after is required — the tasks the release follows");
             }
-            $after = self::refList($raw['after'], "releases[{$i}].after", $norm);
+            $after = self::refList($raw['after'], "releases[{$i}].after", $norm, $owners->isNested());
             if ($after === []) {
                 throw new \InvalidArgumentException("releases[{$i}]: after must not be empty");
             }
@@ -157,13 +166,13 @@ final class Plan
     /**
      * @return list<string>
      */
-    private static function refList(mixed $value, string $where, \Closure $norm): array
+    private static function refList(mixed $value, string $where, \Closure $norm, bool $nested): array
     {
         if (!is_array($value) || !array_is_list($value)) {
             throw new \InvalidArgumentException("{$where} must be a list of tasks repo#N or owner/repo#N");
         }
         foreach ($value as $ref) {
-            if (!is_string($ref) || !self::isTaskRef($ref)) {
+            if (!is_string($ref) || !self::isTaskRef($ref, $nested)) {
                 throw new \InvalidArgumentException("{$where}: an element must look like repo#N or owner/repo#N");
             }
         }

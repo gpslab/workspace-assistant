@@ -35,6 +35,7 @@
     "epic.status_plan": "계획: {plan}",
     "epic.status_reason": "중단 사유: {reason}",
     "epic.topic_has_epic": "이 토픽에는 이미 에픽 {slug}이(가) 있습니다 ({status}).",
+    "epic.unavailable_on_gitlab": "에픽은 아직 GitLab에서 사용할 수 없습니다.",
     "epic.usage": "사용법: /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ 에픽 {slug} 실행 실패: {pr}의 발견 사항 처리가 완전하지 않습니다 — {reason}",
     "coldfindings.no_verdict": "시그널에 verdict가 없습니다 (approve | request_changes)",

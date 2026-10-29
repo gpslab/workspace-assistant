@@ -39,6 +39,11 @@ final class ChatSurface
 
     public function cmdEpic(int $chatId, int $threadId, string $argument): void
     {
+        if (!$this->config->epicsAvailable()) {
+            $this->tg->sendText($chatId, $this->t('epic.unavailable_on_gitlab'), null, $threadId);
+
+            return;
+        }
         $words = preg_split('/\s+/', trim($argument), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         $sub = strtolower($words[0] ?? '');
         $epic = $this->db->epicByThread($chatId, $threadId);
@@ -160,7 +165,7 @@ final class ChatSurface
 
         $planPath = Run::planPath($this->config->repoPath, $this->config->epicsDir, $slug);
         try {
-            $plan = Plan::load($planPath, $this->config->githubOwners);
+            $plan = Plan::load($planPath, $this->config->forgeOwners);
         } catch (\InvalidArgumentException $e) {
             return $this->t('epic.plan_invalid', ['error' => $e->getMessage()]);
         }
@@ -391,7 +396,7 @@ final class ChatSurface
 
         $path = "{$this->config->epicsDir}/{$slug}.md";
         try {
-            $plan = Plan::load(Run::planPath($this->config->repoPath, $this->config->epicsDir, $slug), $this->config->githubOwners);
+            $plan = Plan::load(Run::planPath($this->config->repoPath, $this->config->epicsDir, $slug), $this->config->forgeOwners);
         } catch (\InvalidArgumentException $e) {
             $this->tg->editMessageText($chatId, $messageId, $this->t('epic.plan_invalid', ['error' => $e->getMessage()]), Keyboards::remove()->markup);
 

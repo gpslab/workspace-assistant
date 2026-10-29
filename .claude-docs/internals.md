@@ -250,8 +250,10 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `BOT_TOKEN`             | token from @BotFather                                          | required                         |
 | `ALLOWED_USER_IDS`      | whitelist of Telegram user ids, comma-separated                | required, non-empty              |
 | `REPO_PATH`             | absolute path of the managed repository                        | required, must be a git repo     |
-| `GITHUB_REPO`           | `owner/name` for commit links                                  | empty                            |
-| `GITHUB_OWNERS`         | GitHub owners; the first is the default for `repo#N`; epics and PR links in `review` need it | empty |
+| `FORGE_REPO`            | `owner/name` for commit links (alias `GITHUB_REPO`)             | empty                            |
+| `FORGE`                 | `github` or `gitlab` (other values fail startup); on `gitlab` the orchestrator is not wired and `/epic` answers "not available" | `github` |
+| `FORGE_HOST`            | Forge host | `github.com` / `gitlab.com` |
+| `FORGE_OWNERS`          | Owners (alias `GITHUB_OWNERS`; the new key wins, a warning is logged when both are set); the first is the default for `repo#N`; namespace paths allowed with `FORGE=gitlab`; epics and PR links in `review` need it | empty |
 | `OPENRONIN_LOGINS`      | logins allowed to author the `<!-- openronin:bot -->` marker   | empty (any author + warning)     |
 | `CLAUDE_BIN`            | path to the claude binary                                      | `claude`                         |
 | `CLAUDE_TIMEOUT`        | overall call timeout, seconds (`0` = off)                      | `0`                              |

@@ -6,7 +6,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 
 use GpsLab\WorkspaceAssistant\Epic\Plan;
 use GpsLab\WorkspaceAssistant\Epic\Signal;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -23,7 +23,7 @@ final class PlanTest extends TestCase
     public function testParsesTasksAndReleases(): void
     {
         $plan = Plan::parse(self::md('{"tasks":[{"task":"anime-db-plugins#12"},{"task":"tg-helper#3","after":["anime-db-plugins#12"]}],'
-            .'"releases":[{"repo":"anime-db-plugins","version":"v1.2.0","after":["anime-db-plugins#12"]}]}'), new GithubOwners(['anime-db']));
+            .'"releases":[{"repo":"anime-db-plugins","version":"v1.2.0","after":["anime-db-plugins#12"]}]}'), new ForgeOwners(['anime-db']));
 
         self::assertSame(
             [['task' => 'anime-db-plugins#12', 'after' => []], ['task' => 'tg-helper#3', 'after' => ['anime-db-plugins#12']]],
@@ -34,7 +34,7 @@ final class PlanTest extends TestCase
 
     public function testParsesFullAndShortFormsOfTasksAndReleases(): void
     {
-        $owners = new GithubOwners(['anime-db', 'gpslab']);
+        $owners = new ForgeOwners(['anime-db', 'gpslab']);
         $plan = Plan::parse(self::md('{"tasks":[{"task":"anime-db/a#1"},{"task":"gpslab/b#2","after":["a#1"]}],'
             .'"releases":[{"repo":"anime-db/a","version":"v1.0.0","after":["a#1"]},{"repo":"gpslab/b","version":"v2.0.0","after":["gpslab/b#2"]}]}'), $owners);
 
@@ -50,7 +50,7 @@ final class PlanTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('listed twice');
 
-        Plan::parse(self::md('{"tasks":[{"task":"a#1"},{"task":"anime-db/a#1"}]}'), new GithubOwners(['anime-db']));
+        Plan::parse(self::md('{"tasks":[{"task":"a#1"},{"task":"anime-db/a#1"}]}'), new ForgeOwners(['anime-db']));
     }
 
     public function testReleaseWithoutPlanTaskIsRejectedAcrossForms(): void
@@ -58,7 +58,7 @@ final class PlanTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('which is not in the plan');
 
-        Plan::parse(self::md('{"tasks":[{"task":"a#1"}],"releases":[{"repo":"a","version":"v1.0.0","after":["gpslab/a#1"]}]}'), new GithubOwners(['anime-db', 'gpslab']));
+        Plan::parse(self::md('{"tasks":[{"task":"a#1"}],"releases":[{"repo":"a","version":"v1.0.0","after":["gpslab/a#1"]}]}'), new ForgeOwners(['anime-db', 'gpslab']));
     }
 
     public function testForeignOwnerIsRejected(): void
@@ -69,10 +69,10 @@ final class PlanTest extends TestCase
             '{"tasks":[{"task":"a#1"}],"releases":[{"repo":"foreign/x","version":"v1.0.0","after":["a#1"]}]}',
         ] as $json) {
             try {
-                Plan::parse(self::md($json), new GithubOwners(['anime-db']));
+                Plan::parse(self::md($json), new ForgeOwners(['anime-db']));
                 self::fail('foreign owner must be rejected: '.$json);
             } catch (\InvalidArgumentException $e) {
-                self::assertStringContainsString('GITHUB_OWNERS', $e->getMessage());
+                self::assertStringContainsString('FORGE_OWNERS', $e->getMessage());
             }
         }
     }
@@ -80,9 +80,9 @@ final class PlanTest extends TestCase
     public function testPlanRequiresOwnersWhenCheckedAgainstConfig(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage(GithubOwners::NOT_SET);
+        $this->expectExceptionMessage(ForgeOwners::NOT_SET);
 
-        Plan::parse(self::md('{"tasks":[{"task":"a#1"}]}'), new GithubOwners());
+        Plan::parse(self::md('{"tasks":[{"task":"a#1"}]}'), new ForgeOwners());
     }
 
     /**
@@ -113,7 +113,7 @@ final class PlanTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/'.preg_quote($reason, '/').'/u');
 
-        Plan::parse($markdown, new GithubOwners(['anime-db']));
+        Plan::parse($markdown, new ForgeOwners(['anime-db']));
     }
 
     public function testMissingFileIsRejected(): void
@@ -121,12 +121,12 @@ final class PlanTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('plan file not found');
 
-        Plan::load(sys_get_temp_dir().'/no-such-plan-'.uniqid('', true).'.md', new GithubOwners(['anime-db']));
+        Plan::load(sys_get_temp_dir().'/no-such-plan-'.uniqid('', true).'.md', new ForgeOwners(['anime-db']));
     }
 
     public function testSignalParsesAllFields(): void
     {
-        $signal = Signal::parse('{"added":[{"task":"a#5","after":["a#1"]}],"hold":["a#6"],"message":"question","blocked":"stuck","done":true}', new GithubOwners(['anime-db']));
+        $signal = Signal::parse('{"added":[{"task":"a#5","after":["a#1"]}],"hold":["a#6"],"message":"question","blocked":"stuck","done":true}', new ForgeOwners(['anime-db']));
 
         self::assertSame([['task' => 'a#5', 'after' => ['a#1']]], $signal->added);
         self::assertSame(['a#6'], $signal->hold);
@@ -137,7 +137,7 @@ final class PlanTest extends TestCase
 
     public function testEmptySignalIsValid(): void
     {
-        $signal = Signal::parse('{}', new GithubOwners(['anime-db']));
+        $signal = Signal::parse('{}', new ForgeOwners(['anime-db']));
 
         self::assertSame([], $signal->added);
         self::assertNull($signal->hold);
@@ -165,6 +165,31 @@ final class PlanTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
 
-        Signal::parse($json, new GithubOwners(['anime-db']));
+        Signal::parse($json, new ForgeOwners(['anime-db']));
+    }
+
+    public function testNamespaceRefsAreAcceptedOnlyOnGitlab(): void
+    {
+        $json = '{"tasks":[{"task":"group/sub/a#1","after":["group/sub/b#2"]},{"task":"group/sub/b#2"}],"releases":[{"repo":"group/sub/a","version":"v1.0.0","after":["group/sub/a#1"]}]}';
+
+        $plan = Plan::parse(self::md($json), new ForgeOwners(['group/sub'], true));
+        self::assertSame('a#1', $plan->tasks[0]['task']);
+        self::assertTrue(Plan::isTaskRef('group/sub/proj#12', true));
+        self::assertTrue(Plan::isRepoRef('group/sub/proj', true));
+        self::assertFalse(Plan::isTaskRef('group/sub/proj#12'));
+        self::assertFalse(Plan::isRepoRef('group/sub/proj'));
+
+        foreach ([
+            '{"tasks":[{"task":"group/sub/a#1"}]}',
+            '{"tasks":[{"task":"a#1","after":["group/sub/b#2"]}]}',
+            '{"tasks":[{"task":"a#1"}],"releases":[{"repo":"group/sub/x","version":"v1.0.0","after":["a#1"]}]}',
+        ] as $bad) {
+            try {
+                Plan::parse(self::md($bad), new ForgeOwners(['group/sub']));
+                self::fail('a namespace owner must be rejected on github: '.$bad);
+            } catch (\InvalidArgumentException $e) {
+                self::assertStringContainsString('repo', $e->getMessage());
+            }
+        }
     }
 }

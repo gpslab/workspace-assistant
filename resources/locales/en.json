@@ -35,6 +35,7 @@
     "epic.status_plan": "Plan: {plan}",
     "epic.status_reason": "Stop reason: {reason}",
     "epic.topic_has_epic": "This topic already has epic {slug} ({status}).",
+    "epic.unavailable_on_gitlab": "Epics are not available on GitLab yet.",
     "epic.usage": "Usage: /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ Epic run {slug} failed: the coverage of findings of {pr} is incomplete — {reason}",
     "coldfindings.no_verdict": "the signal has no verdict (approve | request_changes)",

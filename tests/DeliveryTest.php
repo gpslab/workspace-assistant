@@ -219,7 +219,7 @@ final class DeliveryTest extends TestCase
             botToken: 'test-token',
             allowedUserIds: [1],
             repoPath: sys_get_temp_dir(),
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: 'claude',
             claudeTimeout: 0,
             claudeStallTimeout: 900,

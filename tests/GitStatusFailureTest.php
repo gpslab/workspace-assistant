@@ -10,7 +10,7 @@ use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
 use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
@@ -104,7 +104,7 @@ final class GitStatusFailureTest extends TestCase
             botToken: 't',
             allowedUserIds: [self::USER],
             repoPath: $this->work,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: $this->root.'/claude',
             claudeTimeout: 0,
             claudeStallTimeout: 900,
@@ -116,7 +116,7 @@ final class GitStatusFailureTest extends TestCase
             pollTimeout: 30,
             gitTimeout: 30,
             promptsDir: 'prompts',
-            githubOwners: new GithubOwners(['gpslab']),
+            forgeOwners: new ForgeOwners(['gpslab']),
             subreposDir: $subreposDir,
             botLocale: 'en',
             autoCommit: $this->autoCommit,
