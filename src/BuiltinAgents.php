@@ -28,6 +28,7 @@ final class BuiltinAgents
         'editor' => ['Read', 'Grep', 'Glob'],
         'scope-check' => ['Read', 'Grep', 'Glob', 'Bash'],
         'acceptor' => ['Read', 'Grep', 'Glob', 'Bash'],
+        'security' => ['Read', 'Grep', 'Glob', 'Bash'],
     ];
 
     /**

@@ -95,7 +95,7 @@ final class RunTest extends TestCase
 
     public function testRunbookFileIsUnchanged(): void
     {
-        self::assertSame('072895557187539506299f0c8c066ad693fcc9c312dc0037a47745d0fb6db5df', hash_file('sha256', Run::runbookPath()));
+        self::assertSame('56c8bff2511e5edc7ae881f9a74cff2ab5ac40443e35b93a3680d0d4d28aee32', hash_file('sha256', Run::runbookPath()));
     }
 
     public function testPmRunbookLineIsInEveryEpicRunPrompt(): void

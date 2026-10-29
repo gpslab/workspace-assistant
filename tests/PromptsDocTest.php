@@ -22,8 +22,8 @@ final class PromptsDocTest extends TestCase
 
         self::assertNotSame([], $files);
         self::assertSame([], self::check($doc, $files, PromptFiles::CONTRACT, SystemPrompt::MODES, $root.'/prompts'));
-        self::assertStringContainsString(count($files) - 5 .' texts', $doc);
-        self::assertStringContainsString('5 built-in agents', $doc);
+        self::assertStringContainsString(count($files) - 6 .' texts', $doc);
+        self::assertStringContainsString('6 built-in agents', $doc);
         self::assertStringContainsString('The '.count(PromptFiles::CONTRACT).' names', $doc);
     }
 

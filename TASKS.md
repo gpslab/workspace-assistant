@@ -71,8 +71,8 @@ Agents are called synchronously (`run_in_background: false`).
 
 ## Built-in agents
 
-The bot hands five read-only sub-agents to every Claude run (except the two phases of `/compact`) with
-`--agents <file>`: `critic`, `verifier`, `editor`, `scope-check` and `acceptor`. Their bodies are
+The bot hands six read-only sub-agents to every Claude run (except the two phases of `/compact`) with
+`--agents <file>`: `critic`, `verifier`, `editor`, `scope-check`, `acceptor` and `security`. Their bodies are
 `prompts/agents/<name>.md.dist`. To override one:
 
 - an agent with the same `name:` (the frontmatter value, not the file name) in `.claude/agents/*.md` of

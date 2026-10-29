@@ -118,6 +118,11 @@ see [Working out a task](TASKS.md). Any of them can be replaced by your own Clau
 sub-agent with the same name, and the persona files and additions in `PROMPTS_DIR` change how the modes
 and epic runs behave, see [PROMPTS.md](PROMPTS.md). Details are in [EPICS.md](EPICS.md).
 
+The `security` agent also works on demand, without a new mode or command. To check the security of a
+PR or task, ask the bot to call the `security` agent on that PR; to audit the project before a release, ask
+it to call the agent on the whole repository (it also runs `composer audit --locked` and `npm audit`).
+In an epic it runs as a step of the final check, on the merged PR diffs.
+
 ## Requirements
 
 - PHP 8.4+ with the extensions `curl`, `pdo_sqlite`, `pcntl` (and `posix`).

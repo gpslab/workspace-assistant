@@ -177,7 +177,7 @@ Traps:
   live in one place, `prompts/pm_runbook.md.dist`, and are not repeated in the persona. The scope check
   is the runbook's `scope` stage (agent `scope-check`). Keep personas
   describing the work, not only the reply format.
-- **Built-in sub-agents (`critic`, `verifier`, `editor`, `scope-check`, `acceptor`) are read-only and
+- **Built-in sub-agents (`critic`, `verifier`, `editor`, `scope-check`, `acceptor`, `security`) are read-only and
   passed on every Claude run except `/compact`.** `BuiltinAgents` writes them to
   `STATE_DIR/agents/<run id>.json` (one file per run, removed with the run files) and passes
   `--agents <file>`, also on `--resume`: the CLI keeps no `--agents` in the session. The CLI lets an

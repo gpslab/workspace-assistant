@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Epic;
 
+use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
 
@@ -87,7 +88,7 @@ final class Run
      * @param list<array{id: string, source: string, path: ?string, line: ?int, body: string}>|null                           $coldFindings cold reviewer findings for a review run; null — not collected
      * @param list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>}> $master       master CI events for the tick: a confirmed breakage and flakiness
      */
-    public static function prompt(string $slug, string $run, string $planPath, string $journalPath, string $signalPath, string $failuresPath, ?string $pr = null, ?array $coldFindings = null, array $master = [], string $outboxDir = '', string $addition = '', string $pmRunbookLine = '', bool $autoCommit = true, ?string $reviewHead = null): string
+    public static function prompt(string $slug, string $run, string $planPath, string $journalPath, string $signalPath, string $failuresPath, ?string $pr = null, ?array $coldFindings = null, array $master = [], string $outboxDir = '', string $addition = '', string $pmRunbookLine = '', bool $autoCommit = true, ?string $reviewHead = null, ?int $tailsRounds = null): string
     {
         $marker = self::marker($slug);
         $lines = [
@@ -136,6 +137,12 @@ final class Run
         if ($run === self::REVIEW && $reviewHead !== null) {
             $lines[] = '';
             $lines[] = "Reviewed commit: {$reviewHead} — the head the findings above were collected on. Read the code at this SHA (`git diff <merge-base>...{$reviewHead}`, `git show {$reviewHead}:<path>`; tests and mutations in a temporary `git worktree add /tmp/… {$reviewHead}` removed at the end), not the current PR head, and publish the review with `-f commit_id={$reviewHead}`.";
+        }
+        if ($run === self::FINAL && $tailsRounds !== null) {
+            $max = Database::MAX_TAILS_ROUNDS;
+            $lines[] = $tailsRounds >= $max
+                ? "Tails rounds: {$tailsRounds} of {$max} used — the limit is exhausted: the bot refuses any `added` task."
+                : "Tails rounds: {$tailsRounds} of {$max} used — extra tasks in `added` are still accepted.";
         }
         if ($run === self::TICK) {
             array_push($lines, ...self::masterLines($master));

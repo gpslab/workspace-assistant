@@ -1,6 +1,6 @@
 # Prompts
 
-The bot's prompts are files in `prompts/`: 19 texts (`prompts/*.md.dist`) and 5 built-in agents
+The bot's prompts are files in `prompts/`: 19 texts (`prompts/*.md.dist`) and 6 built-in agents
 (`prompts/agents/*.md.dist`). This page says which file is used in which run, how the prompt of a run is
 assembled from the files, the settings in `.env` and the texts built in code, and how to override each
 file. The settings are in [INSTALL.md](INSTALL.md), the built-in agents in
@@ -41,6 +41,7 @@ There are three kinds of file:
 | `agents/critic`                     | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/editor`                     | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/scope-check`                | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
+| `agents/security`                   | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/verifier`                   | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 
 The agent files are passed with `--agents`; an error in an agent file is still reported in the reply. An
@@ -105,6 +106,20 @@ phase.
 ### Built-in agents
 
 `prompts/agents/*.md.dist` are passed with `--agents` to every run except `/compact`.
+
+### Security review on demand
+
+The `security` agent is read-only and needs no mode or command of its own: ask for it in the message
+to the bot in any mode that can call agents.
+
+- **Check the security of a PR or task.** "Call the `security` agent on PR #N of <repository>": it reads the diff
+  of that PR (or of the merged PRs of a task) and returns findings with `severity` and evidence.
+- **Audit the project before a release.** "Call the `security` agent on the whole repository": it reads the
+  repository, runs `composer audit --locked` and `npm audit` and returns findings.
+
+In the final check of an epic the runbook calls it on the merged PR diffs of the epic. The final-check prompt
+states how many tails rounds are used (`Tails rounds: X of N`), so the run knows when a confirmed finding can
+no longer become an extra task.
 
 ## Overrides
 
