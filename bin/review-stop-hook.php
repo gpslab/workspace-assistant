@@ -9,7 +9,7 @@ use GpsLab\WorkspaceAssistant\Epic\Run;
 
 /*
  * Stop hook of review mode (see ReviewStatusHook). Called by claude, not by the bot:
- * php bin/review-stop-hook.php <STATE_DIR>, with the Stop event JSON on stdin.
+ * php bin/review-stop-hook.php <STATE_DIR> [--forge=<FORGE>], with the Stop event JSON on stdin.
  *
  * Fail-open: any hook error lets the turn go (exit 0), but it is written to
  * <STATE_DIR>/review-hook.log — it is not lost silently. stdout carries only the decision
@@ -31,6 +31,13 @@ try {
 }
 
 $stateDir = rtrim((string) ($argv[1] ?? ''), '/');
+// Only selects the reason text; a missing or unknown value means github (older settings keep working).
+$forge = Config::FORGE_GITHUB;
+foreach (array_slice($argv ?? [], 2) as $arg) {
+    if ($arg === '--forge='.Config::FORGE_GITLAB) {
+        $forge = Config::FORGE_GITLAB;
+    }
+}
 $log = static function (string $line) use ($stateDir): void {
     if ($stateDir !== '') {
         @file_put_contents($stateDir.'/review-hook.log', '['.date('Y-m-d H:i:sP').'] '.$line."\n", FILE_APPEND);
@@ -61,7 +68,7 @@ try {
     $log("{$sessionId} {$decision}");
 
     if ($decision === ReviewStatusHook::BLOCK) {
-        echo json_encode(['decision' => 'block', 'reason' => ReviewStatusHook::reasonOrFallback($input, $lines, $ids, static fn (\Throwable $e) => $log('reason error: '.$e->getMessage()))], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['decision' => 'block', 'reason' => ReviewStatusHook::reasonOrFallback($input, $lines, $ids, static fn (\Throwable $e) => $log('reason error: '.$e->getMessage()), $forge)], JSON_UNESCAPED_UNICODE);
     } elseif ($decision === ReviewStatusHook::MISSING && $stateDir !== '' && $sessionId !== '') {
         if (ReviewStatusHook::statusOk($input, $lines)) {
             ReviewStatusHook::writeIdsMarker($stateDir, $sessionId, ReviewStatusHook::missingIds($lines, $ids ?? []));

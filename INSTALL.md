@@ -133,7 +133,7 @@ cron, for example weekly. `bin/check_gh_auth.sh` only delegates to it, so existi
 For `FORGE=gitlab` (GitLab 16.0+, glab 1.40+) run the installer with `--forge=gitlab`, and for a self-hosted
 instance `--forge-host=gitlab.example.com`; it checks `glab` instead of `gh`. Authenticate the bot's user with
 `glab auth login --hostname gitlab.example.com` (token scopes `api` and `write_repository`). What works on
-GitLab (chat and PM modes; review mode after #100; no epics) is in the [GitLab](README.md#gitlab) section of the README.
+GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab) section of the README.
 
 ## Configuration
 

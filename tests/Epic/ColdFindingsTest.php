@@ -258,4 +258,46 @@ final class ColdFindingsTest extends TestCase
         }
         self::assertStringContainsString('refuted', $prompt);
     }
+
+    /**
+     * @return iterable<string, array{string, list<string>}>
+     */
+    public static function gitlabRefProvider(): iterable
+    {
+        yield 'bang' => ['review !12', ['!12']];
+        yield 'project' => ['review proj/app!12', ['proj/app!12']];
+        yield 'nested namespace' => ['review grp/sub/proj!12', ['grp/sub/proj!12']];
+        yield 'url' => ['https://gitlab.example.com/grp/proj/-/merge_requests/12', ['grp/proj!12']];
+        yield 'nested url' => ['see https://gitlab.example.com/grp/sub/proj/-/merge_requests/12 now', ['grp/sub/proj!12']];
+        yield 'url with port' => ['https://gitlab.example.com:8443/grp/proj/-/merge_requests/12', ['grp/proj!12']];
+        yield 'other host' => ['https://evil.example.org/grp/proj/-/merge_requests/12', []];
+        yield 'bare hash is an issue' => ['review #12', []];
+        yield 'github shapes' => ['review ws#12 and gpslab/ws#13', []];
+        yield 'order and repeats' => ['!3 grp/p!2 !3', ['!3', 'grp/p!2']];
+    }
+
+    /**
+     * @param list<string> $expected
+     */
+    #[DataProvider('gitlabRefProvider')]
+    public function testGitlabMergeRequestRefs(string $text, array $expected): void
+    {
+        self::assertSame($expected, ColdFindings::extractPrs([['text' => $text]], new ForgeOwners(['gpslab']), 'gitlab', 'gitlab.example.com'));
+    }
+
+    public function testBareNumbersAreNeverMergeRequestsOnGitlab(): void
+    {
+        $parts = [['text' => 'review #12']];
+
+        self::assertSame([12], ColdFindings::extractBareNumbers($parts, 3, new ForgeOwners(['gpslab'])));
+        self::assertSame([], ColdFindings::extractBareNumbers($parts, 3, new ForgeOwners(['gpslab']), 'gitlab'));
+    }
+
+    public function testGithubRefsAreUnchangedByTheForgeArguments(): void
+    {
+        $parts = [['text' => 'review ws#1 https://github.com/gpslab/ws/pull/2 and !5']];
+        $owners = new ForgeOwners(['gpslab']);
+
+        self::assertSame(['ws#1', 'ws#2'], ColdFindings::extractPrs($parts, $owners));
+    }
 }

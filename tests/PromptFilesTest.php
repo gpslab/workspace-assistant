@@ -33,6 +33,8 @@ final class PromptFilesTest extends TestCase
         'review_status_reason_no_verdict' => true,
         'review_status_reason_ids' => true,
         'review_status_reason_steps' => true,
+        'review_status_reason_ids_gitlab' => true,
+        'review_status_reason_steps_gitlab' => true,
         'compact_summarize_prompt' => true,
         'compact_reseed_prefix' => true,
         'compact_reseed_suffix' => true,
@@ -196,6 +198,7 @@ final class PromptFilesTest extends TestCase
             'session_update' => ['prompt' => 'text'],
             'review_status_reason' => ['verdict' => '🟢', 'state' => 'Approve', 'problem' => 'p'],
             'review_status_reason_ids' => ['ids' => 'C1'],
+            'review_status_reason_ids_gitlab' => ['ids' => 'C1'],
         ];
         foreach (array_keys(self::NAMES) as $name) {
             $placeholders = PromptFiles::placeholders(PromptFiles::load($name));
@@ -427,6 +430,21 @@ final class PromptFilesTest extends TestCase
         self::assertSame(ReviewStatusHook::FALLBACK_REASON, $reason);
         self::assertCount(1, $errors);
         self::assertStringContainsString('review_status_reason.md.dist', $errors[0]);
+    }
+
+    public function testGitlabReasonFallsBackToHardcodedGitlabTextWhenLoadingFails(): void
+    {
+        $this->isolate('review_status_reason_steps_gitlab');
+        $lines = [(string) json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => 'q']])];
+        $errors = [];
+
+        $reason = ReviewStatusHook::reasonOrFallback(['last_assistant_message' => '🟢 ok'], $lines, null, static function (\Throwable $e) use (&$errors): void {
+            $errors[] = $e->getMessage();
+        }, 'gitlab');
+
+        self::assertSame(ReviewStatusHook::FALLBACK_REASON_GITLAB, $reason);
+        self::assertCount(1, $errors);
+        self::assertStringContainsString('review_status_reason_steps_gitlab.md.dist', $errors[0]);
     }
 
     public function testHookScriptStillBlocksWhenReasonTextsAreMissing(): void

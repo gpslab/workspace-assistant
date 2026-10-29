@@ -426,7 +426,7 @@ final class PmGateHookTest extends TestCase
 
     public function testSettingsCommandBlocksWhenHookDies(): void
     {
-        $settings = json_decode(PmGateHook::settingsJson($this->dir, 'pm', 'run-1', false), true);
+        $settings = json_decode(PmGateHook::settingsJson($this->dir, 'pm', 'run-1', false, 'github'), true);
         self::assertIsArray($settings);
         self::assertSame('Bash', $settings['hooks']['PreToolUse'][0]['matcher']);
         $command = $settings['hooks']['PreToolUse'][0]['hooks'][0]['command'];
@@ -445,11 +445,22 @@ final class PmGateHookTest extends TestCase
 
     public function testSettingsKeepReviewStopHookInReviewMode(): void
     {
-        $settings = json_decode(PmGateHook::settingsJson($this->dir, 'review', 'run-1', true), true);
+        $settings = json_decode(PmGateHook::settingsJson($this->dir, 'review', 'run-1', true, 'github'), true);
         self::assertIsArray($settings);
 
         self::assertArrayHasKey('Stop', $settings['hooks']);
         self::assertArrayHasKey('PreToolUse', $settings['hooks']);
+    }
+
+    public function testReviewStopHookGetsTheForgeAfterTheStateDir(): void
+    {
+        $settings = json_decode(PmGateHook::settingsJson($this->dir, 'review', 'run-1', true, 'gitlab'), true);
+        self::assertIsArray($settings);
+        self::assertStringEndsWith(escapeshellarg($this->dir).' '.escapeshellarg('--forge=gitlab'), $settings['hooks']['Stop'][0]['hooks'][0]['command']);
+
+        $default = json_decode(PmGateHook::settingsJson($this->dir, 'review', 'run-1', true, 'github'), true);
+        self::assertIsArray($default);
+        self::assertStringEndsWith(escapeshellarg('--forge=github'), $default['hooks']['Stop'][0]['hooks'][0]['command']);
     }
 
     /**
@@ -465,7 +476,7 @@ final class PmGateHookTest extends TestCase
     #[DataProvider('kindProvider')]
     public function testKindReachesTheHookAsArgument(string $kind): void
     {
-        $settings = json_decode(PmGateHook::settingsJson('/srv/state', $kind, 'run-7', false), true);
+        $settings = json_decode(PmGateHook::settingsJson('/srv/state', $kind, 'run-7', false, 'github'), true);
         self::assertIsArray($settings);
 
         self::assertStringContainsString("pm-gate-hook.php' '/srv/state' '{$kind}' 'run-7'", $settings['hooks']['PreToolUse'][0]['hooks'][0]['command']);

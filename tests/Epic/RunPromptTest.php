@@ -34,7 +34,7 @@ final class RunPromptTest extends TestCase
         exec('rm -rf '.escapeshellarg($this->root));
     }
 
-    private function runPrompt(?FakeGitHub $gh = null, ?Database $db = null): RunPrompt
+    private function runPrompt(?FakeGitHub $gh = null, ?Database $db = null, string $forge = Config::FORGE_GITHUB): RunPrompt
     {
         $config = new Config(
             botToken: 't',
@@ -52,6 +52,7 @@ final class RunPromptTest extends TestCase
             pollTimeout: 1,
             gitTimeout: 30,
             forgeOwners: new ForgeOwners(['gpslab']),
+            forge: $forge,
         );
 
         return new RunPrompt($db ?? new Database($this->root), $config, $gh);
@@ -133,5 +134,25 @@ final class RunPromptTest extends TestCase
 
         self::assertSame([], $shas);
         self::assertStringNotContainsString('Reviewed commits', implode("\n", $lines));
+    }
+
+    public function testManualReviewOnGitlabSaysFindingsWereNotCollected(): void
+    {
+        // ws#1 would be recorded in $shas if the client were used: the branch is chosen by FORGE, not by a null client.
+        $gh = new FakeGitHub();
+        $gh->heads['ws#1'] = str_repeat('1', 40);
+        foreach ([$gh, null] as $client) {
+            [$lines, $ids, $shas] = $this->runPrompt($client, null, Config::FORGE_GITLAB)->manualReviewFindings([['text' => 'review !12 and ws#1']]);
+
+            self::assertStringContainsString('NOT collected', implode("\n", $lines));
+            self::assertStringContainsString('glab', implode("\n", $lines));
+            self::assertNull($ids);
+            self::assertSame([], $shas);
+        }
+    }
+
+    public function testManualReviewWithNullClientOnGithubStaysSilent(): void
+    {
+        self::assertSame([[], null, []], $this->runPrompt(null)->manualReviewFindings([['text' => 'review ws#1']]));
     }
 }

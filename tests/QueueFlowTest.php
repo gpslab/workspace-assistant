@@ -92,7 +92,7 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en'): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -112,6 +112,7 @@ final class QueueFlowTest extends TestCase
             'promptsDir' => $promptsDir,
             'localesDir' => $localesDir,
             'forgeOwners' => new ForgeOwners(['anime-db', 'gpslab']),
+            'forge' => $forge,
         ] + ($locale === null ? [] : ['botLocale' => $locale]));
 
         return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github);
@@ -792,6 +793,36 @@ final class QueueFlowTest extends TestCase
 
         self::assertSame('review', $this->jobContext()['mode'] ?? null);
         self::assertStringContainsString('[review]', $this->tg->edits[0]['text']);
+    }
+
+    #[DataProvider('forges')]
+    public function testReviewRunPassesConfiguredForgeToStopHook(string $forge): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot(forge: $forge);
+        $this->db->setMode(100, 1, 'review');
+        $this->say(100, 1, 'request', 10);
+
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $settings = json_decode($this->normalizedSettings(0), true, 512, JSON_THROW_ON_ERROR);
+        $commands = [];
+        foreach ($settings['hooks']['Stop'] ?? [] as $group) {
+            foreach ($group['hooks'] as $hook) {
+                $commands[] = $hook['command'];
+            }
+        }
+        self::assertNotSame([], $commands);
+        foreach ($commands as $command) {
+            self::assertStringEndsWith(" '--forge=".$forge."'", $command);
+        }
+    }
+
+    /** @return array<string, array{string}> */
+    public static function forges(): array
+    {
+        return ['github' => [Config::FORGE_GITHUB], 'gitlab' => [Config::FORGE_GITLAB]];
     }
 
     public function testManualReviewPutsColdFindingsInPromptAndPassesIdsToHook(): void

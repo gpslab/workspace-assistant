@@ -43,6 +43,43 @@ final class ReviewCommitHookTest extends TestCase
     }
 
     /**
+     * @return iterable<string, array{string}>
+     */
+    public static function gitlabDeniedProvider(): iterable
+    {
+        yield 'approve without --sha' => ['glab mr approve 12'];
+        yield 'approve with a short sha' => ['glab mr approve 12 --sha 0123abc'];
+        yield 'approve with a variable sha' => ['glab mr approve 12 --sha $SHA'];
+        yield 'approve chained' => ['cd x && glab mr approve 12'];
+        yield 'note with a command substitution sha' => ['glab mr note 12 -m "ok <!-- verdict:approve sha=$(git rev-parse HEAD) -->"'];
+        yield 'note with a short sha' => ['glab mr note 12 -m "ok <!-- verdict:changes sha=0123abc -->"'];
+    }
+
+    #[DataProvider('gitlabDeniedProvider')]
+    public function testGitlabDenied(string $command): void
+    {
+        self::assertNotNull(ReviewCommitHook::check($command));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function gitlabAllowedProvider(): iterable
+    {
+        yield 'approve with a literal sha' => ['glab mr approve 12 --sha '.self::SHA];
+        yield 'approve with --sha=' => ['glab mr approve 12 --sha='.self::SHA];
+        yield 'note with a literal sha' => ['glab mr note 12 -m "ok <!-- verdict:approve sha='.self::SHA.' -->"'];
+        yield 'note without a marker' => ['glab mr note 12 -m "hello"'];
+        yield 'revoke' => ['glab mr revoke 12'];
+    }
+
+    #[DataProvider('gitlabAllowedProvider')]
+    public function testGitlabAllowed(string $command): void
+    {
+        self::assertNull(ReviewCommitHook::check($command));
+    }
+
+    /**
      * @param array<string, string> $shas
      */
     #[DataProvider('deniedProvider')]

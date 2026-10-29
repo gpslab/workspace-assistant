@@ -447,7 +447,7 @@ final class PmGateHook
      *
      * @param bool $reviewStop also attach the review Stop hook (review mode)
      */
-    public static function settingsJson(string $stateDir, string $kind, string $runId, bool $reviewStop): string
+    public static function settingsJson(string $stateDir, string $kind, string $runId, bool $reviewStop, string $forge): string
     {
         $inner = escapeshellarg(PHP_BINARY).' '
             .escapeshellarg(dirname(__DIR__).'/bin/pm-gate-hook.php').' '
@@ -458,7 +458,7 @@ final class PmGateHook
 
         $hooks = ['PreToolUse' => [['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => $command]]]]];
         if ($reviewStop) {
-            $stop = json_decode(ReviewStatusHook::settingsJson($stateDir), true, 512, JSON_THROW_ON_ERROR);
+            $stop = json_decode(ReviewStatusHook::settingsJson($stateDir, $forge), true, 512, JSON_THROW_ON_ERROR);
             $hooks = array_merge($stop['hooks'], $hooks);
         }
 
