@@ -105,6 +105,9 @@ final class PmGateHookTest extends TestCase
         yield 'gh api graphql prefixed' => ['cd x && GH_TOKEN=t timeout 30 gh api graphql -f query="mutation{createIssue(input:{title:\"t\"}){issue{id}}}"', true];
         yield 'glab api graphql createIssue' => ['glab api graphql -f query=\'mutation { createIssue(input: {projectPath: "g/p", title: "t"}) { issue { iid } } }\'', true];
         yield 'glab api graphql chained' => ['env X=1 glab api graphql --raw-field query="mutation{createIssue(input:{title:\"t\"}){errors}}"; echo', true];
+        yield 'gh api graphql full url' => ['gh api https://api.github.com/graphql -f query=\'mutation { createIssue(input: {title: "t"}) { issue { id } } }\'', true];
+        yield 'gh api graphql path' => ['gh api /graphql -f query=\'mutation { createIssue(input: {title: "t"}) { issue { id } } }\'', true];
+        yield 'glab api graphql host url' => ['glab api https://gitlab.example.com/api/graphql -f query=\'mutation { createIssue(input: {title: "t"}) { errors } }\'', true];
         yield 'graphql query only' => ['gh api graphql -f query=\'{ viewer { login } }\'', false];
         yield 'graphql query keyword' => ['glab api graphql -f query=\'query { project(fullPath: "g/p") { issues { nodes { id } } } }\'', false];
         yield 'graphql other mutation' => ['gh api graphql -f query=\'mutation { addComment(input: {}) { clientMutationId } }\'', false];
