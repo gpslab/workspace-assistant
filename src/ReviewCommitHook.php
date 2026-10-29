@@ -47,7 +47,8 @@ final class ReviewCommitHook
     private const string GLAB_NOTE_RE = '/^glab\s+mr\s+note\b/';
     private const string MARKER_LOOSE_RE = '/<!--\s*verdict:(?<state>[^\s>]*)\s+sha=(?<sha>[^\s>]*)/';
     private const string GLAB_API_RE = '/^glab\s+api\b(?<args>.*)$/s';
-    private const string GLAB_APPROVE_ENDPOINT_RE = '~'.PmGateHook::GLAB_PROJECT_PATH.'/merge_requests/(?<n>\d+)/approve(?<query>\?[^\s"\']*)?(?=[\s"\'?]|$)~';
+    private const string GLAB_APPROVE_ENDPOINT_RE = '~'.PmGateHook::GLAB_PROJECT_PATH.'/merge_requests/(?<n>\d+|[^\s/"\'?]+)/approve(?<query>\?[^\s"\']*)?(?=[\s"\'?]|$)~';
+    private const string BODY_FLAG_RE = '/(?:^|\s)(?:--message\b|-m)/';
     private const string QUERY_SHA_RE = '/[?&]sha=(?<value>[^\s&"\']*)/';
     private const string SHA_FIELD_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field)[\s=]*["\']?sha=(?<value>\S*)/';
     private const string LOWER_SHA_RE = '/^["\']?[0-9a-f]{40}["\']?$/';
@@ -138,7 +139,21 @@ final class ReviewCommitHook
         // (`-m"…"`, `$'…'`) would be published but never counted.
         $body = ReviewStatusHook::gitlabNoteBody($segment);
         if (preg_match_all(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $body) !== $any) {
-            return 'MR note denied: the `verdict:` marker is outside a body the Stop hook reads. Pass the note as `-m "…"`, `-m \'…\'`, `--message="…"` or a heredoc (no `-m"…"`, no `$\'…\'`): '.self::MARKER_FORM.'.';
+            return 'MR note denied: the `verdict:` marker is outside a body the Stop hook reads. Pass the note as `-m "…"`, `-m \'…\'`, `--message="…"` or, for several lines, `-m "$(cat <<\'EOF\' … EOF)"` (no `-m"…"`, no `$\'…\'`, no heredoc outside the `-m` value): '.self::MARKER_FORM.'.';
+        }
+        $parts = ReviewStatusHook::gitlabNoteParts($segment);
+        foreach ($parts['heredocs'] as [, , $text]) {
+            if (preg_match(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $text) === 1) {
+                return 'MR note denied: the `verdict:` marker is in a heredoc outside the `-m` value, glab does not publish it as the note. Pass the note as `-m "…"`, `-m \'…\'`, `--message="…"` or, for several lines, `-m "$(cat <<\'EOF\' … EOF)"`: '.self::MARKER_FORM.'.';
+            }
+        }
+        // glab keeps only the last `-m`: count the flags outside the body values the Stop hook reads.
+        $rest = $segment;
+        foreach ([...$parts['values'], ...array_map(static fn (array $h): array => [$h[0], $h[1]], $parts['heredocs'])] as [$from, $to]) {
+            $rest = substr_replace($rest, str_repeat(' ', $to - $from), $from, $to - $from);
+        }
+        if (count($parts['values']) + preg_match_all(self::BODY_FLAG_RE, $rest) > 1) {
+            return 'MR note denied: a note with a `verdict:` marker has more than one `-m`/`--message` flag, and glab publishes only the last `-m`, so the marker or the findings may not be on the MR. Use exactly one: `-m "…"`, `-m \'…\'`, `--message="…"` or, for several lines, `-m "$(cat <<\'EOF\' … EOF)"`: '.self::MARKER_FORM.'.';
         }
         $segment = $body;
         if ($any > 1) {

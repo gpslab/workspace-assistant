@@ -97,29 +97,80 @@ final class ReviewCommitHookTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{string, bool}> note body, whether the Stop hook counts it
+     * @return iterable<string, array{string, bool, bool}> command, whether the commit hook denies it, whether
+     *                                                     the Stop hook counts it when it is not denied
      */
     public static function markerProvider(): iterable
     {
         $sha = self::SHA;
-        yield 'approve' => ["<!-- verdict:approve sha={$sha} -->", true];
-        yield 'changes' => ["<!-- verdict:changes sha={$sha} -->", true];
-        yield 'unknown state' => ["<!-- verdict:approved sha={$sha} -->", false];
-        yield 'uppercase state' => ["<!-- verdict:Approve sha={$sha} -->", false];
-        yield 'uppercase sha' => ['<!-- verdict:approve sha='.self::UPPER.' -->', false];
-        yield 'command substitution' => ['<!-- verdict:approve sha=$(git rev-parse HEAD) -->', false];
-        yield 'variable' => ['<!-- verdict:approve sha=$SHA -->', false];
-        yield 'short sha' => ['<!-- verdict:changes sha=0123abc -->', false];
-        yield 'two markers' => ["<!-- verdict:approve sha={$sha} --> <!-- verdict:changes sha={$sha} -->", false];
-        yield 'no sha' => ['<!-- verdict:approve -->', false];
-        yield 'trailing junk' => ["<!-- verdict:approve sha={$sha} extra -->", false];
+        $m = "<!-- verdict:approve sha={$sha} -->";
+        $one = static fn (string $marker): string => 'glab mr note 12 -m "C1 — fixed '.$marker.'"';
+        yield 'approve' => [$one($m), false, true];
+        yield 'changes' => [$one("<!-- verdict:changes sha={$sha} -->"), false, true];
+        yield 'unknown state' => [$one("<!-- verdict:approved sha={$sha} -->"), true, false];
+        yield 'uppercase state' => [$one("<!-- verdict:Approve sha={$sha} -->"), true, false];
+        yield 'uppercase sha' => [$one('<!-- verdict:approve sha='.self::UPPER.' -->'), true, false];
+        yield 'command substitution' => [$one('<!-- verdict:approve sha=$(git rev-parse HEAD) -->'), true, false];
+        yield 'variable' => [$one('<!-- verdict:approve sha=$SHA -->'), true, false];
+        yield 'short sha' => [$one('<!-- verdict:changes sha=0123abc -->'), true, false];
+        yield 'two markers' => [$one("<!-- verdict:approve sha={$sha} --> <!-- verdict:changes sha={$sha} -->"), true, false];
+        yield 'no sha' => [$one('<!-- verdict:approve -->'), true, false];
+        yield 'trailing junk' => [$one("<!-- verdict:approve sha={$sha} extra -->"), true, false];
+        yield 'two -m, marker first' => ["glab mr note 12 -m \"{$m}\" -m \"LGTM\"", true, true];
+        yield 'two -m, marker last' => ["glab mr note 12 -m \"LGTM\" -m \"{$m}\"", true, true];
+        yield 'second -m attached' => ["glab mr note 12 -m \"{$m}\" -m\"LGTM\"", true, true];
+        yield 'second -m bare word' => ["glab mr note 12 -m \"{$m}\" -m LGTM", true, true];
+        yield 'second --message variable' => ["glab mr note 12 -m \"{$m}\" --message \$B", true, true];
+        yield '-m in heredoc text' => ["glab mr note 12 -m \"\$(cat <<'EOF'\nC1 — fixed, use -m 'x'\n{$m}\nEOF\n)\"", false, true];
+        yield 'marker in a positional heredoc' => ["glab mr note 12 -m \"x\" \"\$(cat <<'EOF'\n{$m}\nEOF\n)\"", true, false];
     }
 
     /** Any note with a `verdict:` marker is either denied by the commit hook or counted by the Stop hook. */
     #[DataProvider('markerProvider')]
-    public function testMarkerPairProperty(string $marker, bool $counted): void
+    public function testMarkerPairProperty(string $command, bool $denied, bool $counted): void
     {
-        self::assertSame($counted, self::bothAgree('glab mr note 12 -m "C1 — fixed '.$marker.'"', $marker));
+        $isDenied = ReviewCommitHook::check($command) !== null;
+
+        self::assertSame($denied, $isDenied);
+        self::assertTrue($isDenied || self::stopCounts($command));
+        if (!$isDenied) {
+            self::assertSame($counted, self::stopCounts($command));
+        }
+    }
+
+    public function testNoteWithoutMarkerNeverDeniedByFlagRule(): void
+    {
+        self::assertNull(ReviewCommitHook::check('glab mr note 12 -m "a" -m "b"'));
+        self::assertNull(ReviewCommitHook::check("glab mr note 12 -m \"x\" \"\$(cat <<'EOF'\nhi\nEOF\n)\""));
+    }
+
+    public function testTwoBodyFlagsDenialText(): void
+    {
+        $m = '<!-- verdict:approve sha='.self::SHA.' -->';
+        $text = (string) ReviewCommitHook::check("glab mr note 12 -m \"{$m}\" -m LGTM");
+
+        self::assertStringContainsString('only the last `-m`', $text);
+        self::assertStringContainsString('-m "$(cat <<\'EOF\' … EOF)"', $text);
+    }
+
+    /**
+     * @return iterable<string, array{string, bool}> command, whether it is denied
+     */
+    public static function approveEndpointProvider(): iterable
+    {
+        $base = 'glab api -X POST projects/1/merge_requests/';
+        yield 'literal N without sha' => [$base.'5/approve', true];
+        yield '$N without sha' => [$base.'$N/approve', true];
+        yield '${N} without sha' => [$base.'${N}/approve', true];
+        yield '$N with sha' => [$base.'$N/approve -f sha='.self::SHA, false];
+        yield '${N} with sha' => [$base.'${N}/approve -f sha='.self::SHA, false];
+        yield '$N with a variable sha' => [$base.'$N/approve -f sha=$SHA', true];
+    }
+
+    #[DataProvider('approveEndpointProvider')]
+    public function testApproveEndpointVariableNumber(string $command, bool $denied): void
+    {
+        self::assertSame($denied, ReviewCommitHook::check($command) !== null);
     }
 
     /**
@@ -138,7 +189,10 @@ final class ReviewCommitHookTest extends TestCase
     {
         $marker = '<!-- verdict:approve sha='.self::SHA.' -->';
 
-        self::assertTrue(self::bothAgree(sprintf($template, $marker), $marker));
+        $command = sprintf($template, $marker);
+
+        self::assertNull(ReviewCommitHook::check($command));
+        self::assertTrue(self::stopCounts($command));
     }
 
     /** Forms the Stop hook never reads a body from are denied, not published uncounted. */
@@ -150,19 +204,18 @@ final class ReviewCommitHookTest extends TestCase
         self::assertStringContainsString('outside a body', (string) ReviewCommitHook::check("glab mr note 12 -m \$'ok ".$marker."'"));
     }
 
-    /** True when the Stop hook counts the note and the commit hook lets it through. */
-    private static function bothAgree(string $command, string $marker): bool
+    /** True when the Stop hook counts the note as a verdict. */
+    private static function stopCounts(string $command): bool
     {
-        $denied = ReviewCommitHook::check($command) !== null;
+        $marker = $command;
         $lines = [
             (string) json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => 'review !12']]),
             (string) json_encode(['type' => 'assistant', 'message' => ['content' => [['type' => 'tool_use', 'id' => 't1', 'name' => 'Bash', 'input' => ['command' => $command]]]]]),
             (string) json_encode(['type' => 'user', 'message' => ['content' => [['type' => 'tool_result', 'tool_use_id' => 't1', 'content' => 'ok', 'is_error' => false]]]]),
         ];
         $stop = ReviewStatusHook::decide(['last_assistant_message' => str_contains($marker, 'verdict:changes') ? '🔴 Blocked' : '🟢 Merge', 'stop_hook_active' => false], $lines);
-        $stopCounts = $stop === ReviewStatusHook::PASS;
 
-        return $denied !== $stopCounts && $stopCounts;
+        return $stop === ReviewStatusHook::PASS;
     }
 
     public function testMarkerDenialTexts(): void

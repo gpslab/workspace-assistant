@@ -136,7 +136,9 @@ $argv = [$claudeBin, '-p', $prompt, '--output-format', 'stream-json', '--verbose
 //   on GitLab (whatever FORGE is) the SHA is a literal lowercase 40-hex: in the verdict marker
 //   `<!-- verdict:approve|changes sha=<SHA> -->` (one grammar, ReviewStatusHook::GITLAB_MARKER_RE, shared
 //   by both hooks), in `glab mr approve -s|--sha <SHA>` and in the `sha` of a `glab api` POST to
-//   `projects/<id>/merge_requests/<N>/approve`
+//   `projects/<id>/merge_requests/<N>/approve`; a `glab mr note` with a marker has exactly one `-m` flag
+//   (glab publishes the last one; the Stop hook joins all) and its body is `-m "…"` or
+//   `-m "$(cat <<'EOF' … EOF)"`, never a heredoc outside the `-m` value
 // + --agents <STATE_DIR/agents/<id>.json> (built-in sub-agents; absent in both /compact phases
 //   and when CLAUDE_EXTRA_ARGS already contains --agents)
 proc_open($argv, $descriptors, $pipes, $repoPath, $env);
