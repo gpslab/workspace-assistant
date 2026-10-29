@@ -667,6 +667,60 @@ final class InstallerTest extends TestCase
         self::assertStringContainsString('user name is unknown', $err);
     }
 
+    public function testRejectsUnknownForge(): void
+    {
+        [$code, , $err] = $this->install([...$this->required(), '--forge=bitbucket']);
+
+        self::assertNotSame(0, $code);
+        self::assertStringContainsString('FORGE=bitbucket is not supported (expected github or gitlab)', $err);
+        self::assertFileDoesNotExist($this->root.'/.env');
+    }
+
+    public function testGitlabWritesForgeKeysAndChecksGlab(): void
+    {
+        $calls = [];
+        $run = static function (array $command) use (&$calls): array {
+            $calls[] = $command;
+
+            return [0, '', ''];
+        };
+        [$code, , $err] = $this->install(
+            [...$this->required(), '--forge=gitlab', '--forge-host=gitlab.example.com', '--forge-owners=group/sub', '--forge-repo=group/sub/proj'],
+            [],
+            1000,
+            'tester',
+            $this->services(run: $run),
+        );
+
+        self::assertSame(0, $code, $err);
+        $env = Env::load($this->root.'/.env', true);
+        self::assertSame('gitlab', $env->get('FORGE'));
+        self::assertSame('gitlab.example.com', $env->get('FORGE_HOST'));
+        self::assertSame('group/sub', $env->get('FORGE_OWNERS'));
+        self::assertSame('group/sub/proj', $env->get('FORGE_REPO'));
+        self::assertContains(['glab', '--version'], $calls);
+        self::assertContains(['glab', 'auth', 'status', '--hostname', 'gitlab.example.com'], $calls);
+        self::assertNotContains(['gh', '--version'], $calls);
+    }
+
+    public function testGitlabWithoutGlabIsAnError(): void
+    {
+        $run = static fn (array $c): array => $c[0] === 'glab' ? [1, '', 'boom'] : [0, '', ''];
+        [$code, , $err] = $this->install([...$this->required(), '--forge=gitlab'], [], 1000, 'tester', $this->services(run: $run));
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('glab was not found', $err);
+    }
+
+    public function testGitlabAuthFailureIsAWarningWithGlabLoginHint(): void
+    {
+        $run = static fn (array $c): array => $c[0] === 'glab' && in_array('auth', $c, true) ? [1, '', 'boom'] : [0, '', ''];
+        [$code, , $err] = $this->install([...$this->required(), '--forge=gitlab', '--forge-host=gitlab.example.com'], [], 1000, 'tester', $this->services(run: $run));
+
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString('`glab auth status` failed: run `glab auth login --hostname gitlab.example.com`', $err);
+    }
+
     public function testEchoIsNotTouchedWithoutTty(): void
     {
         $calls = [];

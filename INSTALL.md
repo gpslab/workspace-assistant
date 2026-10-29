@@ -69,18 +69,19 @@ and does not start the bot. The output is in English.
   | Check                                                                   | On failure                                      |
   |-------------------------------------------------------------------------|-------------------------------------------------|
   | PHP version from `composer.json`; extensions `curl`, `pdo_sqlite`, `pcntl`, `posix` | error                           |
-  | `git`, `gh` and the `CLAUDE_BIN` binary run (`--version`)               | error                                           |
+  | `FORGE` is `github` or `gitlab`                                         | error                                           |
+  | `git`, the forge CLI (`gh`, or `glab` for `FORGE=gitlab`) and the `CLAUDE_BIN` binary run (`--version`) | error |
   | `BOT_LOCALE` is in the catalog; `TIMEZONE` is valid; `REPO_PATH` is a git repository | error                      |
   | Bot API `getMe` accepts the token                                       | error (warning with `--skip-network-checks`)    |
   | `git -C REPO_PATH ls-remote` works without prompts                      | error (warning with `--skip-network-checks`)    |
-  | `gh auth status`                                                        | warning (only epics need `gh`)                  |
+  | `gh auth status -h <host>` (`glab auth status --hostname <host>` for `FORGE=gitlab`) | warning (only epics need `gh`) |
 
   `git` runs with `GIT_TERMINAL_PROMPT=0`, `BatchMode=yes` and `StrictHostKeyChecking=yes` (the bot itself
   uses `accept-new`), so on a fresh server an unknown host key fails the check with an `ssh-keyscan` hint:
   verify the fingerprint and add the key to `~/.ssh/known_hosts`.
 - The systemd unit from [Running as a service](#running-as-a-service) (`User` is the current user,
   `WorkingDirectory` the installation directory, `ExecStart` the running PHP binary and `bin/bot.php`) and the
-  cron line from [Monitoring `gh` authentication](#monitoring-gh-authentication) are printed. The unit is
+  cron line from [Monitoring forge authentication](#monitoring-forge-authentication) are printed. The unit is
   written to a file only with `--unit-file=PATH`; installing it is up to you.
 - When `.env` already existed, restart a running bot (`bin/ctl.sh restart` or your service manager) to apply the changes.
 
@@ -113,15 +114,26 @@ WantedBy=multi-user.target
 The bot handles `SIGTERM`: it finishes the current loop iteration, kills the running Claude child
 process and exits. Only **one instance per bot token** may run, otherwise Telegram answers with 409.
 
-### Monitoring `gh` authentication
+### Monitoring forge authentication
 
-`bin/check_gh_auth.sh` checks `gh auth status` and, if the authorization has expired, sends a message
-to every id in `ALLOWED_USER_IDS` through the Bot API. It reads `BOT_TOKEN` and `ALLOWED_USER_IDS`
-from the `.env` next to it and stays silent when everything is fine. Run it from cron, for example weekly:
+`bin/check_forge_auth.sh` checks `gh auth status -h <host>` (`FORGE=github`) or
+`glab auth status --hostname <host>` (`FORGE=gitlab`) and, if the authorization has expired, sends a message
+to every id in `ALLOWED_USER_IDS` through the Bot API. The host is `FORGE_HOST`; for `github` the
+`GH_AUTH_HOST` environment variable overrides it (default `github.com`; `gitlab.com` for gitlab). It exits
+non-zero on a failed check, a missing CLI or an unknown `FORGE`. It reads `BOT_TOKEN`, `ALLOWED_USER_IDS`,
+`FORGE` and `FORGE_HOST` from the `.env` next to it and stays silent when everything is fine. Run it from
+cron, for example weekly. `bin/check_gh_auth.sh` only delegates to it, so existing cron entries keep working:
 
 ```cron
 0 9 * * 1 /opt/workspace-assistant/bin/check_gh_auth.sh >> /opt/workspace-assistant/state/check_gh_auth.log 2>&1
 ```
+
+### GitLab
+
+For `FORGE=gitlab` (GitLab 16.0+, glab 1.40+) run the installer with `--forge=gitlab`, and for a self-hosted
+instance `--forge-host=gitlab.example.com`; it checks `glab` instead of `gh`. Authenticate the bot's user with
+`glab auth login --hostname gitlab.example.com` (token scopes `api` and `write_repository`). What works on
+GitLab (chat and PM modes; review mode after #100; no epics) is in the [GitLab](README.md#gitlab) section of the README.
 
 ## Configuration
 
@@ -130,7 +142,7 @@ from the `.env` next to it and stays silent when everything is fine. Run it from
 | `BOT_TOKEN` | required | Bot token from @BotFather |
 | `ALLOWED_USER_IDS` | required | Whitelist of Telegram user ids |
 | `REPO_PATH` | required | Absolute path to the workspace git repository |
-| `FORGE` | `github` | Forge: `github` or `gitlab`; anything else is a startup error. Epics are not available on `gitlab` yet |
+| `FORGE` | `github` | Forge: `github` or `gitlab`; anything else is a startup error (and an installer error). Epics are not available on `gitlab` yet, see [GitLab](README.md#gitlab) |
 | `FORGE_HOST` | `github.com` / `gitlab.com` | Forge host, by `FORGE` |
 | `FORGE_REPO` | empty | Workspace repository as `owner/name`, for commit links (alias: `GITHUB_REPO`; the new key wins, a warning is logged when both are set) |
 | `FORGE_OWNERS` | empty | Owners the bot works with; the first is the default owner; with `FORGE=gitlab` an owner may be a namespace path `group/subgroup` (alias: `GITHUB_OWNERS`) |

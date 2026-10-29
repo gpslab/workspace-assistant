@@ -40,8 +40,8 @@ final class Installer
     private const TIMEOUT_NETWORK = 30;
 
     private const EXTRA_ARGS_WARNING = 'WARNING: with --dangerously-skip-permissions Claude runs WITHOUT permission prompts and executes '
-        ."whatever a Telegram message makes it do, with the rights of the bot's system user and its `gh` token. "
-        .'Use a dedicated unprivileged user and a narrowly scoped `gh` token, or set a stricter value, e.g. --permission-mode,acceptEdits.';
+        ."whatever a Telegram message makes it do, with the rights of the bot's system user and its forge CLI token. "
+        .'Use a dedicated unprivileged user and a narrowly scoped forge token, or set a stricter value, e.g. --permission-mode,acceptEdits.';
 
     private const DANGEROUS_FLAG = '--dangerously-skip-permissions';
 
@@ -210,8 +210,8 @@ final class Installer
         $extraArgs = $values['CLAUDE_EXTRA_ARGS'] ?? self::DANGEROUS_FLAG;
         if (in_array(self::DANGEROUS_FLAG, array_map('trim', explode(',', $extraArgs)), true)) {
             $warnings[] = self::DANGEROUS_FLAG.' is in CLAUDE_EXTRA_ARGS: Claude runs WITHOUT permission prompts and executes '
-                .'whatever a Telegram message makes it do, with the rights of the bot\'s system user and its `gh` token. '
-                .'Run the bot as a dedicated unprivileged user with a narrowly scoped `gh` token, or set a stricter '
+                .'whatever a Telegram message makes it do, with the rights of the bot\'s system user and its forge CLI token. '
+                .'Run the bot as a dedicated unprivileged user with a narrowly scoped forge token, or set a stricter '
                 .'CLAUDE_EXTRA_ARGS (e.g. --permission-mode,acceptEdits).';
         }
         if ($this->euid === 0) {
@@ -293,6 +293,7 @@ final class Installer
             $key === 'REPO_PATH' && !str_starts_with($value, '/') => 'REPO_PATH: must be an absolute path (the bot resolves it relative to its own working directory).',
             $key === 'REPO_PATH' && !is_dir($value.'/.git') => "REPO_PATH={$value} does not look like a git repository.",
             $key === 'ALLOWED_USER_IDS' && preg_match('/^\d+(,\d+)*$/', $value) !== 1 => 'ALLOWED_USER_IDS: must contain only digits separated by commas (e.g. 1001,1002).',
+            $key === 'FORGE' && $value !== '' && !isset(Config::DEFAULT_HOSTS[$value]) => "FORGE={$value} is not supported (expected ".implode(' or ', array_keys(Config::DEFAULT_HOSTS)).').',
             $key === 'TIMEZONE' && $value !== '' && !Timezone::isValid($value) => "Invalid TIMEZONE={$value}.",
             $key === 'BOT_LOCALE' && $value !== '' && !in_array($value, (new Locale())->codes(), true) => "BOT_LOCALE={$value} is not in the locale catalog (available: ".implode(', ', (new Locale())->codes()).').',
             default => null,
@@ -395,8 +396,11 @@ final class Installer
 
         $env = array_filter($this->environment, 'is_string');
         $claude = ($values['CLAUDE_BIN'] ?? '') !== '' ? $values['CLAUDE_BIN'] : 'claude';
+        $forge = ($values['FORGE'] ?? '') !== '' ? $values['FORGE'] : Config::FORGE_GITHUB;
+        $forgeHost = ($values['FORGE_HOST'] ?? '') !== '' ? $values['FORGE_HOST'] : (Config::DEFAULT_HOSTS[$forge] ?? 'github.com');
+        $cli = $forge === Config::FORGE_GITLAB ? 'glab' : 'gh';
         $available = [];
-        foreach (['git' => 'git', 'gh' => 'gh', $claude => 'CLAUDE_BIN='.$claude] as $binary => $label) {
+        foreach (['git' => 'git', $cli => $cli, $claude => 'CLAUDE_BIN='.$claude] as $binary => $label) {
             [$code] = ($services->run)([$binary, '--version'], $env, self::TIMEOUT_PROBE, null, false);
             $available[$binary] = $code === 0;
             if ($code !== 0) {
@@ -440,10 +444,12 @@ final class Installer
             }
         }
 
-        if ($available['gh']) {
-            [$code] = ($services->run)(['gh', 'auth', 'status'], $env, self::TIMEOUT_PROBE, null, false);
+        if ($available[$cli]) {
+            $status = $forge === Config::FORGE_GITLAB ? ['glab', 'auth', 'status', '--hostname', $forgeHost] : ['gh', 'auth', 'status', '-h', $forgeHost];
+            [$code] = ($services->run)($status, $env, self::TIMEOUT_PROBE, null, false);
             if ($code !== 0) {
-                $warnings[] = '`gh auth status` failed: run `gh auth login` as the bot\'s user (only epics need `gh`).';
+                $login = $forge === Config::FORGE_GITLAB ? "glab auth login --hostname {$forgeHost}" : "gh auth login -h {$forgeHost}";
+                $warnings[] = "`{$cli} auth status` failed: run `{$login}` as the bot's user".($forge === Config::FORGE_GITLAB ? '.' : ' (only epics need `gh`).');
             }
         }
     }

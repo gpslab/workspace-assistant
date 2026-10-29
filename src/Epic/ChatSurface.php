@@ -262,7 +262,7 @@ final class ChatSurface
         $journal = $this->config->epicsDir.'/'.$epic['slug'].'.journal.md';
         // The journal is created by the epic's first run; before that the link would 404.
         // Under AUTO_COMMIT=0 nothing is ever pushed, so the journal stays a local file and
-        // the GitHub link would always 404: show the plain path. Otherwise best effort: the
+        // the forge link would always 404: show the plain path. Otherwise best effort: the
         // local copy is checked - until a run has pushed the journal, the link may still 404.
         $journalText = $this->t('epic.journal_missing', ['path' => $journal]);
         if (is_file($this->config->repoPath.'/'.$journal)) {
@@ -274,12 +274,12 @@ final class ChatSurface
     }
 
     /**
-     * A file path in REPO_PATH as a GitHub link (Markdown), so that it is
-     * clickable in Telegram; without a GitHub remote - just the path.
+     * A file path in REPO_PATH as a forge link (Markdown), so that it is
+     * clickable in Telegram; without a remote on the forge host - just the path.
      */
     private function repoFileLink(string $path): string
     {
-        $url = $this->git->githubFileUrl($path);
+        $url = $this->git->forgeFileUrl($path);
 
         return $url !== null ? "[{$path}]({$url})" : $path;
     }
@@ -407,7 +407,7 @@ final class ChatSurface
             'slug' => $slug,
             'tasks' => count($plan->tasks),
             'releases' => count($plan->releases),
-            'plan' => $this->git->githubFileUrl($path) ?? $path,
+            'plan' => $this->git->forgeFileUrl($path) ?? $path,
         ]);
         $this->tg->editMessageText($chatId, $messageId, $text, Keyboards::epicConfirmation($threadId, $slug, $this->t('epic.start_button'), $this->t('epic.cancel_button'))->markup);
     }

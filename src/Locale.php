@@ -33,6 +33,9 @@ final class Locale
 
     private string $code;
 
+    /** @var array<string, string> placeholders every text may use (`{forge}`, `{cli}`), overridden by the call parameters */
+    private array $forgeParams = ['forge' => 'GitHub', 'cli' => 'gh'];
+
     /**
      * @param string      $code        selected locale; an unknown code falls back to `en` with a warning
      * @param string|null $overrideDir absolute path to the instance locale files, or null
@@ -69,10 +72,13 @@ final class Locale
     /** The catalog of an instance: `BOT_LOCALE` selects the locale, `LOCALES_DIR` (relative to `REPO_PATH`) adds files. */
     public static function fromConfig(Config $config): self
     {
-        return new self(
+        $locale = new self(
             $config->botLocale,
             $config->localesDir !== '' ? $config->repoPath.'/'.$config->localesDir : null,
         );
+        $locale->forgeParams = ['forge' => $config->forgeName(), 'cli' => $config->forgeCli()];
+
+        return $locale;
     }
 
     public function code(): string
@@ -151,11 +157,14 @@ final class Locale
     public function t(string $key, array $params = []): string
     {
         $text = $this->catalogs[$this->code][$key] ?? $this->catalogs[self::DEFAULT][$key] ?? $key;
-        if ($params === []) {
+        if ($params === [] && !str_contains($text, '{forge}') && !str_contains($text, '{cli}')) {
             return $text;
         }
 
         $map = [];
+        foreach ($this->forgeParams as $name => $value) {
+            $map['{'.$name.'}'] = $value;
+        }
         foreach ($params as $name => $value) {
             $map['{'.$name.'}'] = (string) $value;
         }

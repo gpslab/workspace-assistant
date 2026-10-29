@@ -188,9 +188,9 @@ final class RunResult implements DecisionHost
             return $hash;
         }
 
-        $path = $this->config->forge === Config::FORGE_GITLAB ? '/-/commit/' : '/commit/';
+        $host = $this->config->forgeHost;
 
-        return "https://{$this->config->forgeHost}/{$this->config->forgeRepo}{$path}{$hash}";
+        return GitManager::buildCommitUrl("https://{$host}/{$this->config->forgeRepo}", $hash, $this->config->forge, $host);
     }
 
     /**

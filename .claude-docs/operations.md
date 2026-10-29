@@ -68,9 +68,9 @@ does the PHP code of the `Orchestrator` (`GhClient`, polled every `EPIC_POLL_SEC
 organization token rotation, stricter 2FA/SSO). Symptom: `gh auth status` prints `X Failed to log in`.
 The bot does not signal this by itself, hence a separate check.
 
-**`bin/check_gh_auth.sh`** runs from cron (weekly), checks `gh auth status` and sends a Telegram message
+**`bin/check_forge_auth.sh`** (`bin/check_gh_auth.sh` only delegates to it) runs from cron (weekly), checks `gh auth status -h <host>` or, with `FORGE=gitlab`, `glab auth status --hostname <host>`, and sends a Telegram message
 through the Bot API directly (the running bot is not touched) when authorization is broken. It reads
-`BOT_TOKEN` and `ALLOWED_USER_IDS` from the same `.env`. Setup and the cron line: [INSTALL.md](../INSTALL.md#monitoring-gh-authentication).
+`BOT_TOKEN` and `ALLOWED_USER_IDS` from the same `.env`. Setup and the cron line: [INSTALL.md](../INSTALL.md#monitoring-forge-authentication).
 
 When the notice arrives:
 

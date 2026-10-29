@@ -94,6 +94,18 @@ final class LocaleCatalogTest extends TestCase
         return $names;
     }
 
+    public function testNoTextHardcodesTheForgeNameOrCli(): void
+    {
+        foreach (self::catalogs() as $code => $texts) {
+            foreach ($texts as $key => $text) {
+                if (in_array($key, Locale::SERVICE_FIELDS, true)) {
+                    continue;
+                }
+                self::assertDoesNotMatchRegularExpression('/GitHub|(?<![\\w{])gh(?![\\w}])/u', $text, "{$code}:{$key} hardcodes GitHub or gh: use {forge} and {cli}");
+            }
+        }
+    }
+
     /**
      * Keys the code uses: literal `->t('key')` calls of all sources plus the `command.<name>` keys.
      *
