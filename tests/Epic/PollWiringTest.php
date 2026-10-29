@@ -7,7 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 use GpsLab\WorkspaceAssistant\Bot;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
-use GpsLab\WorkspaceAssistant\Epic\GitHub;
+use GpsLab\WorkspaceAssistant\Epic\Forge;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\Tests\FakeTelegram;
@@ -40,7 +40,7 @@ final class PollWiringTest extends TestCase
             botToken: 't',
             allowedUserIds: [555],
             repoPath: $this->root,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: 'claude',
             claudeTimeout: 0,
             claudeStallTimeout: 900,
@@ -53,12 +53,37 @@ final class PollWiringTest extends TestCase
             gitTimeout: 30,
             epicPollSeconds: self::POLL_SECONDS,
         );
-        $this->bot = new Bot($config, $this->db, $this->tg, new GitManager($this->root, 30), new SessionFiles($this->root), $this->createStub(GitHub::class));
+        $this->bot = new Bot($config, $this->db, $this->tg, new GitManager($this->root, 30), new SessionFiles($this->root), $this->createStub(Forge::class));
     }
 
     protected function tearDown(): void
     {
         exec('rm -rf '.escapeshellarg($this->root));
+    }
+
+    public function testOrchestratorIsNotWiredOnGitlab(): void
+    {
+        $config = new Config(
+            botToken: 't',
+            allowedUserIds: [555],
+            repoPath: $this->root,
+            forgeRepo: '',
+            claudeBin: 'claude',
+            claudeTimeout: 0,
+            claudeStallTimeout: 900,
+            claudeExtraArgs: [],
+            claudeAppendSystemPrompt: '',
+            stateDir: $this->root.'/state',
+            outboxDir: $this->root.'/outbox',
+            inboxDir: $this->root.'/inbox',
+            pollTimeout: self::POLL_TIMEOUT,
+            gitTimeout: 30,
+            forge: Config::FORGE_GITLAB,
+        );
+        $bot = new Bot($config, $this->db, $this->tg, new GitManager($this->root, 30), new SessionFiles($this->root), $this->createStub(Forge::class));
+
+        self::assertNull((new \ReflectionProperty(Bot::class, 'orchestrator'))->getValue($bot));
+        self::assertNotNull((new \ReflectionProperty(Bot::class, 'orchestrator'))->getValue($this->bot));
     }
 
     private function call(string $method): mixed

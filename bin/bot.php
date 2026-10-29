@@ -26,7 +26,7 @@ try {
     $git = new GitManager($config->repoPath, $config->gitTimeout, $locale);
     $sessionFiles = new SessionFiles();
 
-    $bot = new Bot($config, $db, $tg, $git, $sessionFiles, new GhClient($config->githubOwners, openroninLogins: $config->openroninLogins), $locale);
+    $bot = new Bot($config, $db, $tg, $git, $sessionFiles, $config->epicsAvailable() ? new GhClient($config->forgeOwners, openroninLogins: $config->openroninLogins) : null, $locale);
     $bot->run();
 } catch (\Throwable $e) {
     Log::line('fatal error: '.$e->getMessage());

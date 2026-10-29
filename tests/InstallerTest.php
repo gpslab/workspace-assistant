@@ -75,10 +75,10 @@ final class InstallerTest extends TestCase
 
     public function testOptionWithoutValueDoesNotSwallowNextOption(): void
     {
-        [$code, $out, $err] = $this->install(['--github-repo', '--bot-token='.self::TOKEN, '--allowed-user-ids=1', '--repo-path='.$this->repo]);
+        [$code, $out, $err] = $this->install(['--forge-repo', '--bot-token='.self::TOKEN, '--allowed-user-ids=1', '--repo-path='.$this->repo]);
 
         self::assertNotSame(0, $code);
-        self::assertStringContainsString('--github-repo requires a value', $err);
+        self::assertStringContainsString('--forge-repo requires a value', $err);
         self::assertStringNotContainsString(self::TOKEN, $out.$err);
         self::assertFileDoesNotExist($this->root.'/.env');
     }
@@ -100,14 +100,14 @@ final class InstallerTest extends TestCase
 
     public function testBothParsersReadTheSameValues(): void
     {
-        $args = [...$this->required(), '--github-repo=owner/repo', '--timezone=Europe/London', '--claude-extra-args=--permission-mode,acceptEdits'];
+        $args = [...$this->required(), '--forge-repo=owner/repo', '--timezone=Europe/London', '--claude-extra-args=--permission-mode,acceptEdits'];
         [$code, , $err] = $this->install($args);
         self::assertSame(0, $code, $err);
 
         $path = $this->root.'/.env';
         $env = Env::load($path, true);
         $script = 'source '.escapeshellarg(dirname(__DIR__).'/bin/env.sh').'; load_env_file '.escapeshellarg($path)
-            .'; for k in BOT_TOKEN ALLOWED_USER_IDS REPO_PATH GITHUB_REPO TIMEZONE CLAUDE_EXTRA_ARGS CLAUDE_BIN BOT_LOCALE; do printf "%s=%s\n" "$k" "${!k-}"; done';
+            .'; for k in BOT_TOKEN ALLOWED_USER_IDS REPO_PATH FORGE_REPO TIMEZONE CLAUDE_EXTRA_ARGS CLAUDE_BIN BOT_LOCALE; do printf "%s=%s\n" "$k" "${!k-}"; done';
         $bash = [];
         foreach (explode("\n", trim((string) shell_exec('env -i bash -c '.escapeshellarg($script)))) as $line) {
             [$k, $v] = explode('=', $line, 2);
@@ -134,9 +134,9 @@ final class InstallerTest extends TestCase
      */
     public static function invalidValueProvider(): iterable
     {
-        yield 'line break' => ['--github-repo', "owner/repo\nINJECTED=1"];
-        yield 'carriage return' => ['--github-repo', "owner/repo\rX"];
-        yield 'hash' => ['--github-repo', 'owner/repo#1'];
+        yield 'line break' => ['--forge-repo', "owner/repo\nINJECTED=1"];
+        yield 'carriage return' => ['--forge-repo', "owner/repo\rX"];
+        yield 'hash' => ['--forge-repo', 'owner/repo#1'];
         yield 'leading space' => ['--claude-bin', ' claude'];
         yield 'trailing space' => ['--claude-bin', 'claude '];
         yield 'double quotes' => ['--claude-bin', '"claude"'];
@@ -168,13 +168,13 @@ final class InstallerTest extends TestCase
 
     public function testReportsAllErrorsAtOnce(): void
     {
-        [$code, , $err] = $this->install(['--allowed-user-ids=x', '--github-repo=a#b']);
+        [$code, , $err] = $this->install(['--allowed-user-ids=x', '--forge-repo=a#b']);
 
         self::assertSame(1, $code);
         self::assertStringContainsString('BOT_TOKEN is required', $err);
         self::assertStringContainsString('ALLOWED_USER_IDS: must contain only digits', $err);
         self::assertStringContainsString('REPO_PATH is required', $err);
-        self::assertStringContainsString('GITHUB_REPO: the value must not contain "#"', $err);
+        self::assertStringContainsString('FORGE_REPO: the value must not contain "#"', $err);
         self::assertFileDoesNotExist($this->root.'/.env');
     }
 
@@ -219,14 +219,14 @@ final class InstallerTest extends TestCase
 
     public function testMergeUncommentsKeyInPlaceAndAppendsNewOnes(): void
     {
-        $this->writeEnv("# Repo of the workspace\n# GITHUB_REPO=owner/repo\nUNKNOWN_KEY=keep # not mine\n# a comment\nBOT_TOKEN=x\nSTATE_DIR={$this->state}\n");
+        $this->writeEnv("# Repo of the workspace\n# FORGE_REPO=owner/repo\nUNKNOWN_KEY=keep # not mine\n# a comment\nBOT_TOKEN=x\nSTATE_DIR={$this->state}\n");
 
-        [$code, , $err] = $this->install([...$this->required(), '--github-repo=acme/work', '--bot-locale=ru']);
+        [$code, , $err] = $this->install([...$this->required(), '--forge-repo=acme/work', '--bot-locale=ru']);
 
         self::assertSame(0, $code, $err);
         $lines = explode("\n", (string) file_get_contents($this->root.'/.env'));
         self::assertSame('# Repo of the workspace', $lines[0]);
-        self::assertSame('GITHUB_REPO=acme/work', $lines[1]);
+        self::assertSame('FORGE_REPO=acme/work', $lines[1]);
         self::assertSame('UNKNOWN_KEY=keep # not mine', $lines[2]);
         self::assertSame('# a comment', $lines[3]);
         self::assertSame('BOT_LOCALE=ru', $lines[count($lines) - 2]);
@@ -235,14 +235,14 @@ final class InstallerTest extends TestCase
 
     public function testDistIsTheBaseWithoutEnv(): void
     {
-        $this->install([...$this->required(), '--github-owners=acme', '--bot-locale=de']);
+        $this->install([...$this->required(), '--forge-owners=acme', '--bot-locale=de']);
 
         $content = (string) file_get_contents($this->root.'/.env');
-        self::assertStringContainsString('# GitHub owners (users/orgs)', $content);
+        self::assertStringContainsString('# Owners (users/orgs', $content);
         self::assertMatchesRegularExpression('/^# Language of bot texts.*\n(?:#.*\n)*BOT_LOCALE=de$/m', $content);
         self::assertStringContainsString("\nGIT_TIMEOUT=120\n", $content);
         self::assertStringNotContainsString('PASTE_YOUR_BOT_TOKEN_HERE', $content);
-        self::assertSame(1, preg_match_all('/^GITHUB_OWNERS=acme$/m', $content));
+        self::assertSame(1, preg_match_all('/^FORGE_OWNERS=acme$/m', $content));
     }
 
     public function testExistingEnvSuppliesDefaultsAndIsBackedUp(): void

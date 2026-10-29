@@ -16,8 +16,8 @@ final class Installer
     private const REQUIRED_KEYS = ['BOT_TOKEN', 'ALLOWED_USER_IDS', 'REPO_PATH'];
 
     private const OPTIONAL_KEYS = [
-        'GITHUB_OWNERS',
-        'GITHUB_REPO',
+        'FORGE_OWNERS',
+        'FORGE_REPO',
         'CLAUDE_BIN',
         'BOT_LOCALE',
         'TIMEZONE',

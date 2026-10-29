@@ -35,6 +35,7 @@
     "epic.status_plan": "计划：{plan}",
     "epic.status_reason": "停止原因：{reason}",
     "epic.topic_has_epic": "此话题已有史诗 {slug}（{status}）。",
+    "epic.unavailable_on_gitlab": "GitLab 上暂不支持史诗（epic）。",
     "epic.usage": "用法：/epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ 史诗运行 {slug} 失败：{pr} 的发现项覆盖不完整 — {reason}",
     "coldfindings.no_verdict": "信号中没有 verdict（approve | request_changes）",

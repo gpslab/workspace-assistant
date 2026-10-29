@@ -7,7 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 use GpsLab\WorkspaceAssistant\Bot;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\Tests\FakeTelegram;
@@ -46,7 +46,7 @@ final class KeyboardTest extends TestCase
             botToken: 't',
             allowedUserIds: [555],
             repoPath: $this->work,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: 'claude',
             claudeTimeout: 0,
             claudeStallTimeout: 900,
@@ -58,7 +58,7 @@ final class KeyboardTest extends TestCase
             pollTimeout: 30,
             gitTimeout: 30,
             epicsDir: 'context/epics',
-            githubOwners: new GithubOwners(['anime-db', 'gpslab']),
+            forgeOwners: new ForgeOwners(['anime-db', 'gpslab']),
             botLocale: 'en',
         );
         $this->bot = new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root));

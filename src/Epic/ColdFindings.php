@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Epic;
 
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\Locale;
 
 /**
@@ -139,16 +139,16 @@ final class ColdFindings
     }
 
     /**
-     * PRs of the GITHUB_OWNERS owners mentioned in the request parts: links `…/<owner>/<repo>/pull/<n>`
+     * PRs of the FORGE_OWNERS owners mentioned in the request parts: links `…/<owner>/<repo>/pull/<n>`
      * and entries `<repo>#<n>`, `<owner>/<repo>#<n>`. A bare `#N` and PRs of other owners are not recognised.
      *
      * @param list<array<string, mixed>> $parts
      *
      * @return list<string> `repo#N` (default owner) or `owner/repo#N`, without repeats, in order of appearance
      *
-     * @throws \RuntimeException GITHUB_OWNERS is not set
+     * @throws \RuntimeException FORGE_OWNERS is not set
      */
-    public static function extractPrs(array $parts, GithubOwners $owners): array
+    public static function extractPrs(array $parts, ForgeOwners $owners): array
     {
         $ownersRe = $owners->pattern();
         $found = [];
@@ -191,7 +191,7 @@ final class ColdFindings
      *
      * @return list<int> without repeats, in order of appearance
      */
-    public static function extractBareNumbers(array $parts, int $slots, GithubOwners $owners): array
+    public static function extractBareNumbers(array $parts, int $slots, ForgeOwners $owners): array
     {
         $found = [];
         foreach ($parts as $part) {

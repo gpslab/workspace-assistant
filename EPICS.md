@@ -111,11 +111,11 @@ answers the findings and pushes fixes:
 
 ## GitHub owners
 
-`GITHUB_OWNERS` in `.env` is a comma-separated list of owners; the first one is the default owner.
+`FORGE_OWNERS` in `.env` is a comma-separated list of owners; the first one is the default owner.
 A task in the plan is `owner/repo#N` or the short `repo#N` (default owner); `releases[].repo` is
 `owner/repo` or `repo`. PR links in the `review` mode are recognised for all listed owners. Stored
-`repo#N` values stay valid without migration. While `GITHUB_OWNERS` is unset, epics and PR link
-recognition fail with "set GITHUB_OWNERS".
+`repo#N` values stay valid without migration. While `FORGE_OWNERS` is unset, epics and PR link
+recognition fail with "set FORGE_OWNERS".
 
 ## Marker authors
 
@@ -273,7 +273,7 @@ In the `review` mode ("check PR …") the bot supplies `claude[bot]` findings it
 
 1. **PR recognition.** The bot scans all parts of the request (`parts[*].text`: merged messages,
    file captions) for `https://github.com/<owner>/<repo>/pull/<n>` links (owners from
-   `GITHUB_OWNERS`) and `<repo>#<n>` entries. Collection is synchronous (3+ `gh` calls each), so only
+   `FORGE_OWNERS`) and `<repo>#<n>` entries. Collection is synchronous (3+ `gh` calls each), so only
    the first 3 PRs are handled (`Epic\ColdFindings::MAX_MANUAL_PRS`). PRs beyond the limit and PRs
    whose collection failed (not a PR, no access, network) are logged, and the prompt gets a line
    "findings … not collected — check manually" so the model does not conclude there are none.

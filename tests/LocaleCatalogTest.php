@@ -9,7 +9,7 @@ use GpsLab\WorkspaceAssistant\Command\Command;
 use GpsLab\WorkspaceAssistant\Command\Router;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\SessionFiles;
@@ -67,7 +67,7 @@ final class LocaleCatalogTest extends TestCase
             botToken: 't',
             allowedUserIds: [1],
             repoPath: $dir,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: 'claude',
             claudeTimeout: 0,
             claudeStallTimeout: 900,
@@ -78,7 +78,7 @@ final class LocaleCatalogTest extends TestCase
             inboxDir: $tmp,
             pollTimeout: 30,
             gitTimeout: 30,
-            githubOwners: new GithubOwners(['anime-db']),
+            forgeOwners: new ForgeOwners(['anime-db']),
         );
         $bot = new Bot($config, $db, new FakeTelegram(), new GitManager($tmp, 30), new SessionFiles($tmp));
         $router = (new \ReflectionProperty(Bot::class, 'commandRouter'))->getValue($bot);

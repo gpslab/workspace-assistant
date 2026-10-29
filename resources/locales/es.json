@@ -35,6 +35,7 @@
     "epic.status_plan": "Plan: {plan}",
     "epic.status_reason": "Motivo de la detención: {reason}",
     "epic.topic_has_epic": "Este tema ya tiene la épica {slug} ({status}).",
+    "epic.unavailable_on_gitlab": "Las épicas aún no están disponibles en GitLab.",
     "epic.usage": "Uso: /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ Falló la ejecución de la épica {slug}: la cobertura de los hallazgos de {pr} está incompleta — {reason}",
     "coldfindings.no_verdict": "la señal no tiene veredicto (approve | request_changes)",

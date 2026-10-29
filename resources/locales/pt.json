@@ -35,6 +35,7 @@
     "epic.status_plan": "Plano: {plan}",
     "epic.status_reason": "Motivo da parada: {reason}",
     "epic.topic_has_epic": "Este tópico já tem o épico {slug} ({status}).",
+    "epic.unavailable_on_gitlab": "As épicas ainda não estão disponíveis no GitLab.",
     "epic.usage": "Uso: /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ A execução do épico {slug} falhou: a cobertura dos achados de {pr} está incompleta — {reason}",
     "coldfindings.no_verdict": "o sinal não tem verdict (approve | request_changes)",

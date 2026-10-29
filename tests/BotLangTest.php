@@ -8,7 +8,7 @@ use GpsLab\WorkspaceAssistant\Bot;
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\SessionFiles;
@@ -52,7 +52,7 @@ final class BotLangTest extends TestCase
             botToken: 't',
             allowedUserIds: [self::USER_A, self::USER_B],
             repoPath: $this->dir,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: $claudeBin,
             claudeTimeout: 0,
             claudeStallTimeout: 900,
@@ -63,7 +63,7 @@ final class BotLangTest extends TestCase
             inboxDir: $tmp,
             pollTimeout: 30,
             gitTimeout: 30,
-            githubOwners: new GithubOwners(['anime-db']),
+            forgeOwners: new ForgeOwners(['anime-db']),
             botLocale: $locale,
             localesDir: $localesDir,
         );

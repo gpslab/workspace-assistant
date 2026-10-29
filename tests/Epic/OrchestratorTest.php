@@ -8,17 +8,17 @@ use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\EditStatus;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
+use GpsLab\WorkspaceAssistant\Epic\Forge;
 use GpsLab\WorkspaceAssistant\Epic\Gates;
-use GpsLab\WorkspaceAssistant\Epic\GitHub;
 use GpsLab\WorkspaceAssistant\Epic\Orchestrator;
 use GpsLab\WorkspaceAssistant\Epic\TaskState;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Tests\FakeTelegram;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
-final class FakeGitHub implements GitHub
+final class FakeGitHub implements Forge
 {
     /** @var array<string, TaskState> */
     public array $states = [];
@@ -236,7 +236,7 @@ final class OrchestratorTest extends TestCase
             },
             $card,
             $this->dir,
-            ...['owners' => new GithubOwners(['anime-db', 'gpslab'])] + ($locale === null ? [] : ['locale' => new Locale($locale)]),
+            ...['owners' => new ForgeOwners(['anime-db', 'gpslab'])] + ($locale === null ? [] : ['locale' => new Locale($locale)]),
         );
     }
 

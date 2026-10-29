@@ -27,7 +27,7 @@ use GpsLab\WorkspaceAssistant\Command\VerboseCommand;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ChatSurface;
 use GpsLab\WorkspaceAssistant\Epic\EpicNotifier;
-use GpsLab\WorkspaceAssistant\Epic\GitHub;
+use GpsLab\WorkspaceAssistant\Epic\Forge;
 use GpsLab\WorkspaceAssistant\Epic\Orchestrator;
 use GpsLab\WorkspaceAssistant\Epic\PollSchedule;
 use GpsLab\WorkspaceAssistant\Epic\Run;
@@ -98,7 +98,7 @@ final class Bot implements LoopControl
         private readonly TelegramClient $tg,
         private readonly GitManager $git,
         private readonly SessionFiles $sessionFiles,
-        private readonly ?GitHub $github = null,
+        private readonly ?Forge $github = null,
         ?Locale $locale = null,
         private readonly ?string $selfRepoPath = null,
     ) {
@@ -127,7 +127,7 @@ final class Bot implements LoopControl
         $this->queueScheduler = new QueueScheduler($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->locales, $this->queueTexts, $this->dirtyTree, $this->runState, $runPrompt, $this->inbox, $this->subRepoSync, $this->jobRunner);
         $this->commandRouter = $this->buildCommandRouter();
         $this->commandMenu = new Menu($this->commandRouter, $tg, $this->locale);
-        $this->orchestrator = $github === null ? null : new Orchestrator(
+        $this->orchestrator = $github === null || !$config->epicsAvailable() ? null : new Orchestrator(
             $db,
             $github,
             $this->queueScheduler->enqueueEpicRun(...),
@@ -140,7 +140,7 @@ final class Bot implements LoopControl
             card: $this->epicCard,
             stateDir: $config->stateDir,
             masterRedHours: $config->epicMasterRedHours,
-            owners: $config->githubOwners,
+            owners: $config->forgeOwners,
             locale: $this->locale,
         );
         $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator);

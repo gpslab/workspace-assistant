@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant;
 
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
-use GpsLab\WorkspaceAssistant\Epic\GitHub;
+use GpsLab\WorkspaceAssistant\Epic\Forge;
 use GpsLab\WorkspaceAssistant\Epic\TaskState;
 
 /**
  * {@see GitHub} over `gh` (GraphQL + REST). Arguments are an array, no shell.
  */
-final class GhClient implements GitHub
+final class GhClient implements Forge
 {
     private const string COLD_REVIEW_WORKFLOW = 'claude-review.yml';
     private const string COLD_REVIEWER = 'claude[bot]';
@@ -53,7 +53,7 @@ final class GhClient implements GitHub
         GQL;
 
     public function __construct(
-        private readonly GithubOwners $owners = new GithubOwners(),
+        private readonly ForgeOwners $owners = new ForgeOwners(),
         private readonly int $timeout = 15,
         private readonly ?\Closure $runner = null,
         private readonly ?\Closure $clock = null,
@@ -124,7 +124,7 @@ final class GhClient implements GitHub
             return $this->repos;
         }
         if ($this->owners->isEmpty()) {
-            throw new \RuntimeException(GithubOwners::NOT_SET);
+            throw new \RuntimeException(ForgeOwners::NOT_SET);
         }
         $names = [];
         foreach ($this->owners->all() as $owner) {

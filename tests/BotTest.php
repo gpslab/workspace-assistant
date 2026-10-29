@@ -10,7 +10,7 @@ use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Delivery;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\JobRunner;
 use GpsLab\WorkspaceAssistant\Locale;
@@ -61,7 +61,7 @@ final class BotTest extends TestCase
             botToken: 'test-token',
             allowedUserIds: [self::ALLOWED_USER_ID],
             repoPath: $repoPath !== '' ? $repoPath : sys_get_temp_dir(),
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: 'claude',
             claudeTimeout: 0,
             claudeStallTimeout: 900,
@@ -72,7 +72,7 @@ final class BotTest extends TestCase
             inboxDir: sys_get_temp_dir(),
             pollTimeout: 30,
             gitTimeout: 120,
-            githubOwners: new GithubOwners(['anime-db', 'gpslab']),
+            forgeOwners: new ForgeOwners(['anime-db', 'gpslab']),
             subreposDir: $subreposDir,
             botLocale: 'en',
         );

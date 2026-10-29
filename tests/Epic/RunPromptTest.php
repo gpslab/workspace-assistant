@@ -9,7 +9,7 @@ use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Epic\RunPrompt;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -40,7 +40,7 @@ final class RunPromptTest extends TestCase
             botToken: 't',
             allowedUserIds: [555],
             repoPath: $this->root,
-            githubRepo: '',
+            forgeRepo: '',
             claudeBin: 'claude',
             claudeTimeout: 0,
             claudeStallTimeout: 900,
@@ -51,7 +51,7 @@ final class RunPromptTest extends TestCase
             inboxDir: $this->root.'/inbox',
             pollTimeout: 1,
             gitTimeout: 30,
-            githubOwners: new GithubOwners(['gpslab']),
+            forgeOwners: new ForgeOwners(['gpslab']),
         );
 
         return new RunPrompt(new Database($this->root), $config, $gh);

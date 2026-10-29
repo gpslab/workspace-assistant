@@ -94,18 +94,78 @@ final class ConfigTest extends TestCase
         self::assertSame('secret-token', $config->botToken);
         self::assertSame([111, 222], $config->allowedUserIds);
         self::assertSame($this->repoDir, $config->repoPath);
-        self::assertSame('owner/repo', $config->githubRepo);
+        self::assertSame('owner/repo', $config->forgeRepo);
         self::assertSame('/usr/bin/claude', $config->claudeBin);
         self::assertSame(['--dangerously-skip-permissions'], $config->claudeExtraArgs);
         self::assertSame(0, $config->claudeTimeout);
     }
 
-    public function testGithubOwnersAreParsedWithDefaultFirst(): void
+    public function testForgeOwnersAreParsedWithDefaultFirst(): void
     {
         $this->writeEnv("GITHUB_OWNERS= anime-db , gpslab,\n");
 
-        self::assertSame(['anime-db', 'gpslab'], Config::load($this->envFile)->githubOwners->all());
-        self::assertSame('anime-db', Config::load($this->envFile)->githubOwners->default());
+        self::assertSame(['anime-db', 'gpslab'], Config::load($this->envFile)->forgeOwners->all());
+        self::assertSame('anime-db', Config::load($this->envFile)->forgeOwners->default());
+    }
+
+    public function testForgeDefaultsToGithub(): void
+    {
+        $this->writeEnv();
+        $config = Config::load($this->envFile);
+
+        self::assertSame('github', $config->forge);
+        self::assertSame('github.com', $config->forgeHost);
+        self::assertTrue($config->epicsAvailable());
+        self::assertFalse($config->forgeOwners->isNested());
+    }
+
+    public function testGitlabForgeDefaultsHostAndAllowsNamespaceOwners(): void
+    {
+        $this->writeEnv("FORGE=gitlab\nFORGE_OWNERS=group/sub,top\n");
+        $config = Config::load($this->envFile);
+
+        self::assertSame('gitlab', $config->forge);
+        self::assertSame('gitlab.com', $config->forgeHost);
+        self::assertFalse($config->epicsAvailable());
+        self::assertSame(['group/sub', 'proj', 12], $config->forgeOwners->parse('group/sub/proj#12'));
+    }
+
+    public function testExplicitForgeHostOverridesTheDefault(): void
+    {
+        $this->writeEnv("FORGE=gitlab\nFORGE_HOST=git.example.org\n");
+
+        self::assertSame('git.example.org', Config::load($this->envFile)->forgeHost);
+    }
+
+    public function testInvalidForgeFailsTheStart(): void
+    {
+        $this->writeEnv('FORGE=bitbucket');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Invalid FORGE=bitbucket');
+        Config::load($this->envFile);
+    }
+
+    public function testNewForgeKeysWinOverTheAliasesAndWarnOnce(): void
+    {
+        $this->writeEnv("FORGE_OWNERS=new\nGITHUB_OWNERS=old\nFORGE_REPO=new/repo\nGITHUB_REPO=old/repo\nOPENRONIN_LOGINS=bot\n");
+        $config = Config::load($this->envFile);
+
+        self::assertSame(['new'], $config->forgeOwners->all());
+        self::assertSame('new/repo', $config->forgeRepo);
+        $warnings = $config->startupWarnings();
+        self::assertCount(2, $warnings);
+        self::assertStringContainsString('FORGE_REPO', $warnings[0]);
+        self::assertStringContainsString('FORGE_OWNERS', $warnings[1]);
+    }
+
+    public function testAliasesAloneAreAcceptedWithoutWarning(): void
+    {
+        $this->writeEnv("GITHUB_OWNERS=old\nOPENRONIN_LOGINS=bot\n");
+        $config = Config::load($this->envFile);
+
+        self::assertSame(['old'], $config->forgeOwners->all());
+        self::assertSame('owner/repo', $config->forgeRepo);
+        self::assertSame([], $config->startupWarnings());
     }
 
     public function testOpenroninLoginsAreParsedAndSilenceTheWarning(): void
@@ -127,11 +187,11 @@ final class ConfigTest extends TestCase
         self::assertStringContainsString('OPENRONIN_LOGINS', $config->startupWarnings()[0]);
     }
 
-    public function testGithubOwnersUnsetHasNoDefault(): void
+    public function testForgeOwnersUnsetHasNoDefault(): void
     {
         $this->writeEnv();
 
-        self::assertTrue(Config::load($this->envFile)->githubOwners->isEmpty());
+        self::assertTrue(Config::load($this->envFile)->forgeOwners->isEmpty());
     }
 
     public function testIsAllowed(): void

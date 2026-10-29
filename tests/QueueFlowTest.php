@@ -10,10 +10,10 @@ use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\EditStatus;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
-use GpsLab\WorkspaceAssistant\Epic\GitHub;
+use GpsLab\WorkspaceAssistant\Epic\Forge;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Inbox;
 use GpsLab\WorkspaceAssistant\PmRunbook;
@@ -92,13 +92,13 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?GitHub $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en'): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en'): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
             'allowedUserIds' => [self::USER],
             'repoPath' => $this->work,
-            'githubRepo' => '',
+            'forgeRepo' => '',
             'claudeBin' => $this->root.'/claude',
             'claudeTimeout' => 0,
             'claudeStallTimeout' => 900,
@@ -111,7 +111,7 @@ final class QueueFlowTest extends TestCase
             'gitTimeout' => 30,
             'promptsDir' => $promptsDir,
             'localesDir' => $localesDir,
-            'githubOwners' => new GithubOwners(['anime-db', 'gpslab']),
+            'forgeOwners' => new ForgeOwners(['anime-db', 'gpslab']),
         ] + ($locale === null ? [] : ['botLocale' => $locale]));
 
         return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github);
@@ -941,7 +941,7 @@ final class QueueFlowTest extends TestCase
         self::assertSame([[47, 48]], $gh->openPrCalls);
         self::assertSame(['folder-info#47'], $gh->coldAsked);
         self::assertStringContainsString('bare-body-1', $captured);
-        self::assertStringContainsString('PR #48 was not found among open PRs of the owners in GITHUB_OWNERS', $captured);
+        self::assertStringContainsString('PR #48 was not found among open PRs of the owners in FORGE_OWNERS', $captured);
     }
 
     public function testBareNumberAmbiguousListsCandidatesAndCollectsNothing(): void

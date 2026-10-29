@@ -18,7 +18,7 @@ final class RunPrompt
     public function __construct(
         private readonly Database $db,
         private readonly Config $config,
-        private readonly ?GitHub $github,
+        private readonly ?Forge $github,
     ) {
     }
 
@@ -74,13 +74,13 @@ final class RunPrompt
     /** `owner/repo#N` (lowercase) of a `repo#N` / `owner/repo#N` reference. */
     private function shaKey(string $pr): string
     {
-        [$owner, $repo, $number] = $this->config->githubOwners->parse($pr);
+        [$owner, $repo, $number] = $this->config->forgeOwners->parse($pr);
 
         return strtolower("{$owner}/{$repo}#{$number}");
     }
 
     /**
-     * Manual `review`: findings of the cold reviewer for PRs of GITHUB_OWNERS owners from the request.
+     * Manual `review`: findings of the cold reviewer for PRs of FORGE_OWNERS owners from the request.
      * Returns lines for the prompt and the path to the id file for the hook (null - ids not needed).
      * A collection failure for one PR (not a PR, no access, network) does not fail the request: the PR is skipped.
      *
@@ -94,7 +94,7 @@ final class RunPrompt
             return [[], null, []];
         }
         try {
-            $prs = ColdFindings::extractPrs($parts, $this->config->githubOwners);
+            $prs = ColdFindings::extractPrs($parts, $this->config->forgeOwners);
         } catch (\RuntimeException $e) {
             Log::line('manual review: '.$e->getMessage());
 
@@ -109,7 +109,7 @@ final class RunPrompt
         // means an issue/PR of the same repo, not a PR of another org repository.
         $notes = [];
         $bare = $prs === [] && $unavailable === []
-            ? ColdFindings::extractBareNumbers($parts, ColdFindings::MAX_MANUAL_PRS, $this->config->githubOwners)
+            ? ColdFindings::extractBareNumbers($parts, ColdFindings::MAX_MANUAL_PRS, $this->config->forgeOwners)
             : [];
         if ($bare !== []) {
             try {
@@ -119,7 +119,7 @@ final class RunPrompt
                     if (count($found) === 1) {
                         $prs[] = $found[0].'#'.$n;
                     } elseif ($found === []) {
-                        $notes[] = "PR #{$n} was not found among open PRs of the owners in GITHUB_OWNERS";
+                        $notes[] = "PR #{$n} was not found among open PRs of the owners in FORGE_OWNERS";
                     } else {
                         $notes[] = "PR #{$n} is ambiguous: ".implode(', ', array_map(static fn (string $r): string => "{$r}#{$n}", $found)).' — specify the repository';
                     }

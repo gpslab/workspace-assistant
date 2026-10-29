@@ -35,6 +35,7 @@
     "epic.status_plan": "Plan: {plan}",
     "epic.status_reason": "Grund des Stopps: {reason}",
     "epic.topic_has_epic": "In diesem Thema gibt es bereits das Epic {slug} ({status}).",
+    "epic.unavailable_on_gitlab": "Epics sind auf GitLab noch nicht verfügbar.",
     "epic.usage": "Verwendung: /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ Epic-Lauf {slug} fehlgeschlagen: die Abdeckung der Findings von {pr} ist unvollständig — {reason}",
     "coldfindings.no_verdict": "das Signal enthält kein Verdict (approve | request_changes)",

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Epic;
 
-use GpsLab\WorkspaceAssistant\GithubOwners;
+use GpsLab\WorkspaceAssistant\ForgeOwners;
 
 /**
  * Epic run signal — the file `<stateDir>/epics/<slug>/signal.json`, the run's output.
@@ -47,10 +47,10 @@ final class Signal
     ) {
     }
 
-    public static function parse(string $json, GithubOwners $owners): self
+    public static function parse(string $json, ForgeOwners $owners): self
     {
         if ($owners->isEmpty()) {
-            throw new \InvalidArgumentException(GithubOwners::NOT_SET);
+            throw new \InvalidArgumentException(ForgeOwners::NOT_SET);
         }
         $norm = static fn (string $ref): string => $owners->canonical($ref);
         try {
@@ -69,13 +69,13 @@ final class Signal
         }
         foreach ($rawAdded as $i => $item) {
             $ref = is_array($item) ? ($item['task'] ?? null) : null;
-            if (!is_string($ref) || !Plan::isTaskRef($ref)) {
+            if (!is_string($ref) || !Plan::isTaskRef($ref, $owners->isNested())) {
                 throw new \InvalidArgumentException("added[{$i}]: task must look like repo#N");
             }
-            $added[] = ['task' => $norm($ref), 'after' => self::refs($item['after'] ?? [], "added[{$i}].after", $norm)];
+            $added[] = ['task' => $norm($ref), 'after' => self::refs($item['after'] ?? [], "added[{$i}].after", $norm, $owners->isNested())];
         }
 
-        $hold = array_key_exists('hold', $data) ? self::refs($data['hold'], 'hold', $norm) : null;
+        $hold = array_key_exists('hold', $data) ? self::refs($data['hold'], 'hold', $norm, $owners->isNested()) : null;
 
         return new self(
             $added,
@@ -134,13 +134,13 @@ final class Signal
     /**
      * @return list<string>
      */
-    private static function refs(mixed $value, string $where, \Closure $norm): array
+    private static function refs(mixed $value, string $where, \Closure $norm, bool $nested): array
     {
         if (!is_array($value) || !array_is_list($value)) {
             throw new \InvalidArgumentException("{$where} must be a list of repo#N");
         }
         foreach ($value as $ref) {
-            if (!is_string($ref) || !Plan::isTaskRef($ref)) {
+            if (!is_string($ref) || !Plan::isTaskRef($ref, $nested)) {
                 throw new \InvalidArgumentException("{$where}: an element must look like repo#N");
             }
         }

@@ -184,11 +184,11 @@ final class RunResult implements DecisionHost
 
     public function commitUrl(string $hash): string
     {
-        if ($this->config->githubRepo === '') {
+        if ($this->config->forgeRepo === '') {
             return $hash;
         }
 
-        return "https://github.com/{$this->config->githubRepo}/commit/{$hash}";
+        return "https://github.com/{$this->config->forgeRepo}/commit/{$hash}";
     }
 
     /**
