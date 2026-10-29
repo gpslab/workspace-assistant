@@ -245,6 +245,35 @@ final class InstallerTest extends TestCase
         self::assertSame(1, preg_match_all('/^FORGE_OWNERS=acme$/m', $content));
     }
 
+    public function testLegacyOptionsAreAliasesAndReplaceTheOldKeys(): void
+    {
+        $this->writeEnv('BOT_TOKEN='.self::TOKEN."\nALLOWED_USER_IDS=7\nREPO_PATH={$this->repo}\nSTATE_DIR={$this->state}\nGITHUB_OWNERS=old\nGITHUB_REPO=old/repo\n");
+
+        [$code, , $err] = $this->install(['--github-owners=acme', '--github-repo=acme/proj', '--forge=github', '--forge-host=github.com']);
+
+        self::assertSame(0, $code, $err);
+        $env = Env::load($this->root.'/.env', true);
+        self::assertSame('acme', $env->get('FORGE_OWNERS'));
+        self::assertSame('acme/proj', $env->get('FORGE_REPO'));
+        self::assertSame('github', $env->get('FORGE'));
+        self::assertSame('github.com', $env->get('FORGE_HOST'));
+        self::assertNull($env->get('GITHUB_OWNERS'));
+        self::assertNull($env->get('GITHUB_REPO'));
+        self::assertStringNotContainsString('GITHUB_', implode(' ', Config::fromEnv($env, $this->root)->startupWarnings()));
+    }
+
+    public function testLegacyKeysSupplyDefaultsWhenNoOptionIsGiven(): void
+    {
+        $this->writeEnv('BOT_TOKEN='.self::TOKEN."\nALLOWED_USER_IDS=7\nREPO_PATH={$this->repo}\nSTATE_DIR={$this->state}\nGITHUB_OWNERS=old\n");
+
+        [$code, , $err] = $this->install([]);
+
+        self::assertSame(0, $code, $err);
+        $env = Env::load($this->root.'/.env', true);
+        self::assertSame('old', $env->get('FORGE_OWNERS'));
+        self::assertNull($env->get('GITHUB_OWNERS'));
+    }
+
     public function testExistingEnvSuppliesDefaultsAndIsBackedUp(): void
     {
         $this->writeEnv('BOT_TOKEN='.self::TOKEN."\nALLOWED_USER_IDS=7\nREPO_PATH={$this->repo}\nSTATE_DIR={$this->state}\n");
@@ -446,7 +475,7 @@ final class InstallerTest extends TestCase
 
     public function testPromptsOnlyWithTtyAndWithoutNonInteractive(): void
     {
-        [$code, $out] = $this->install($this->required(), [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 10)));
+        [$code, $out] = $this->install($this->required(), [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 12)));
         self::assertSame(0, $code);
         self::assertStringContainsString('ALLOWED_USER_IDS [1001,1002]: ', $out);
 
@@ -466,7 +495,7 @@ final class InstallerTest extends TestCase
     {
         $this->writeEnv('BOT_TOKEN='.self::TOKEN."\nALLOWED_USER_IDS=77\nREPO_PATH={$this->repo}\nBOT_LOCALE=ru\nSTATE_DIR={$this->state}\n");
 
-        [$code, $out] = $this->install([], [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 10)));
+        [$code, $out] = $this->install([], [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 12)));
 
         self::assertSame(0, $code);
         self::assertStringContainsString('BOT_TOKEN [***WxYz]: ', $out);
@@ -478,7 +507,7 @@ final class InstallerTest extends TestCase
 
     public function testInteractiveRepeatsQuestionOnInvalidAnswer(): void
     {
-        $input = self::TOKEN."\nabc\n1001\n{$this->repo}\n\n\n\nxx\nde\nNot/AZone\nEurope/Berlin\n\n\n";
+        $input = self::TOKEN."\nabc\n1001\n{$this->repo}\n\n\n\n\n\nxx\nde\nNot/AZone\nEurope/Berlin\n\n\n";
         [$code, $out, $err] = $this->install([], [], 1000, 'tester', $this->services(tty: true, input: $input));
 
         self::assertSame(0, $code, $err);
@@ -494,7 +523,7 @@ final class InstallerTest extends TestCase
 
     public function testExtraArgsHasItsOwnQuestionWithWarning(): void
     {
-        $input = self::TOKEN."\n1001\n{$this->repo}\n\n\n\n\n\n\n--permission-mode,acceptEdits\n";
+        $input = self::TOKEN."\n1001\n{$this->repo}\n\n\n\n\n\n\n\n\n--permission-mode,acceptEdits\n";
         [$code, $out] = $this->install([], [], 1000, 'tester', $this->services(tty: true, input: $input));
 
         self::assertSame(0, $code);
@@ -511,7 +540,7 @@ final class InstallerTest extends TestCase
 
             return [0, '', ''];
         };
-        $input = self::TOKEN."\n1001\n{$this->repo}\n\n\n\n\n\n\n\n";
+        $input = self::TOKEN."\n1001\n{$this->repo}\n\n\n\n\n\n\n\n\n\n";
         [$code, $out] = $this->install([], [], 1000, 'tester', $this->services(run: $run, tty: true, input: $input));
 
         self::assertSame(0, $code);

@@ -40,7 +40,7 @@ and does not start the bot. The output is in English.
 | `--bot-token-file=PATH`     | read `BOT_TOKEN` from a file (a trailing line break is trimmed)    |
 | `--allowed-user-ids`        | `ALLOWED_USER_IDS` (required; digits separated by commas)          |
 | `--repo-path`               | `REPO_PATH` (required)                                             |
-| `--forge-owners`, `--forge-repo`, `--claude-bin`, `--bot-locale`, `--timezone`, `--openronin-logins`, `--claude-extra-args` | the key of the same name (optional) |
+| `--forge`, `--forge-host`, `--forge-owners`, `--forge-repo` (`--github-owners` and `--github-repo` are accepted as aliases), `--claude-bin`, `--bot-locale`, `--timezone`, `--openronin-logins`, `--claude-extra-args` | the key of the same name (optional) |
 | `--non-interactive`         | never ask questions (implied when stdin is not a terminal)         |
 | `--skip-network-checks`     | report a failed `getMe` / `git ls-remote` as a warning, not an error |
 | `--unit-file=PATH`          | also write the systemd unit to `PATH` (the directory must exist)   |
