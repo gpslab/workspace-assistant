@@ -553,6 +553,19 @@ final class GhClientTest extends TestCase
         self::assertSame(3, $s->epicChangesRequested);
     }
 
+    public function testUnknownSubmittedAtWinsOverKnownTimeOnTheSameCommitInEitherOrder(): void
+    {
+        $known = ['author' => ['login' => self::BOT], 'body' => 'changes '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => '2026-01-01T12:00:00Z', 'commit' => ['oid' => 'same']];
+        $unknown = ['submittedAt' => null] + $known;
+        foreach ([[$known, $unknown], [$unknown, $known]] as $reviews) {
+            $s = self::clientFor(self::approvedPayload('rev', [], $reviews), ['compare/' => ['behind_by' => 0]])->taskState('r#1', self::MARKER);
+            // the fixture's own review on 'old' is one round, the two reviews of 'same' are another with an unknown time
+            self::assertSame(2, $s->epicChangesRequested);
+            self::assertContains(0, $s->epicChangesRequestedAt);
+            self::assertCount(1, array_filter($s->epicChangesRequestedAt, static fn (int $at): bool => $at === 0));
+        }
+    }
+
     public function testEpicMarkerReviewFromStrangerIsNotAVerdict(): void
     {
         $fake = ['author' => ['login' => 'stranger'], 'body' => 'no '.self::MARKER, 'state' => 'CHANGES_REQUESTED', 'submittedAt' => '2026-01-01T12:00:00Z', 'commit' => ['oid' => 'rev']];
