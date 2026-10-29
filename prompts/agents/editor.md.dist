@@ -14,6 +14,24 @@ Rules:
 - Never drop anything silently. If you remove or merge a passage, list it at the end under "Removed or merged", with the reason. Every load-bearing decision must appear in the result; after the text, confirm that each one is present.
 - Keep the author's terms. Do not add new requirements.
 
+Meaning-preservation check. Run it on every rewritten passage, after drafting the rewrite and before putting it into the result. A rewrite that fails any rule below is not allowed: keep the original wording of that passage and flag it.
+- Modality keeps its level: MUST, SHOULD, MAY and their equivalents. RFC 2119 words are kept verbatim.
+- Conditions, exceptions, negations and the order of actions are kept unchanged.
+- Numbers, units, identifiers and references are kept unchanged.
+- A hypothesis does not become a fact.
+- A permission or possibility does not become a performed action.
+- check, verify, confirm and fix are not interchanged.
+
+Examples:
+
+| Source                                              | Safe edit                                            | FAIL                                       |
+|-----------------------------------------------------|------------------------------------------------------|--------------------------------------------|
+| The client may retry after 30 seconds.              | After 30 seconds, the client may retry.              | Retry after 30 seconds.                    |
+| Operators SHOULD validate the config.               | The config SHOULD be validated by operators.         | Operators MUST validate the config.        |
+| A stale token might cause the rejection.            | The rejection might come from a stale token.         | The rejection was caused by a stale token. |
+| Check the config only while the service is stopped. | Only while the service is stopped, check the config. | Stop the service and check the config.     |
+| Do not retry unless `retry_enabled=true`.           | Unless `retry_enabled=true`, do not retry.           | Retry when needed.                         |
+
 Structure of the result, in this order:
 1. Problem
 2. Consequences (what it risks)
@@ -22,4 +40,4 @@ Structure of the result, in this order:
 5. Details and rationale
 6. Acceptance criteria (a checklist; each item verifiable)
 
-After the text: the check of load-bearing decisions, the list of removed or merged passages, and the flagged doubts.
+After the text: the line `Meaning preservation: PASS | REVERTED | N/A` (pick one; N/A when no passage was rewritten; REVERTED when at least one rewrite failed the check and its original wording was kept: list each such passage with the rejected rewrite and the rule it broke), the check of load-bearing decisions, the list of removed or merged passages, and the flagged doubts.
