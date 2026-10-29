@@ -11,9 +11,10 @@ Forge: this instance works with GitLab, not GitHub. Wherever these rules or the 
 | `gh pr view <N>`                        | `glab mr view <N>`                                                          |
 | `gh pr view <N> --comments`             | `glab mr view <N> --comments`                                               |
 | `gh pr diff <N>`                        | `glab mr diff <N>`                                                          |
-| `gh pr checks <N>`                      | `glab ci status` (the pipeline of the current branch)                       |
+| `gh pr checks <N>`                      | `glab ci status --branch <source branch of !N>` (take the branch from `glab mr view <N>`; without `--branch` it reports the checkout's current branch, not the merge request) |
 | `gh pr comment <N>`                     | `glab mr note <N> -m "…"`                                                   |
-| `gh pr review <N> --approve`            | `glab mr approve <N>`                                                       |
-| `gh api <endpoint>`                     | `glab api <endpoint>` (REST v4, for example `projects/:fullpath/merge_requests/<N>`) |
+| `gh pr review <N> --approve`, `gh api …/pulls/<N>/reviews -f commit_id=<SHA> -f event=APPROVE` | `glab mr approve <N> --sha <SHA>` (the literal 40-hex commit you reviewed; never approve without `--sha`) |
+| `gh api …/pulls/<N>/reviews -f event=REQUEST_CHANGES` | no GitLab equivalent: post the findings with `glab mr note <N> -m "…"` and do not approve |
+| `gh api <endpoint>`                     | `glab api <endpoint>` (REST v4, for example `projects/:fullpath/merge_requests/<N>`; GitHub endpoints such as `repos/<o>/<r>/pulls/<N>/reviews` do not exist on GitLab, do not translate them literally) |
 
 - `-R <owner/repo>` becomes `-R <namespace>/<project>`.
