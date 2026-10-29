@@ -163,7 +163,7 @@ final class JobRunner implements JobLauncher, RunControl
         // the review chat), the config is snapshotted now so edits during the run do not affect it.
         $gateKind = $epicRun !== null ? PmRunbook::skipKeyForEpicRun($epicRun['run']) : PmRunbook::skipKeyForMode($mode);
         $gateRunId = null;
-        $settingsJson = $mode === SystemPrompt::MODE_REVIEW ? ReviewStatusHook::settingsJson($this->config->stateDir) : '';
+        $settingsJson = $mode === SystemPrompt::MODE_REVIEW ? ReviewStatusHook::settingsJson($this->config->stateDir, $this->config->forge) : '';
         if ($gateKind !== null) {
             $gateRunId = $queueId.'-'.bin2hex(random_bytes(4));
             try {
@@ -176,7 +176,7 @@ final class JobRunner implements JobLauncher, RunControl
                 return $e->getMessage();
             }
             $env[PmGateHook::SKIP_ENV] = PmGateHook::skipPath($this->config->stateDir, $gateRunId);
-            $settingsJson = PmGateHook::settingsJson($this->config->stateDir, $gateKind, $gateRunId, $mode === SystemPrompt::MODE_REVIEW);
+            $settingsJson = PmGateHook::settingsJson($this->config->stateDir, $gateKind, $gateRunId, $mode === SystemPrompt::MODE_REVIEW, $this->config->forge);
             // A formal review goes onto the reviewed commit: review mode and the epic review run.
             if ($mode === SystemPrompt::MODE_REVIEW || ($epicRun !== null && $epicRun['run'] === Run::REVIEW)) {
                 try {

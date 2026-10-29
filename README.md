@@ -171,7 +171,7 @@ github.com and gitlab.com, otherwise a bare hash. The cron check
 |-------------------------|-----------|-----------------------------------------|
 | Chat mode               | supported | supported                               |
 | PM mode                 | supported | supported                               |
-| Review mode             | supported | after the review task (#100), not yet   |
+| Review mode             | supported | supported (verdict note with a marker; cold reviewer findings are not collected) |
 | Epics (`/epic`)         | supported | not supported                           |
 
 ## Installation

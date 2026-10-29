@@ -43,6 +43,12 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
  * `gh pr review --body "…"` is read too, but its `--body-file`/`-F` is not. A body read from a file
  * (`body=@file`, `--input`) is not seen. In an epic run $ids = null: there coverage is
  * checked by the signal (ColdFindings::check), a second check is not needed.
+ *
+ * GitLab (`FORGE=gitlab`): GitLab approvals carry no commit and there is no "request changes", so the
+ * published verdict is a successful `glab mr note <N> -m "…"` whose inline body carries exactly one marker
+ * `<!-- verdict:approve|changes sha=<40-hex> -->`. The marker is the source of truth; `glab mr approve` /
+ * `glab mr revoke` are side effects and never count. Detection accepts the `gh` and the `glab` forms
+ * whatever the forge; the forge (the `--forge=` argument of the hook script) only selects the reason text.
  */
 final class ReviewStatusHook
 {
@@ -59,8 +65,18 @@ final class ReviewStatusHook
      */
     public const string FALLBACK_REASON = 'Review-status check: this turn worked with a PR but the PR has no matching review state. Publish it now with `gh api repos/<owner>/<repo>/pulls/<N>/reviews -f commit_id=<SHA> -f event=APPROVE -f body=…` (🟢) or `-f event=REQUEST_CHANGES` (🔴), where <SHA> is the literal 40-hex commit you reviewed. The only legitimate reasons to leave no status: a manual Approve when the PR head no longer equals <SHA> (name the unreviewed commits in the reply), or a POST that GitHub rejected (say why; do not republish on another commit). Then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴.';
 
-    /** PR work during the turn — a sign that the verdict comes from a review, not a retelling. */
-    private const string PR_ACTIVITY_RE = '/\bgh\s+(?:pr\s+(?:view|diff|checks|comment|review)\b|api\b[^\n]*\bpulls\b)/';
+    /** {@see FALLBACK_REASON} for `FORGE=gitlab`. */
+    public const string FALLBACK_REASON_GITLAB = 'Review-status check: this turn worked with a merge request but it has no matching review verdict. Publish it now with `glab mr note <N> -m "…"` whose body carries exactly one marker `<!-- verdict:approve sha=<SHA> -->` (🟢) or `<!-- verdict:changes sha=<SHA> -->` (🔴), where <SHA> is the literal 40-hex commit you reviewed, plus the findings; `glab mr approve <N> --sha <SHA>` / `glab mr revoke <N>` alone are not a verdict. The only legitimate reasons to leave no verdict: a manual Approve when the MR head no longer equals <SHA> (name the unreviewed commits in the reply), or a note that GitLab rejected (say why; do not republish on another commit). Then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴.';
+
+    /** PR (MR) work during the turn — a sign that the verdict comes from a review, not a retelling. */
+    private const string PR_ACTIVITY_RE = '/\bgh\s+(?:pr\s+(?:view|diff|checks|comment|review)\b|api\b[^\n]*\bpulls\b)|\bglab\s+(?:mr\s+(?:view|diff|note|approve|revoke|checkout)\b|api\b[^\n]*merge_requests)/';
+
+    /** A GitLab note command start; the segment of one note runs to the next start. */
+    private const string GITLAB_NOTE_RE = '/(?:^|[;&|(\n]\s*)glab\s+mr\s+note\b/';
+
+    /** Any `verdict:` marker, valid or not; the valid one is {@see GITLAB_MARKER_RE}. */
+    private const string GITLAB_MARKER_ANY_RE = '/<!--\s*verdict:/';
+    private const string GITLAB_MARKER_RE = '/<!--\s*verdict:(?<state>approve|changes)\s+sha=(?<sha>[0-9a-f]{40})\s*-->/';
 
     /**
      * The command that sets the status: a POST to pulls/N/reviews with an event (the form
@@ -107,20 +123,22 @@ final class ReviewStatusHook
      * @param list<string>         $transcriptLines
      * @param list<string>|null    $ids
      */
-    public static function reason(array $input, array $transcriptLines, ?array $ids = null): string
+    public static function reason(array $input, array $transcriptLines, ?array $ids = null, string $forge = Config::FORGE_GITHUB): string
     {
+        $gitlab = $forge === Config::FORGE_GITLAB;
+        $steps = $gitlab ? 'review_status_reason_steps_gitlab' : 'review_status_reason_steps';
         $turn = self::currentTurn($transcriptLines);
         if (self::statusSatisfied($input, $turn) && $ids !== null && $ids !== []) {
             $missing = self::missingIds($transcriptLines, $ids);
             if ($missing !== []) {
-                return PromptFiles::render('review_status_reason_ids', ['ids' => implode(', ', $missing)]);
+                return PromptFiles::render($gitlab ? 'review_status_reason_ids_gitlab' : 'review_status_reason_ids', ['ids' => implode(', ', $missing)]);
             }
         }
 
         $last = $input['last_assistant_message'] ?? '';
         $verdict = is_string($last) ? self::verdict($last) : null;
         if ($verdict === null) {
-            return PromptFiles::load('review_status_reason_no_verdict')."\n".PromptFiles::load('review_status_reason_steps');
+            return PromptFiles::load('review_status_reason_no_verdict')."\n".PromptFiles::load($steps);
         }
         $actual = self::statusSet(self::currentTurn($transcriptLines));
 
@@ -131,7 +149,7 @@ final class ReviewStatusHook
                 null => 'no successful review publication happened in this turn, so the PR still has no review state.',
                 default => 'the last state you set in this turn is the opposite one — replace it.',
             },
-        ])."\n".PromptFiles::load('review_status_reason_steps');
+        ])."\n".PromptFiles::load($steps);
     }
 
     /**
@@ -143,16 +161,16 @@ final class ReviewStatusHook
      * @param list<string>|null                  $ids
      * @param (callable(\Throwable): mixed)|null $onError
      */
-    public static function reasonOrFallback(array $input, array $transcriptLines, ?array $ids = null, ?callable $onError = null): string
+    public static function reasonOrFallback(array $input, array $transcriptLines, ?array $ids = null, ?callable $onError = null, string $forge = Config::FORGE_GITHUB): string
     {
         try {
-            return self::reason($input, $transcriptLines, $ids);
+            return self::reason($input, $transcriptLines, $ids, $forge);
         } catch (\Throwable $e) {
             if ($onError !== null) {
                 $onError($e);
             }
 
-            return self::FALLBACK_REASON;
+            return $forge === Config::FORGE_GITLAB ? self::FALLBACK_REASON_GITLAB : self::FALLBACK_REASON;
         }
     }
 
@@ -216,6 +234,15 @@ final class ReviewStatusHook
      */
     private static function reviewBody(string $command): string
     {
+        $notes = '';
+        foreach (self::gitlabNotes($command) as $note) {
+            if ($note['state'] !== null) {
+                $notes .= "\n".$note['body'];
+            }
+        }
+        if ($notes !== '') {
+            return $notes;
+        }
         if (preg_match(self::STATUS_API_RE, $command) === 1) {
             return self::apiBody($command);
         }
@@ -238,6 +265,48 @@ final class ReviewStatusHook
         }
 
         return $body;
+    }
+
+    /**
+     * The `glab mr note` commands of a Bash command: the inline body (`-m`/`--message` values and heredocs;
+     * `-F`/body files are not read) and the verdict its marker sets — null when the marker is missing,
+     * malformed (not a 40-hex sha) or conflicting. Identical repeated markers count once: a heredoc inside
+     * `-m "$(cat <<EOF …)"` is seen by both readers.
+     *
+     * @return list<array{body: string, state: self::APPROVE|self::REQUEST_CHANGES|null}>
+     */
+    private static function gitlabNotes(string $command): array
+    {
+        if (preg_match_all(self::GITLAB_NOTE_RE, $command, $starts, PREG_OFFSET_CAPTURE) === 0) {
+            return [];
+        }
+        $offsets = array_map(static fn (array $s): int => (int) $s[1], $starts[0]);
+        $notes = [];
+        foreach ($offsets as $i => $offset) {
+            $rest = substr($command, $offset, ($offsets[$i + 1] ?? strlen($command)) - $offset);
+            $body = '';
+            if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $rest, $m, PREG_SET_ORDER) > 0) {
+                foreach ($m as $hit) {
+                    $body .= "\n".(($hit[1] ?? '') !== '' ? $hit[1] : ($hit[2] ?? ''));
+                }
+            }
+            if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $rest, $m, PREG_SET_ORDER) > 0) {
+                foreach ($m as $hit) {
+                    $body .= "\n".$hit[3];
+                }
+            }
+            $state = null;
+            $any = preg_match_all(self::GITLAB_MARKER_ANY_RE, $body, $unused);
+            if ($any > 0 && preg_match_all(self::GITLAB_MARKER_RE, $body, $valid, PREG_SET_ORDER) === $any) {
+                $distinct = array_unique(array_map(static fn (array $v): string => $v['state'].' '.$v['sha'], $valid));
+                if (count($distinct) === 1 && $any === count($valid)) {
+                    $state = $valid[0]['state'] === 'approve' ? self::APPROVE : self::REQUEST_CHANGES;
+                }
+            }
+            $notes[] = ['body' => $body, 'state' => $state];
+        }
+
+        return $notes;
     }
 
     /**
@@ -357,6 +426,11 @@ final class ReviewStatusHook
             if (isset($failed[$id])) {
                 continue;
             }
+            foreach (self::gitlabNotes($command) as $note) {
+                if ($note['state'] !== null) {
+                    $status = $note['state'];
+                }
+            }
             if (preg_match(self::STATUS_CMD_RE, $command, $m) === 1 || preg_match(self::STATUS_API_RE, $command, $m) === 1) {
                 $status = in_array(trim($m['state']), ['--approve', '-a', 'APPROVE'], true)
                     ? self::APPROVE
@@ -447,11 +521,14 @@ final class ReviewStatusHook
      * JSON for `claude --settings`: a Stop hook on bin/review-stop-hook.php of this
      * bot copy (path from __DIR__ — claude runs with the managed repository as cwd).
      */
-    public static function settingsJson(string $stateDir): string
+    public static function settingsJson(string $stateDir, string $forge = Config::FORGE_GITHUB): string
     {
+        // `--forge=` goes after the state directory ($argv[1] stays the state directory); the hook
+        // does not load the config, and a missing or unknown value means github.
         $command = escapeshellarg(PHP_BINARY).' '
             .escapeshellarg(dirname(__DIR__).'/bin/review-stop-hook.php').' '
-            .escapeshellarg($stateDir);
+            .escapeshellarg($stateDir).' '
+            .escapeshellarg('--forge='.$forge);
 
         return (string) json_encode(
             ['hooks' => ['Stop' => [['hooks' => [['type' => 'command', 'command' => $command]]]]]],

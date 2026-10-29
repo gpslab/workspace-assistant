@@ -262,7 +262,134 @@ final class ReviewStatusHookTest extends TestCase
         $command = $settings['hooks']['Stop'][0]['hooks'][0]['command'];
 
         self::assertStringContainsString(dirname(__DIR__).'/bin/review-stop-hook.php', $command);
-        self::assertStringEndsWith("'/srv/state'", $command);
+        self::assertStringEndsWith("'/srv/state' '--forge=github'", $command);
+    }
+
+    public function testSettingsJsonPassesTheForgeAfterTheStateDir(): void
+    {
+        $settings = json_decode(ReviewStatusHook::settingsJson('/srv/state', 'gitlab'), true);
+        self::assertIsArray($settings);
+
+        self::assertStringEndsWith("'/srv/state' '--forge=gitlab'", $settings['hooks']['Stop'][0]['hooks'][0]['command']);
+    }
+
+    private static function glabNote(string $marker, string $text = 'C1 — fixed: src/A.php'): string
+    {
+        return "glab mr note 12 -m \"{$text}\n\n{$marker}\"";
+    }
+
+    /**
+     * @return iterable<string, array{string, string, string}> command, reply, expected decision
+     */
+    public static function gitlabProvider(): iterable
+    {
+        $ok = ReviewStatusHook::PASS;
+        $no = ReviewStatusHook::BLOCK;
+        yield 'approve note' => [self::glabNote('<!-- verdict:approve sha='.self::SHA.' -->'), '🟢 Merge', $ok];
+        yield 'changes note' => [self::glabNote('<!-- verdict:changes sha='.self::SHA.' -->'), '🔴 Blocked', $ok];
+        yield 'changes note, approve reply' => [self::glabNote('<!-- verdict:changes sha='.self::SHA.' -->'), '🟢 Merge', $no];
+        yield 'note without marker' => ['glab mr note 12 -m "looks good"', '🟢 Merge', $no];
+        yield 'short sha' => [self::glabNote('<!-- verdict:approve sha=0123abc -->'), '🟢 Merge', $no];
+        yield 'non-hex sha' => [self::glabNote('<!-- verdict:approve sha='.str_repeat('g', 40).' -->'), '🟢 Merge', $no];
+        yield 'conflicting markers' => [self::glabNote('<!-- verdict:approve sha='.self::SHA.' --> <!-- verdict:changes sha='.self::SHA.' -->'), '🟢 Merge', $no];
+        yield 'valid plus malformed marker' => [self::glabNote('<!-- verdict:approve sha='.self::SHA.' --> <!-- verdict:approve sha=abc -->'), '🟢 Merge', $no];
+        yield 'approve alone' => ['glab mr approve 12 --sha '.self::SHA, '🟢 Merge', $no];
+        yield 'revoke alone' => ['glab mr revoke 12', '🔴 Blocked', $no];
+        yield 'note with approve side effect' => [self::glabNote('<!-- verdict:approve sha='.self::SHA.' -->').' && glab mr approve 12 --sha '.self::SHA, '🟢 Merge', $ok];
+        yield 'heredoc body' => ["glab mr note 12 -m \"\$(cat <<'EOF'\nC1 — fixed\n<!-- verdict:approve sha=".self::SHA." -->\nEOF\n)\"", '🟢 Merge', $ok];
+        yield 'plain mr comment' => ['glab mr view 12', '🟢 Merge', $no];
+    }
+
+    #[DataProvider('gitlabProvider')]
+    public function testGitlabVerdictNote(string $command, string $reply, string $expected): void
+    {
+        $lines = [self::user('review !12'), self::bash('t1', $command), self::toolResult('t1')];
+
+        self::assertSame($expected, self::decide($lines, $reply));
+    }
+
+    public function testGitlabFailedNoteDoesNotCount(): void
+    {
+        $lines = [self::user('review !12'), self::bash('t1', self::glabNote('<!-- verdict:approve sha='.self::SHA.' -->')), self::toolResult('t1', true)];
+
+        self::assertSame(ReviewStatusHook::BLOCK, self::decide($lines));
+    }
+
+    public function testGitlabMissingFindingIdBlocks(): void
+    {
+        $note = self::glabNote('<!-- verdict:approve sha='.self::SHA.' -->', 'C1 — fixed: src/A.php');
+        $lines = [self::user('review !12'), self::bash('t1', $note), self::toolResult('t1')];
+        $input = ['last_assistant_message' => '🟢 Merge'];
+
+        self::assertSame(ReviewStatusHook::PASS, ReviewStatusHook::decide($input, $lines, ['C1']));
+        self::assertSame(ReviewStatusHook::BLOCK, ReviewStatusHook::decide($input, $lines, ['C1', 'C2']));
+        self::assertSame(['C2'], ReviewStatusHook::missingIds($lines, ['C1', 'C2']));
+    }
+
+    public function testGitlabMrActivityIsRecognised(): void
+    {
+        foreach (['glab mr view 12', 'glab mr diff 12', 'glab mr checkout 12', 'glab api projects/:fullpath/merge_requests/12'] as $command) {
+            $lines = [self::user('review !12'), self::bash('t1', $command), self::toolResult('t1')];
+            self::assertSame(ReviewStatusHook::BLOCK, self::decide($lines), $command);
+        }
+        $lines = [self::user('hi'), self::bash('t1', 'glab issue view 12'), self::toolResult('t1')];
+        self::assertSame(ReviewStatusHook::PASS, self::decide($lines));
+    }
+
+    public function testReasonNamesTheForgeCommand(): void
+    {
+        $lines = [self::user('review !12'), self::bash('t1', 'glab mr approve 12 --sha '.self::SHA), self::toolResult('t1')];
+        $input = ['last_assistant_message' => '🟢 Merge'];
+
+        $gitlab = ReviewStatusHook::reason($input, $lines, null, 'gitlab');
+        $github = ReviewStatusHook::reason($input, $lines);
+        self::assertStringContainsString('glab mr note', $gitlab);
+        self::assertStringNotContainsString('gh api', $gitlab);
+        self::assertStringContainsString('gh api', $github);
+        self::assertStringNotContainsString('glab', $github);
+        // An unknown forge, like a missing argument, is github.
+        self::assertSame($github, ReviewStatusHook::reason($input, $lines, null, 'bitbucket'));
+        self::assertStringContainsString('glab mr note', ReviewStatusHook::FALLBACK_REASON_GITLAB);
+        self::assertStringContainsString('glab mr note', ReviewStatusHook::reasonOrFallback($input, $lines, null, null, 'gitlab'));
+    }
+
+    public function testGitlabIdsReasonNamesGlab(): void
+    {
+        $note = self::glabNote('<!-- verdict:approve sha='.self::SHA.' -->');
+        $lines = [self::user('review !12'), self::bash('t1', $note), self::toolResult('t1')];
+        $input = ['last_assistant_message' => '🟢 Merge'];
+
+        self::assertStringContainsString('glab mr note', ReviewStatusHook::reason($input, $lines, ['C9'], 'gitlab'));
+        self::assertStringContainsString('gh api', ReviewStatusHook::reason($input, $lines, ['C9']));
+    }
+
+    public function testHookScriptUsesGithubReasonWithoutForgeArgument(): void
+    {
+        $dir = sys_get_temp_dir().'/rsh-'.bin2hex(random_bytes(4));
+        mkdir($dir, 0775, true);
+        $transcript = $dir.'/t.jsonl';
+        file_put_contents($transcript, implode("\n", [self::user('review !12'), self::bash('t1', 'glab mr view 12'), self::toolResult('t1')])."\n");
+        $stdin = (string) json_encode(['session_id' => 's1', 'transcript_path' => $transcript, 'last_assistant_message' => '🟢 Merge']);
+        $run = static function (string ...$extra) use ($dir, $stdin): string {
+            $proc = proc_open(array_values([PHP_BINARY, dirname(__DIR__).'/bin/review-stop-hook.php', $dir, ...$extra]), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+            self::assertIsResource($proc);
+            fwrite($pipes[0], $stdin);
+            fclose($pipes[0]);
+            $out = (string) stream_get_contents($pipes[1]);
+            proc_close($proc);
+
+            return $out;
+        };
+
+        $github = $run();
+        $unknown = $run('--forge=bitbucket');
+        $gitlab = $run('--forge=gitlab');
+        exec('rm -rf '.escapeshellarg($dir));
+
+        self::assertStringContainsString('gh api', $github);
+        self::assertSame($github, $unknown);
+        self::assertStringContainsString('glab mr note', $gitlab);
+        self::assertStringNotContainsString('gh api', $gitlab);
     }
 
     public function testMarkerIsConsumedOnce(): void

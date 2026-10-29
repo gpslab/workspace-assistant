@@ -91,6 +91,10 @@ final class RunPrompt
      */
     public function manualReviewFindings(array $parts): array
     {
+        if ($this->config->forge === Config::FORGE_GITLAB) {
+            // No GitLab API client yet: the forge client is not touched, and the prompt says so.
+            return [['Cold reviewer findings were NOT collected by the bot: collecting them is not supported on GitLab — check the merge requests for cold reviewer findings manually (`glab mr view <N> --comments`) before approving; do not assume there are none.'], null, []];
+        }
         if ($this->github === null) {
             return [[], null, []];
         }

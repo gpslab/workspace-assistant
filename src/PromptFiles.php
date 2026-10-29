@@ -39,6 +39,8 @@ final class PromptFiles
         'review_status_reason_no_verdict',
         'review_status_reason_ids',
         'review_status_reason_steps',
+        'review_status_reason_ids_gitlab',
+        'review_status_reason_steps_gitlab',
         'compact_summarize_prompt',
         'compact_reseed_prefix',
         'compact_reseed_suffix',

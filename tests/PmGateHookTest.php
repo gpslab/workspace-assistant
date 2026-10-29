@@ -452,6 +452,17 @@ final class PmGateHookTest extends TestCase
         self::assertArrayHasKey('PreToolUse', $settings['hooks']);
     }
 
+    public function testReviewStopHookGetsTheForgeAfterTheStateDir(): void
+    {
+        $settings = json_decode(PmGateHook::settingsJson($this->dir, 'review', 'run-1', true, 'gitlab'), true);
+        self::assertIsArray($settings);
+        self::assertStringEndsWith(escapeshellarg($this->dir).' '.escapeshellarg('--forge=gitlab'), $settings['hooks']['Stop'][0]['hooks'][0]['command']);
+
+        $default = json_decode(PmGateHook::settingsJson($this->dir, 'review', 'run-1', true), true);
+        self::assertIsArray($default);
+        self::assertStringEndsWith(escapeshellarg('--forge=github'), $default['hooks']['Stop'][0]['hooks'][0]['command']);
+    }
+
     /**
      * @return iterable<string, array{string}>
      */

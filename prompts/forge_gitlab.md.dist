@@ -13,8 +13,13 @@ Forge: this instance works with GitLab, not GitHub. Wherever these rules or the 
 | `gh pr diff <N>`                        | `glab mr diff <N>`                                                          |
 | `gh pr checks <N>`                      | `glab ci status --branch <source branch of !N>` (take the branch from `glab mr view <N>`; without `--branch` it reports the checkout's current branch, not the merge request) |
 | `gh pr comment <N>`                     | `glab mr note <N> -m "…"`                                                   |
-| `gh pr review <N> --approve`, `gh api …/pulls/<N>/reviews -f commit_id=<SHA> -f event=APPROVE` | `glab mr approve <N> --sha <SHA>` (the literal 40-hex commit you reviewed; never approve without `--sha`) |
-| `gh api …/pulls/<N>/reviews -f event=REQUEST_CHANGES` | no GitLab equivalent: post the findings with `glab mr note <N> -m "…"` and do not approve |
+| `gh pr review <N> --approve`, `gh api …/pulls/<N>/reviews -f commit_id=<SHA> -f event=APPROVE` or `event=REQUEST_CHANGES` | the verdict note, see "Publishing a verdict" below (the only rule for publishing a verdict) |
 | `gh api <endpoint>`                     | `glab api <endpoint>` (REST v4, for example `projects/:fullpath/merge_requests/<N>`; GitHub endpoints such as `repos/<o>/<r>/pulls/<N>/reviews` do not exist on GitLab, do not translate them literally) |
 
 - `-R <owner/repo>` becomes `-R <namespace>/<project>`.
+
+Publishing a verdict (review runs): the published verdict is one `glab mr note <N> -m "…"` (inline body or heredoc, never a body file). Its body carries the findings, one line per finding id the prompt listed, and exactly one marker:
+- `<!-- verdict:approve sha=<40-hex head SHA> -->` for 🟢, or `<!-- verdict:changes sha=<40-hex head SHA> -->` for 🔴;
+- `<SHA>` is the literal 40-hex commit you reviewed (the one the prompt listed, otherwise the head you recorded at the start); a note without a marker, with a non-40-hex sha or with more than one marker is not a verdict;
+- the marker is the verdict. `glab mr approve <N> --sha <SHA>` (🟢) and `glab mr revoke <N>` (🔴, if you approved before) are side effects and never count without the note; never approve without `--sha`;
+- if GitLab refuses the approve (for example self-approval is disabled for the author), say so plainly in the reply; the note verdict still counts.

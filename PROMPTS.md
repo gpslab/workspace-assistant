@@ -1,6 +1,6 @@
 # Prompts
 
-The bot's prompts are files in `prompts/`: 20 texts (`prompts/*.md.dist`) and 6 built-in agents
+The bot's prompts are files in `prompts/`: 22 texts (`prompts/*.md.dist`) and 6 built-in agents
 (`prompts/agents/*.md.dist`). This page says which file is used in which run, how the prompt of a run is
 assembled from the files, the settings in `.env` and the texts built in code, and how to override each
 file. The settings are in [INSTALL.md](INSTALL.md), the built-in agents in
@@ -27,6 +27,8 @@ There are three kinds of file:
 | `review_status_reason_no_verdict`   | contract | Stop hook of the `review` mode, no verdict in the reply             |                                 |
 | `review_status_reason_steps`        | contract | Stop hook of the `review` mode, after the reason                    |                                 |
 | `review_status_reason_ids`          | contract | Stop hook of the `review` mode, ids of cold findings are missing    | `{ids}`                         |
+| `review_status_reason_steps_gitlab` | contract | Like `review_status_reason_steps`, when the hook runs with `--forge=gitlab` |                          |
+| `review_status_reason_ids_gitlab`   | contract | Like `review_status_reason_ids`, when the hook runs with `--forge=gitlab` | `{ids}`                    |
 | `compact_summarize_prompt`          | contract | `/compact`, phase 1 (`QueueScheduler`)                              |                                 |
 | `compact_reseed_prefix`             | contract | `/compact`, phase 2, before the summary (`CompactFlow`)             |                                 |
 | `compact_reseed_suffix`             | contract | `/compact`, phase 2, after the summary (`CompactFlow`)              |                                 |
@@ -104,7 +106,10 @@ phase.
 
 `ReviewStatusHook` answers with `review_status_reason` (`{verdict}`, `{state}`, `{problem}`) or
 `review_status_reason_no_verdict`, followed by `review_status_reason_steps`; and with
-`review_status_reason_ids` (`{ids}`) when the review body lacks ids of cold findings.
+`review_status_reason_ids` (`{ids}`) when the review body lacks ids of cold findings. The hook script gets
+the forge from the `--forge=<FORGE>` argument after the state directory (it does not load the config; a missing
+or unknown value means github): with `--forge=gitlab` the `_gitlab` variants of `review_status_reason_steps` and
+`review_status_reason_ids` are used instead, and the hardcoded fallback names `glab mr note`.
 
 ### Built-in agents
 
@@ -128,10 +133,10 @@ no longer become an extra task.
 
 - **Local file.** `prompts/<name>.md` (gitignored, like `.env` next to `.env.dist`) replaces
   `prompts/<name>.md.dist` as a whole. A missing `.dist` is a broken installation.
-- **Contract names.** The 14 names of `PromptFiles::CONTRACT` can be overridden. After an update, diff your
+- **Contract names.** The 16 names of `PromptFiles::CONTRACT` can be overridden. After an update, diff your
   overrides against the `.dist`.
 - **Checks and warnings.** Two separate things happen:
-  - *Override warning.* A local override of any of the 14 contract names is reported in the reply of every
+  - *Override warning.* A local override of any of the 16 contract names is reported in the reply of every
     run, whatever the mode or kind of run. `default_file_prompt` is a setting and gets no warning.
   - *Content checks.* Only the files of the system prompt (`common`, `common_limits`, `contract_review`,
     `language_line`, the persona files), `session_update` and `pm_runbook` are checked, and a run that
