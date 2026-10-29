@@ -68,7 +68,7 @@ final class ReviewStatusHook
     public const string FALLBACK_REASON = 'Review-status check: this turn worked with a PR but the PR has no matching review state. Publish it now with `gh api repos/<owner>/<repo>/pulls/<N>/reviews -f commit_id=<SHA> -f event=APPROVE -f body=…` (🟢) or `-f event=REQUEST_CHANGES` (🔴), where <SHA> is the literal 40-hex commit you reviewed. The only legitimate reasons to leave no status: a manual Approve when the PR head no longer equals <SHA> (name the unreviewed commits in the reply), or a POST that GitHub rejected (say why; do not republish on another commit). Then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴.';
 
     /** {@see FALLBACK_REASON} for `FORGE=gitlab`. */
-    public const string FALLBACK_REASON_GITLAB = 'Review-status check: this turn worked with a merge request but it has no matching review verdict. Publish it now with `glab mr note <N> -m "…"` whose body carries exactly one marker `<!-- verdict:approve sha=<SHA> -->` (🟢) or `<!-- verdict:changes sha=<SHA> -->` (🔴), where <SHA> is the literal 40-hex commit you reviewed, plus the findings; `glab mr approve <N> --sha <SHA>` / `glab mr revoke <N>` alone are not a verdict. The only legitimate reasons to leave no verdict: a manual Approve when the MR head no longer equals <SHA> (name the unreviewed commits in the reply), or a note that GitLab rejected (say why; do not republish on another commit). Then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴.';
+    public const string FALLBACK_REASON_GITLAB = 'Review-status check: this turn worked with a merge request but it has no matching review verdict. Publish it now with `glab mr note <N> -m "…"` whose body carries exactly one marker `<!-- verdict:approve sha=<SHA> -->` (🟢) or `<!-- verdict:changes sha=<SHA> -->` (🔴), where <SHA> is the literal lowercase 40-hex commit you reviewed, plus the findings; `glab mr approve <N> -s <SHA>` (or `--sha <SHA>`) / `glab mr revoke <N>` alone are not a verdict. The only legitimate reasons to leave no verdict: a manual Approve when the MR head no longer equals <SHA> (name the unreviewed commits in the reply), or a note that GitLab rejected (say why; do not republish on another commit). Then repeat your full verdict reply as your final message, its first line starting with 🟢 or 🔴.';
 
     /** PR (MR) work during the turn — a sign that the verdict comes from a review, not a retelling. */
     private const string PR_ACTIVITY_RE = '/\bgh\s+(?:pr\s+(?:view|diff|checks|comment|review)\b|api\b[^\n]*\bpulls\b)|\bglab\s+(?:mr\s+(?:view|diff|note|approve|revoke|checkout)\b|api\b[^\n]*merge_requests)/';
@@ -76,9 +76,12 @@ final class ReviewStatusHook
     /** A GitLab note command (a segment from {@see PmGateHook::commands()}). */
     private const string GITLAB_NOTE_RE = '/^glab\s+mr\s+note\b/';
 
-    /** Any `verdict:` marker, valid or not; the valid one is {@see GITLAB_MARKER_RE}. */
-    private const string GITLAB_MARKER_ANY_RE = '/<!--\s*verdict:/';
-    private const string GITLAB_MARKER_RE = '/<!--\s*verdict:(?<state>approve|changes)\s+sha=(?<sha>[0-9a-f]{40})\s*-->/';
+    /**
+     * Any `verdict:` marker, valid or not; the valid one is {@see GITLAB_MARKER_RE}. Both hooks share the
+     * grammar: {@see ReviewCommitHook} denies a note whose markers this hook would not count.
+     */
+    public const string GITLAB_MARKER_ANY_RE = '/<!--\s*verdict:/';
+    public const string GITLAB_MARKER_RE = '/<!--\s*verdict:(?<state>approve|changes)\s+sha=(?<sha>[0-9a-f]{40})\s*-->/';
 
     /**
      * The command that sets the status: a POST to pulls/N/reviews with an event (the form
@@ -286,23 +289,7 @@ final class ReviewStatusHook
             if (preg_match(self::GITLAB_NOTE_RE, $segment) !== 1) {
                 continue;
             }
-            $body = '';
-            $spans = [];
-            if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
-                foreach ($m as $hit) {
-                    $spans[] = [$hit[0][1], $hit[0][1] + strlen($hit[0][0])];
-                    $body .= "\n".(($hit[1][0] ?? '') !== '' ? $hit[1][0] : ($hit[2][0] ?? ''));
-                }
-            }
-            if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
-                foreach ($m as $hit) {
-                    // A heredoc inside a `-m "$(cat <<EOF …)"` value is already part of that value.
-                    $inside = array_filter($spans, static fn (array $span): bool => $hit[0][1] >= $span[0] && $hit[0][1] < $span[1]);
-                    if ($inside === []) {
-                        $body .= "\n".$hit[3][0];
-                    }
-                }
-            }
+            $body = self::gitlabNoteBody($segment);
             $state = null;
             if (preg_match_all(self::GITLAB_MARKER_ANY_RE, $body, $unused) === 1
                 && preg_match_all(self::GITLAB_MARKER_RE, $body, $valid, PREG_SET_ORDER) === 1) {
@@ -312,6 +299,33 @@ final class ReviewStatusHook
         }
 
         return $notes;
+    }
+
+    /**
+     * The body of one `glab mr note` command as the Stop hook reads it: the `-m`/`--message` values in
+     * `"…"` or `'…'` and the heredocs. Anything else in the command is not part of the body.
+     */
+    public static function gitlabNoteBody(string $segment): string
+    {
+        $body = '';
+        $spans = [];
+        if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
+            foreach ($m as $hit) {
+                $spans[] = [$hit[0][1], $hit[0][1] + strlen($hit[0][0])];
+                $body .= "\n".(($hit[1][0] ?? '') !== '' ? $hit[1][0] : ($hit[2][0] ?? ''));
+            }
+        }
+        if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
+            foreach ($m as $hit) {
+                // A heredoc inside a `-m "$(cat <<EOF …)"` value is already part of that value.
+                $inside = array_filter($spans, static fn (array $span): bool => $hit[0][1] >= $span[0] && $hit[0][1] < $span[1]);
+                if ($inside === []) {
+                    $body .= "\n".$hit[3][0];
+                }
+            }
+        }
+
+        return $body;
     }
 
     /**

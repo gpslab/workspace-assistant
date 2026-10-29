@@ -19,7 +19,7 @@ Forge: this instance works with GitLab, not GitHub. Wherever these rules or the 
 - `-R <owner/repo>` becomes `-R <namespace>/<project>`.
 
 Publishing a verdict (review runs): the published verdict is one `glab mr note <N> -m "…"` (inline body or heredoc, never a body file). Its body carries the findings, one line per finding id the prompt listed, and exactly one marker:
-- `<!-- verdict:approve sha=<40-hex head SHA> -->` for 🟢, or `<!-- verdict:changes sha=<40-hex head SHA> -->` for 🔴;
-- `<SHA>` is the literal 40-hex commit you reviewed (the one the prompt listed, otherwise the head you recorded at the start); a note without a marker, with a non-40-hex sha or with more than one marker is not a verdict;
-- the marker is the verdict. `glab mr approve <N> --sha <SHA>` (🟢) and `glab mr revoke <N>` (🔴, if you approved before) are side effects and never count without the note; never approve without `--sha`;
+- `<!-- verdict:approve sha=<lowercase 40-hex head SHA> -->` for 🟢, or `<!-- verdict:changes sha=<lowercase 40-hex head SHA> -->` for 🔴;
+- `<SHA>` is the literal lowercase 40-hex commit you reviewed (the one the prompt listed, otherwise the head you recorded at the start); a note without a marker, with a sha that is not lowercase 40-hex or with more than one marker is not a verdict;
+- the marker is the verdict. `glab mr approve <N> -s <SHA>` (or `--sha`, 🟢) and `glab mr revoke <N>` (🔴, if you approved before) are side effects and never count without the note; never approve without `-s`/`--sha`;
 - if GitLab refuses the approve (for example self-approval is disabled for the author), say so plainly in the reply; the note verdict still counts.

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests;
 
+use GpsLab\WorkspaceAssistant\PmGateHook;
 use GpsLab\WorkspaceAssistant\ReviewCommitHook;
+use GpsLab\WorkspaceAssistant\ReviewStatusHook;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -13,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 final class ReviewCommitHookTest extends TestCase
 {
     private const string SHA = '0123456789abcdef0123456789abcdef01234567';
+    private const string UPPER = '0123456789ABCDEF0123456789ABCDEF01234567';
     private const string OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
     private const string FORM = 'gh api repos/<owner>/<repo>/pulls/<N>/reviews -f commit_id=<SHA> -f event=<APPROVE|REQUEST_CHANGES> -f body=<review body>';
 
@@ -51,6 +54,17 @@ final class ReviewCommitHookTest extends TestCase
         yield 'approve with a short sha' => ['glab mr approve 12 --sha 0123abc'];
         yield 'approve with a variable sha' => ['glab mr approve 12 --sha $SHA'];
         yield 'approve chained' => ['cd x && glab mr approve 12'];
+        yield 'approve with an uppercase sha' => ['glab mr approve 12 --sha '.self::UPPER];
+        yield 'approve -s with an uppercase sha' => ['glab mr approve 12 -s '.self::UPPER];
+        yield 'approve literal then a variable sha' => ['glab mr approve 12 --sha '.self::SHA.' --sha $SHA'];
+        yield 'approve -s literal then command substitution' => ['glab mr approve 12 -s '.self::SHA.' -s $(git rev-parse HEAD)'];
+        yield 'note marker in -m"…" without a space' => ['glab mr note 12 -m"ok <!-- verdict:approve sha='.self::SHA.' -->"'];
+        yield 'note marker in ANSI-C quoting' => ['glab mr note 12 -m $\'ok <!-- verdict:approve sha='.self::SHA.' -->\''];
+        yield 'approve literal then attached variable' => ['glab mr approve 12 --sha '.self::SHA.' -s$SHA'];
+        yield 'approve literal then attached quoted variable' => ['glab mr approve 12 --sha '.self::SHA.' -s"$SHA"'];
+        yield 'approve literal then attached substitution' => ['glab mr approve 12 --sha '.self::SHA.' -s$(git rev-parse HEAD)'];
+        yield 'approve attached variable' => ['glab mr approve 12 -s$SHA'];
+        yield 'approve -s with a variable sha' => ['glab mr approve 12 -s $SHA'];
         yield 'note with a command substitution sha' => ['glab mr note 12 -m "ok <!-- verdict:approve sha=$(git rev-parse HEAD) -->"'];
         yield 'note with a short sha' => ['glab mr note 12 -m "ok <!-- verdict:changes sha=0123abc -->"'];
     }
@@ -67,6 +81,9 @@ final class ReviewCommitHookTest extends TestCase
     public static function gitlabAllowedProvider(): iterable
     {
         yield 'approve with a literal sha' => ['glab mr approve 12 --sha '.self::SHA];
+        yield 'approve with -s' => ['glab mr approve 12 -s '.self::SHA];
+        yield 'approve with attached -s' => ['glab mr approve 12 -s'.self::SHA];
+        yield 'approve with -s=' => ['glab mr approve 12 -s='.self::SHA];
         yield 'approve with --sha=' => ['glab mr approve 12 --sha='.self::SHA];
         yield 'note with a literal sha' => ['glab mr note 12 -m "ok <!-- verdict:approve sha='.self::SHA.' -->"'];
         yield 'note without a marker' => ['glab mr note 12 -m "hello"'];
@@ -77,6 +94,158 @@ final class ReviewCommitHookTest extends TestCase
     public function testGitlabAllowed(string $command): void
     {
         self::assertNull(ReviewCommitHook::check($command));
+    }
+
+    /**
+     * @return iterable<string, array{string, bool}> note body, whether the Stop hook counts it
+     */
+    public static function markerProvider(): iterable
+    {
+        $sha = self::SHA;
+        yield 'approve' => ["<!-- verdict:approve sha={$sha} -->", true];
+        yield 'changes' => ["<!-- verdict:changes sha={$sha} -->", true];
+        yield 'unknown state' => ["<!-- verdict:approved sha={$sha} -->", false];
+        yield 'uppercase state' => ["<!-- verdict:Approve sha={$sha} -->", false];
+        yield 'uppercase sha' => ['<!-- verdict:approve sha='.self::UPPER.' -->', false];
+        yield 'command substitution' => ['<!-- verdict:approve sha=$(git rev-parse HEAD) -->', false];
+        yield 'variable' => ['<!-- verdict:approve sha=$SHA -->', false];
+        yield 'short sha' => ['<!-- verdict:changes sha=0123abc -->', false];
+        yield 'two markers' => ["<!-- verdict:approve sha={$sha} --> <!-- verdict:changes sha={$sha} -->", false];
+        yield 'no sha' => ['<!-- verdict:approve -->', false];
+        yield 'trailing junk' => ["<!-- verdict:approve sha={$sha} extra -->", false];
+    }
+
+    /** Any note with a `verdict:` marker is either denied by the commit hook or counted by the Stop hook. */
+    #[DataProvider('markerProvider')]
+    public function testMarkerPairProperty(string $marker, bool $counted): void
+    {
+        self::assertSame($counted, self::bothAgree('glab mr note 12 -m "C1 — fixed '.$marker.'"', $marker));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function quotingProvider(): iterable
+    {
+        yield 'double quotes' => ['glab mr note 12 -m "ok %s"'];
+        yield 'single quotes' => ["glab mr note 12 -m 'ok %s'"];
+        yield '--message=' => ['glab mr note 12 --message="ok %s"'];
+        yield 'heredoc' => ["glab mr note 12 -m \"\$(cat <<'EOF'\nok %s\nEOF\n)\""];
+    }
+
+    #[DataProvider('quotingProvider')]
+    public function testMarkerPairPropertyAcrossQuoting(string $template): void
+    {
+        $marker = '<!-- verdict:approve sha='.self::SHA.' -->';
+
+        self::assertTrue(self::bothAgree(sprintf($template, $marker), $marker));
+    }
+
+    /** Forms the Stop hook never reads a body from are denied, not published uncounted. */
+    public function testMarkerOutsideReadBodyDenied(): void
+    {
+        $marker = '<!-- verdict:approve sha='.self::SHA.' -->';
+
+        self::assertStringContainsString('outside a body', (string) ReviewCommitHook::check('glab mr note 12 -m"ok '.$marker.'"'));
+        self::assertStringContainsString('outside a body', (string) ReviewCommitHook::check("glab mr note 12 -m \$'ok ".$marker."'"));
+    }
+
+    /** True when the Stop hook counts the note and the commit hook lets it through. */
+    private static function bothAgree(string $command, string $marker): bool
+    {
+        $denied = ReviewCommitHook::check($command) !== null;
+        $lines = [
+            (string) json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => 'review !12']]),
+            (string) json_encode(['type' => 'assistant', 'message' => ['content' => [['type' => 'tool_use', 'id' => 't1', 'name' => 'Bash', 'input' => ['command' => $command]]]]]),
+            (string) json_encode(['type' => 'user', 'message' => ['content' => [['type' => 'tool_result', 'tool_use_id' => 't1', 'content' => 'ok', 'is_error' => false]]]]),
+        ];
+        $stop = ReviewStatusHook::decide(['last_assistant_message' => str_contains($marker, 'verdict:changes') ? '🔴 Blocked' : '🟢 Merge', 'stop_hook_active' => false], $lines);
+        $stopCounts = $stop === ReviewStatusHook::PASS;
+
+        return $denied !== $stopCounts && $stopCounts;
+    }
+
+    public function testMarkerDenialTexts(): void
+    {
+        $note = static fn (string $marker): string => (string) ReviewCommitHook::check('glab mr note 12 -m "x '.$marker.'"');
+
+        self::assertStringContainsString('lowercase 40-hex', $note('<!-- verdict:approve sha='.self::UPPER.' -->'));
+        self::assertStringContainsString('literal lowercase 40-hex', $note('<!-- verdict:approve sha=$(git rev-parse HEAD) -->'));
+        self::assertStringContainsString('verdict:approve sha=<SHA>', $note('<!-- verdict:approved sha='.self::SHA.' -->'));
+        self::assertStringContainsString('not recognised', $note('<!-- verdict:Approve sha='.self::SHA.' -->'));
+        self::assertStringContainsString('2 `verdict:` markers', $note('<!-- verdict:approve sha='.self::SHA.' --> <!-- verdict:approve sha='.self::SHA.' -->'));
+        self::assertStringContainsString('malformed', $note('<!-- verdict:approve -->'));
+    }
+
+    public function testApproveUppercaseDenialSaysLowercase(): void
+    {
+        self::assertStringContainsString('lowercase', (string) ReviewCommitHook::check('glab mr approve 12 -s '.self::UPPER));
+    }
+
+    /**
+     * @return iterable<string, array{string}> the part of the command from `glab api` up to the endpoint
+     */
+    public static function approveIdProvider(): iterable
+    {
+        yield 'numeric' => ['projects/12/merge_requests/5/approve'];
+        yield 'encoded path' => ['projects/group%2Fsub%2Fproj/merge_requests/5/approve'];
+        yield ':id' => ['projects/:id/merge_requests/5/approve'];
+        yield ':fullpath' => ['"projects/:fullpath/merge_requests/5/approve"'];
+        yield 'leading slash' => ['/projects/12/merge_requests/5/approve'];
+        yield 'v4 prefix' => ['api/v4/projects/12/merge_requests/5/approve'];
+        yield 'leading slash v4' => ['/api/v4/projects/:id/merge_requests/5/approve'];
+        yield 'full url' => ['https://gitlab.example.com/api/v4/projects/g%2Fp/merge_requests/5/approve'];
+    }
+
+    #[DataProvider('approveIdProvider')]
+    public function testGlabApiApprovePinned(string $endpoint): void
+    {
+        $api = 'glab api '.$endpoint;
+        $sha = self::SHA;
+        $bare = trim($endpoint, '"');
+
+        self::assertNotNull(ReviewCommitHook::check("{$api} -X POST"));
+        self::assertNotNull(ReviewCommitHook::check("{$api} --method POST"));
+        self::assertNotNull(ReviewCommitHook::check("{$api} -f other=1"));
+        self::assertStringContainsString('without `sha`', (string) ReviewCommitHook::check("{$api} -X POST"));
+        self::assertNull(ReviewCommitHook::check("{$api} -X POST -f sha={$sha}"));
+        self::assertNull(ReviewCommitHook::check("{$api} -F sha={$sha}"));
+        self::assertNull(ReviewCommitHook::check("{$api} --field sha={$sha}"));
+        self::assertNull(ReviewCommitHook::check("{$api} --raw-field \"sha={$sha}\""));
+        self::assertNull(ReviewCommitHook::check("glab api -X POST {$bare}?sha={$sha}"));
+        self::assertNull(ReviewCommitHook::check("glab api -X POST \"{$bare}?sha={$sha}\""));
+        self::assertNotNull(ReviewCommitHook::check("{$api} -X POST -f sha=\$(git rev-parse HEAD)"));
+        self::assertNotNull(ReviewCommitHook::check("{$api} -X POST -f sha=\$SHA"));
+        self::assertNotNull(ReviewCommitHook::check("{$api} -X POST -f sha=0123abc"));
+        self::assertNotNull(ReviewCommitHook::check("glab api -X POST {$bare}?sha=\$SHA"));
+        self::assertStringContainsString('lowercase', (string) ReviewCommitHook::check("{$api} -X POST -f sha=".self::UPPER));
+        self::assertStringContainsString('lowercase', (string) ReviewCommitHook::check("glab api -X POST {$bare}?sha=".self::UPPER));
+        self::assertNotNull(ReviewCommitHook::check("{$api} -X POST --input body.json"));
+        self::assertNotNull(ReviewCommitHook::check("{$api} --input body.json -f sha={$sha}"));
+        self::assertNull(ReviewCommitHook::check($api));
+        self::assertNull(ReviewCommitHook::check("{$api} -X GET -f per_page=5"));
+        self::assertNull(ReviewCommitHook::check('glab api '.str_replace('/approve', '/unapprove', $endpoint).' -X POST'));
+    }
+
+    public function testGlabApiApprovePinnedWhateverTheForge(): void
+    {
+        self::assertNotNull(ReviewCommitHook::check('cd x && glab api projects/1/merge_requests/5/approve -X POST'));
+    }
+
+    public function testGlabApiIdGrammarIsSharedWithTheIssueGate(): void
+    {
+        $ref = new \ReflectionClass(ReviewCommitHook::class);
+        self::assertStringContainsString(PmGateHook::GLAB_PROJECT_PATH, (string) $ref->getConstant('GLAB_APPROVE_ENDPOINT_RE'));
+        $gate = new \ReflectionClass(PmGateHook::class);
+        self::assertStringContainsString(PmGateHook::GLAB_PROJECT_PATH, (string) $gate->getConstant('GLAB_ISSUES_ENDPOINT_RE'));
+    }
+
+    public function testGithubBehaviourUnchanged(): void
+    {
+        self::assertNull(ReviewCommitHook::check('gh api repos/o/r/pulls/7/reviews -f commit_id='.self::UPPER.' -f event=APPROVE'));
+        self::assertNull(ReviewCommitHook::check('gh api repos/o/r/pulls/7/reviews -f commit_id='.self::SHA.' -f event=APPROVE'));
+        self::assertNotNull(ReviewCommitHook::check('gh api repos/o/r/pulls/7/reviews -f event=APPROVE'));
+        self::assertNull(ReviewCommitHook::check('gh api repos/o/r/pulls/7/reviews -f commit_id='.self::SHA.' -f event=APPROVE -f body="<!-- verdict:Approve sha=x -->"'));
     }
 
     /**

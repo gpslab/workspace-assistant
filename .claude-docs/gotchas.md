@@ -367,7 +367,7 @@ verdict.
 - With both 🟢 and 🔴 in the reply the earlier one is the verdict; only a status matching the verdict
   counts (the last successful one in the turn). A mismatch blocks again.
 - On GitLab (`FORGE=gitlab`) the verdict is a successful `glab mr note <N> -m "…"` whose inline body
-  carries exactly one marker `<!-- verdict:approve|changes sha=<40-hex> -->`; the Stop hook counts it
+  carries exactly one marker `<!-- verdict:approve|changes sha=<lowercase 40-hex> -->`; the Stop hook counts it
   (`-F`/body files are not read; a missing, malformed or repeated marker is not a verdict). The marker is the
   source of truth: `glab mr approve` / `glab mr revoke` are side effects and never count. Detection accepts
   the `gh` and the `glab` forms whatever the forge; `--forge=` only selects the reason text.
@@ -387,9 +387,14 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
   one SHA per PR). Without a recorded SHA (PR not recognised, findings failed to load) only the form is
   checked: a known limitation, the reviewer records `headRefOid` itself as its first step.
 - The hook takes no forge argument, so the `glab` checks apply whatever `FORGE` is set to: it also denies
-  `glab mr approve` without a literal 40-hex `--sha`, and a
-  `glab mr note` whose verdict marker carries a `sha` that is not a literal 40-hex value (`$(…)` and shell
-  variables resolve at publish time). Known limitation: the bot records no SHAs on GitLab (there is no
+  `glab mr approve` without a literal lowercase 40-hex `-s|--sha` (uppercase is denied: GitLab compares the
+  `sha` strictly with the lowercase MR head SHA and answers 409), a `glab api` POST to
+  `projects/<id>/merge_requests/<N>/approve` without such a `sha` (field `-f/-F/--field/--raw-field sha=…` or
+  `?sha=` in the URL; `--input` is denied, GET and `unapprove` are not), and a `glab mr note` whose
+  `verdict:` markers are not exactly one marker of the grammar the Stop hook counts
+  (`ReviewStatusHook::GITLAB_MARKER_RE`, the only definition; a note is denied here or counted there). The
+  `sha` is a literal: `$(…)` and shell variables resolve at publish time. The `<id>` grammar of the `glab api`
+  path is `PmGateHook::GLAB_PROJECT_PATH`, shared with the issue-creation gate. Known limitation: the bot records no SHAs on GitLab (there is no
   GitLab API client), so the SHA is checked by form only and is not compared with the MR head.
 - Request changes always goes on the SHA; an epic Approve too (the merge gate is protected by
   `coverage_head`); a manual Approve only if the PR head still equals the SHA. A POST rejected by GitHub

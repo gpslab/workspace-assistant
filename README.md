@@ -168,8 +168,8 @@ github.com and gitlab.com, otherwise a bare hash. The cron check
 `glab auth status --hostname <host>`.
 
 In review mode on GitLab the verdict is a `glab mr note` whose body carries a
-`<!-- verdict:approve|changes sha=<40-hex> -->` marker. The marker's sha is checked only for its form (a
-literal of 40 hex digits); it is not compared with the MR head, because the bot has no GitLab client yet.
+`<!-- verdict:approve|changes sha=<SHA> -->` marker. The sha (also in `glab mr approve -s|--sha <SHA>` and in
+a `glab api` approve) is a literal lowercase 40-hex value, checked only for its form; it is not compared with the MR head, because the bot has no GitLab client yet.
 
 | Feature                 | GitHub    | GitLab                                  |
 |-------------------------|-----------|-----------------------------------------|

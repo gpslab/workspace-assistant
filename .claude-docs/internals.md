@@ -132,7 +132,11 @@ $argv = [$claudeBin, '-p', $prompt, '--output-format', 'stream-json', '--verbose
 //   in review mode and the epic review run a second PreToolUse hook on Bash,
 //   `bin/review-commit-hook.php <STATE_DIR>` (ReviewCommitHook): the review goes out only as
 //   `gh api …/pulls/N/reviews -f commit_id=<SHA> …`, the SHA from the file named by
-//   WORKSPACE_ASSISTANT_REVIEW_SHAS (`STATE_DIR/review-shas/<run id>.json`, `owner/repo#N` => SHA)
+//   WORKSPACE_ASSISTANT_REVIEW_SHAS (`STATE_DIR/review-shas/<run id>.json`, `owner/repo#N` => SHA);
+//   on GitLab (whatever FORGE is) the SHA is a literal lowercase 40-hex: in the verdict marker
+//   `<!-- verdict:approve|changes sha=<SHA> -->` (one grammar, ReviewStatusHook::GITLAB_MARKER_RE, shared
+//   by both hooks), in `glab mr approve -s|--sha <SHA>` and in the `sha` of a `glab api` POST to
+//   `projects/<id>/merge_requests/<N>/approve`
 // + --agents <STATE_DIR/agents/<id>.json> (built-in sub-agents; absent in both /compact phases
 //   and when CLAUDE_EXTRA_ARGS already contains --agents)
 proc_open($argv, $descriptors, $pipes, $repoPath, $env);
