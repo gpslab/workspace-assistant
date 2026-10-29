@@ -366,6 +366,11 @@ verdict.
   `STATE_DIR/review-hook.log`. The hook is fail-open: a script error releases the turn and is logged.
 - With both 🟢 and 🔴 in the reply the earlier one is the verdict; only a status matching the verdict
   counts (the last successful one in the turn). A mismatch blocks again.
+- On GitLab (`FORGE=gitlab`) the verdict is a successful `glab mr note <N> -m "…"` whose inline body
+  carries exactly one marker `<!-- verdict:approve|changes sha=<40-hex> -->`; the Stop hook counts it
+  (`-F`/body files are not read; a missing, malformed or repeated marker is not a verdict). The marker is the
+  source of truth: `glab mr approve` / `glab mr revoke` are side effects and never count. Detection accepts
+  the `gh` and the `glab` forms whatever the forge; `--forge=` only selects the reason text.
 - After the hook the final `result` is the message AFTER rework, so the hook's reason asks to repeat the
   whole verdict. Works only in `review` mode.
 
@@ -381,6 +386,10 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
   `headRefOid` of each PR the bot recognised in a manual review message (`RunPrompt::manualReviewFindings`,
   one SHA per PR). Without a recorded SHA (PR not recognised, findings failed to load) only the form is
   checked: a known limitation, the reviewer records `headRefOid` itself as its first step.
+- On GitLab `ReviewCommitHook` also denies `glab mr approve` without a literal 40-hex `--sha`, and a
+  `glab mr note` whose verdict marker carries a `sha` that is not a literal 40-hex value (`$(…)` and shell
+  variables resolve at publish time). Known limitation: the bot records no SHAs on GitLab (there is no
+  GitLab API client), so the SHA is checked by form only and is not compared with the MR head.
 - Request changes always goes on the SHA; an epic Approve too (the merge gate is protected by
   `coverage_head`); a manual Approve only if the PR head still equals the SHA. A POST rejected by GitHub
   sets no status and is not republished on another commit. Both "no status" cases take the ordinary Stop

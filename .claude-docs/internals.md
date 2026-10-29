@@ -122,7 +122,10 @@ $argv = [$claudeBin, '-p', $prompt, '--output-format', 'stream-json', '--verbose
 // + --resume <session> when a session exists (on a chat resume with a new prompt hash, -p starts with the
 //   prompts/session_update block; -p of every run goes through neutralizeUpdateMarkers()), + CLAUDE_EXTRA_ARGS,
 // + --append-system-prompt <contract + persona [+ CLAUDE_APPEND_SYSTEM_PROMPT] + language line>,
-// + --settings <json>: in review mode the review Stop hook; in pm/review modes and in the epic runs
+// + --settings <json>: in review mode the review Stop hook,
+//   `bin/review-stop-hook.php <STATE_DIR> [--forge=<FORGE>]` (built by ReviewStatusHook::settingsJson(),
+//   embedded by PmGateHook::settingsJson() in review mode; only the Stop hook takes `--forge`, it selects
+//   the reason text: github, or gitlab); in pm/review modes and in the epic runs
 //   (tick, final, review) a PreToolUse hook on Bash, `bin/pm-gate-hook.php <STATE_DIR> <kind> <run id>`,
 //   where <kind> is the run's `skip_allowed` key: pm, review, tick, final, epic_review
 //   (PmRunbook::skipKeyForMode / skipKeyForEpicRun); review mode gets both hooks;
