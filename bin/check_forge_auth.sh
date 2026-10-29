@@ -27,7 +27,12 @@ if [[ -z "${BOT_TOKEN:-}" || -z "${ALLOWED_USER_IDS:-}" ]]; then
     exit 1
 fi
 
-case "${FORGE:-github}" in
+# Config::load trims these values, so do the same here.
+FORGE="$(echo "${FORGE:-github}" | xargs)"
+FORGE_HOST="$(echo "${FORGE_HOST:-}" | xargs)"
+GH_AUTH_HOST="$(echo "${GH_AUTH_HOST:-}" | xargs)"
+
+case "$FORGE" in
     github)
         CLI=gh
         HOST="${GH_AUTH_HOST:-${FORGE_HOST:-github.com}}"

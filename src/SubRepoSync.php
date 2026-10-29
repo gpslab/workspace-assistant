@@ -249,10 +249,32 @@ final class SubRepoSync
             }
             $afterHash = $mgr->headHashOrNull();
             if ($afterHash !== null && $afterHash !== $beforeHash) {
-                $links[] = $mgr->forgeCommitUrl($afterHash);
+                $links[] = $this->commitUrl($repoPath, $mgr, $afterHash);
             }
         }
 
         return $links;
+    }
+
+    /**
+     * Sub-repositories have their own origins, so the forge is detected per repository: the
+     * configured FORGE/FORGE_HOST first, then the well-known github.com and gitlab.com.
+     */
+    private function commitUrl(string $repoPath, GitManager $mgr, string $hash): string
+    {
+        $url = $mgr->forgeCommitUrl($hash);
+        if ($url !== $hash) {
+            return $url;
+        }
+
+        foreach ([[Config::FORGE_GITHUB, 'github.com'], [Config::FORGE_GITLAB, 'gitlab.com']] as [$forge, $host]) {
+            $known = GitManager::forPath($repoPath, $this->config->gitTimeout, $forge, $host);
+            $url = $known?->forgeCommitUrl($hash) ?? $hash;
+            if ($url !== $hash) {
+                return $url;
+            }
+        }
+
+        return $hash;
     }
 }

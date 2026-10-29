@@ -19,6 +19,7 @@ final class ForgeUrlTest extends TestCase
     {
         yield 'gitlab scp' => ['gitlab', 'gitlab.example.com', 'git@gitlab.example.com:ns/sub/proj.git', 'https://gitlab.example.com/ns/sub/proj'];
         yield 'gitlab https' => ['gitlab', 'gitlab.example.com', 'https://gitlab.example.com/ns/proj.git', 'https://gitlab.example.com/ns/proj'];
+        yield 'gitlab https with web port' => ['gitlab', 'gitlab.example.com', 'https://gitlab.example.com:8443/ns/proj.git', 'https://gitlab.example.com:8443/ns/proj'];
         yield 'gitlab ssh url' => ['gitlab', 'gitlab.example.com', 'ssh://git@gitlab.example.com/ns/proj.git', 'https://gitlab.example.com/ns/proj'];
         yield 'gitlab ssh url with port' => ['gitlab', 'gitlab.example.com', 'ssh://git@gitlab.example.com:2222/ns/proj.git', 'https://gitlab.example.com/ns/proj'];
         yield 'gitlab no .git suffix' => ['gitlab', 'gitlab.com', 'https://gitlab.com/ns/proj', 'https://gitlab.com/ns/proj'];

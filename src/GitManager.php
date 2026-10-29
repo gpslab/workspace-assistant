@@ -609,13 +609,17 @@ final class GitManager
         $h = preg_quote($host, '#');
         $patterns = [
             "#^[\\w.-]+@{$h}:(.+?)(?:\\.git)?/?$#",
-            "#^https?://{$h}(?::\\d+)?/(.+?)(?:\\.git)?/?$#",
             "#^ssh://[\\w.-]+@{$h}(?::\\d+)?/(.+?)(?:\\.git)?/?$#",
         ];
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $remoteUrl, $m)) {
                 return "https://{$host}/".$m[1];
             }
+        }
+
+        // The port of an http(s) remote is the web port, so it stays in the link (unlike the SSH port).
+        if (preg_match("#^https?://{$h}(:\\d+)?/(.+?)(?:\\.git)?/?$#", $remoteUrl, $m)) {
+            return "https://{$host}{$m[1]}/".$m[2];
         }
 
         return '';
