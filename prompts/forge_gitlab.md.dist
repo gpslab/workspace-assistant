@@ -1,0 +1,20 @@
+Forge: this instance works with GitLab, not GitHub. Wherever these rules or the prompt name a `gh` command or GitHub vocabulary, use the GitLab equivalent from this section; use `glab`, never `gh`.
+- Vocabulary: a pull request is a merge request, checks are pipelines, a PR review is a merge request approval or note, the repository is a project.
+- Refs: `#N` is an issue, `!N` is a merge request, `<namespace>/<project>#N` and `<namespace>/<project>!N` name an issue or merge request in another project. A GitHub-style `#N` never means a merge request here.
+- Commands (GitHub → GitLab):
+
+| GitHub                                  | GitLab                                                                      |
+|-----------------------------------------|-----------------------------------------------------------------------------|
+| `gh issue view <N>`                     | `glab issue view <N>`                                                       |
+| `gh issue list`                         | `glab issue list`                                                           |
+| `gh issue create`                       | `glab issue create`                                                         |
+| `gh pr view <N>`                        | `glab mr view <N>`                                                          |
+| `gh pr view <N> --comments`             | `glab mr view <N> --comments`                                               |
+| `gh pr diff <N>`                        | `glab mr diff <N>`                                                          |
+| `gh pr checks <N>`                      | `glab ci status --branch <source branch of !N>` (take the branch from `glab mr view <N>`; without `--branch` it reports the checkout's current branch, not the merge request) |
+| `gh pr comment <N>`                     | `glab mr note <N> -m "…"`                                                   |
+| `gh pr review <N> --approve`, `gh api …/pulls/<N>/reviews -f commit_id=<SHA> -f event=APPROVE` | `glab mr approve <N> --sha <SHA>` (the literal 40-hex commit you reviewed; never approve without `--sha`) |
+| `gh api …/pulls/<N>/reviews -f event=REQUEST_CHANGES` | no GitLab equivalent: post the findings with `glab mr note <N> -m "…"` and do not approve |
+| `gh api <endpoint>`                     | `glab api <endpoint>` (REST v4, for example `projects/:fullpath/merge_requests/<N>`; GitHub endpoints such as `repos/<o>/<r>/pulls/<N>/reviews` do not exist on GitLab, do not translate them literally) |
+
+- `-R <owner/repo>` becomes `-R <namespace>/<project>`.

@@ -39,6 +39,7 @@ final class PromptFilesTest extends TestCase
         'default_file_prompt' => false,
         'epic_runbook' => true,
         'pm_runbook' => true,
+        'forge_gitlab' => false,
     ];
 
     /** sha256 of the texts as they were assembled from the PHP constants, before they moved to files. */

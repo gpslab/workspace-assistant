@@ -224,6 +224,7 @@ final class JobRunner implements JobLauncher, RunControl
                 homeDir: (string) getenv('HOME'),
                 updateOnResume: $kind === RunKind::KIND_CHAT,
                 savedPromptHash: $kind === RunKind::KIND_CHAT && $sessionId !== null ? $this->savedPromptHash($chatId, $threadId) : null,
+                forge: $this->config->forge,
             );
             $runner->start($prompt, $sessionId);
         } catch (\RuntimeException $e) {

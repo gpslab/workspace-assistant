@@ -805,6 +805,21 @@ final class FlowTest extends TestCase
         self::assertSame('author-session', $this->db->getSessionId(self::CHAT, self::THREAD));
     }
 
+    public function testGitlabJobCarriesForgeFragmentInSystemPrompt(): void
+    {
+        $this->buildBot(0, forge: Config::FORGE_GITLAB);
+        $this->chatMessage();
+
+        self::assertStringContainsString('this instance works with GitLab', $this->args());
+    }
+
+    public function testGithubJobCarriesNoForgeFragmentInSystemPrompt(): void
+    {
+        $this->chatMessage();
+
+        self::assertStringNotContainsString('this instance works with GitLab', $this->args());
+    }
+
     public function testChatRunStillRecordsSession(): void
     {
         $this->claudeOutput('{"type":"result","is_error":false,"result":"ok","session_id":"chat-sess","usage":{}}');
