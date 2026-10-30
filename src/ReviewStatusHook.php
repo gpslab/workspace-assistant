@@ -307,12 +307,24 @@ final class ReviewStatusHook
      */
     public static function gitlabNoteBody(string $segment): string
     {
+        return self::gitlabNoteParts($segment)['body'];
+    }
+
+    /**
+     * The body of {@see gitlabNoteBody()} with where it came from: `values` are the byte ranges of the
+     * recognised `-m`/`--message` values, `heredocs` the ranges and texts of the heredocs outside them.
+     *
+     * @return array{body: string, values: list<array{int, int}>, heredocs: list<array{int, int, string}>}
+     */
+    public static function gitlabNoteParts(string $segment): array
+    {
         $body = '';
         $spans = [];
-        if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
+        $heredocs = [];
+        if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"(?<d>(?:\$\([^\n]*<<-?\s*([\'"]?)(?<t>\w+)\2[^\n]*\n.*?\n\s*\k<t>\s*\)|[^"\\\\]|\\\\.)*)"|\'(?<s>[^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
             foreach ($m as $hit) {
                 $spans[] = [$hit[0][1], $hit[0][1] + strlen($hit[0][0])];
-                $body .= "\n".(($hit[1][0] ?? '') !== '' ? $hit[1][0] : ($hit[2][0] ?? ''));
+                $body .= "\n".(($hit['d'][0] ?? '') !== '' ? $hit['d'][0] : ($hit['s'][0] ?? ''));
             }
         }
         if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
@@ -321,11 +333,12 @@ final class ReviewStatusHook
                 $inside = array_filter($spans, static fn (array $span): bool => $hit[0][1] >= $span[0] && $hit[0][1] < $span[1]);
                 if ($inside === []) {
                     $body .= "\n".$hit[3][0];
+                    $heredocs[] = [$hit[0][1], $hit[0][1] + strlen($hit[0][0]), $hit[3][0]];
                 }
             }
         }
 
-        return $body;
+        return ['body' => $body, 'values' => $spans, 'heredocs' => $heredocs];
     }
 
     /**

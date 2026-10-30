@@ -392,7 +392,13 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
   `projects/<id>/merge_requests/<N>/approve` without such a `sha` (field `-f/-F/--field/--raw-field sha=…` or
   `?sha=` in the URL; `--input` is denied, GET and `unapprove` are not), and a `glab mr note` whose
   `verdict:` markers are not exactly one marker of the grammar the Stop hook counts
-  (`ReviewStatusHook::GITLAB_MARKER_RE`, the only definition; a note is denied here or counted there). The
+  (`ReviewStatusHook::GITLAB_MARKER_RE`, the only definition; a note is denied here or counted there).
+  A note with a marker must also have exactly one `-m`/`--message` flag (counted in every form outside the
+  body values the Stop hook reads) and no marker in a heredoc outside the `-m` value: glab publishes only the
+  last `-m`, while the Stop hook joins every value, so such a note is denied here, not normalised there. A
+  multi-line body is `-m "$(cat <<'EOF' … EOF)"`; a bare top-level heredoc is cut out before the hook
+  and is never counted. The MR number of the `glab api` approve path may be a shell variable (`$N`); the
+  `sha` check still applies. The
   `sha` is a literal: `$(…)` and shell variables resolve at publish time. The `<id>` grammar of the `glab api`
   path is `PmGateHook::GLAB_PROJECT_PATH`, shared with the issue-creation gate. Known limitation: the bot records no SHAs on GitLab (there is no
   GitLab API client), so the SHA is checked by form only and is not compared with the MR head.
