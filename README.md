@@ -46,6 +46,10 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
 - Before each run: clean-tree check and `git pull --rebase`; after a successful run: commit and push of the managed repository. With `AUTO_COMMIT=0` the bot does none of this in the managed repository.
 - A request that arrives while the bot is busy is queued, not rejected.
 - Live progress: the "Thinking..." message is updated with what Claude says and which tools it calls.
+- 13 interface languages (`BOT_LOCALE`): English, Russian, German, Spanish, French, Portuguese (Brazil),
+  Ukrainian, Kazakh, Uzbek, Hindi, Chinese (Simplified), Japanese, Korean; each user picks the language
+  of Claude's replies with `/lang`. English and Russian are maintained by the project, the others are
+  machine translations; see [Interface language](INSTALL.md#interface-language).
 - Files in both directions: files sent to the bot are handed to Claude (inbox); files Claude puts
   into the outbox are sent back to the chat.
 - Modes (`arch`, `review`, `pm`) with replaceable personas, interface locales, and *epics*: sets of

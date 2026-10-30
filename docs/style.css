@@ -345,6 +345,23 @@ td small {
   font-weight: 600;
 }
 
+.languages {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.languages li {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.8rem;
+  font-size: 0.95rem;
+}
+
 .links {
   padding-left: 1.2rem;
 }
