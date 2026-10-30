@@ -136,7 +136,10 @@ $argv = [$claudeBin, '-p', $prompt, '--output-format', 'stream-json', '--verbose
 //   on GitLab (whatever FORGE is) the SHA is a literal lowercase 40-hex: in the verdict marker
 //   `<!-- verdict:approve|changes sha=<SHA> -->` (one grammar, ReviewStatusHook::GITLAB_MARKER_RE, shared
 //   by both hooks), in `glab mr approve -s|--sha <SHA>` and in the `sha` of a `glab api` POST to
-//   `projects/<id>/merge_requests/<N>/approve`; a `glab mr note` with a marker has exactly one `-m` flag
+//   `projects/<id>/merge_requests/<N>/approve` (the MR number may be any expression, the `sha` check still
+//   applies; an unquoted `$(…)` in a `glab api` command containing `merge_requests` is always denied, and a regex
+//   error fails the hook; not recognised: quoted or escaped body flags, quotes inside the approve path,
+//   a `merge_requests` word built from substitutions); a `glab mr note` with a marker has exactly one `-m` flag
 //   (glab publishes the last one; the Stop hook joins all) and its body is `-m "…"` or
 //   `-m "$(cat <<'EOF' … EOF)"`, never a heredoc outside the `-m` value
 // + --agents <STATE_DIR/agents/<id>.json> (built-in sub-agents; absent in both /compact phases
