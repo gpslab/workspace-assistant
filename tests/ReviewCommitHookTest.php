@@ -165,6 +165,11 @@ final class ReviewCommitHookTest extends TestCase
         yield '${N} without sha' => [$base.'${N}/approve', true];
         yield '"$N" without sha' => [$base.'"$N"/approve', true];
         yield '$(echo 5) without sha' => [$base.'$(echo 5)/approve', true];
+        yield '$(echo 5) with -X POST after the path' => ['glab api projects/1/merge_requests/$(echo 5)/approve -X POST', true];
+        yield '$(echo 5) with --method POST after the path' => ['glab api projects/1/merge_requests/$(echo 5)/approve --method POST', true];
+        yield '$(echo 5) with an implicit POST' => ['glab api projects/1/merge_requests/$(echo 5)/approve -f x=y', true];
+        yield '$(echo 5) on another endpoint' => ['glab api projects/1/merge_requests/$(echo 5)/notes', false];
+        yield '/approve in a note body' => ['glab api -X POST projects/1/merge_requests/5/notes -f body="see /approve now"', false];
         yield 'backticks without sha' => [$base.'`cat n`/approve', true];
         yield 'quoted project without sha' => ['glab api -X POST projects/"$P"/merge_requests/5/approve', true];
         yield '"$N" with sha' => [$base.'"$N"/approve -f sha='.self::SHA, false];
