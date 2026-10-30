@@ -190,6 +190,11 @@ final class ReviewCommitHookTest extends TestCase
         yield 'substitution glued to the project id' => ['glab api -X POST projects/1$(true)/merge_requests/5/approve', true];
         yield 'substitution inside the approve word' => ['glab api -X POST projects/1/merge_requests/5/appro$(echo ve)', true];
         yield 'method after the cut' => ['glab api projects/1/merge_requests/5/approve --hostname $(glab config get host) -X POST', true];
+        yield 'method is a quoted substitution' => ['glab api -X "$(echo POST)" projects/1/merge_requests/5/approve', true];
+        yield 'method is a variable' => ['glab api -X $M projects/1/merge_requests/5/approve', true];
+        yield 'method is a quoted variable' => ['glab api -X "$M" projects/1/merge_requests/5/approve', true];
+        yield 'method is a backtick substitution' => ['glab api -X `echo POST` projects/1/merge_requests/5/approve', true];
+        yield 'literal GET approve' => ['glab api -X GET projects/1/merge_requests/5/approve', false];
         yield 'method is a substitution' => ['glab api projects/1/merge_requests/5/approve -X $(echo POST)', true];
         yield 'second sha after the cut' => ['glab api -X POST projects/1/merge_requests/5/approve -f sha='.$sha.' --hostname $(x) -f sha=$HEAD', true];
         yield 'substitution on another endpoint' => ['glab api projects/1/merge_requests/$(echo 5)/notes', true];
