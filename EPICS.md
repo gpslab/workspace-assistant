@@ -210,6 +210,16 @@ into every issue/PR comment the run publishes (tick, including the comment answe
 clarification). The marker distinguishes epic actions from the author's manual actions — both work
 under one GitHub account.
 
+Lines added by run kind (`Epic\Run::prompt()`):
+- `review` — the cold reviewer findings with ids (see "Cold reviewer findings in the hot review" below) and
+  `Reviewed commit: <SHA>`, the head the findings were collected on: the run reads the code at that
+  SHA and publishes the review with `commit_id=<SHA>`.
+- `final` — `Tails rounds: N of M used` (`M` is `Database::MAX_TAILS_ROUNDS`) and whether `added` is
+  still accepted. When the limit is exhausted, a confirmed `blocker`/`major` finding of the `security`
+  agent cannot become an extra task; the runbook files it as a separate issue outside the epic instead.
+- `tick` — a `master` CI event, when there is one: broken `master` (create a fix task) or a flaky
+  test (file a side issue), with the repository, commit and failed runs.
+
 **Output** is the signal file `state/epics/<slug>/signal.json`; its path is passed to the process in
 the environment variable `WORKSPACE_ASSISTANT_EPIC_SIGNAL`. A JSON object, all fields optional (no
 field — no change); an empty `{}` is valid:
