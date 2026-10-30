@@ -53,8 +53,10 @@ together.
   so a stale checkout means editing outdated code and a rejected push (see
   [gotchas.md](.claude-docs/gotchas.md)).
 - `docs/index.html` is the landing page (GitHub Pages, branch `master`, folder `/docs`). A PR that
-  changes a fact the page states (features, requirements, security warning, pipeline, GitHub/GitLab
-  support, the list of built-in locales) updates the page in the same PR. Images live in `docs/assets/`.
+  changes a fact the page states (features, requirements, pipeline, GitHub/GitLab support, the list of
+  built-in locales) updates the page in the same PR. The page presents only the main path: it does not
+  mention `AUTO_COMMIT=0` and carries no security warning; both stay in README on purpose. Images live
+  in `docs/assets/`.
 - Docs describe only current rules: no history, incidents or dates, no host, path or user names of any
   particular deployment.
 

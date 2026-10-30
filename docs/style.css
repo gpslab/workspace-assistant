@@ -201,31 +201,6 @@ main > section.wrap {
   text-align: center;
 }
 
-.warning {
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
-  border-left-width: 6px;
-  border-radius: 10px;
-  padding: 1.4rem 1.6rem;
-}
-
-.warning h2 {
-  font-size: 1.35rem;
-}
-
-.warning ul {
-  padding-left: 1.2rem;
-  margin: 0 0 1rem;
-}
-
-.warning li + li {
-  margin-top: 0.4rem;
-}
-
-.warning p {
-  margin: 0;
-}
-
 .cards {
   list-style: none;
   padding: 0;
@@ -397,7 +372,4 @@ footer {
     grid-template-columns: minmax(0, 300px);
   }
 
-  .warning {
-    padding: 1.1rem 1.1rem;
-  }
 }
