@@ -213,10 +213,9 @@ language on `/lang` as "🇬🇧 English", with no warning. This applies both to
 `LOCALES_DIR` and to a built-in locale added through a PR. `LOCALES_DIR` is an optional directory of
 your own locales: its files add to and override the built-in ones key by key.
 
-Support status: `en` (the reference and the fallback) and `ru` are maintained by the project. The other
-built-in locales are machine translations, provided as is. If you meet a wrong string, open an issue
-or send a PR that changes one `resources/locales/<code>.json` and nothing else. The rule for new
-interface strings is in [CONTRIBUTING.md](CONTRIBUTING.md#interface-strings).
+Which locales are maintained and which are machine translations, and how to report a wrong string, is in
+[Languages](README.md#languages). The rule for new interface strings is in
+[CONTRIBUTING.md](CONTRIBUTING.md#interface-strings).
 
 ### Mode personas
 

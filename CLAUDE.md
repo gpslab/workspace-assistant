@@ -54,7 +54,7 @@ together.
   [gotchas.md](.claude-docs/gotchas.md)).
 - `docs/index.html` is the landing page (GitHub Pages, branch `master`, folder `/docs`). A PR that
   changes a fact the page states (features, requirements, security warning, pipeline, GitHub/GitLab
-  support) updates the page in the same PR. Images live in `docs/assets/`.
+  support, the list of built-in locales) updates the page in the same PR. Images live in `docs/assets/`.
 - Docs describe only current rules: no history, incidents or dates, no host, path or user names of any
   particular deployment.
 

@@ -91,7 +91,7 @@
       <li><h3>Files both ways</h3><p>Send files to Claude; files Claude puts into the outbox come back to
         the chat.</p></li>
       <li><h3>Modes and epics</h3><p><code>arch</code>, <code>review</code> and <code>pm</code> modes with
-        replaceable personas, interface locales, and epics of tasks the bot drives to completion.</p></li>
+        replaceable personas, 13 interface languages, and epics of tasks the bot drives to completion.</p></li>
     </ul>
     <figure class="phone center">
       <img src="assets/screenshot-files.jpg" width="640" height="1423" loading="lazy"
@@ -132,6 +132,33 @@
         <figcaption>Cold review recommendation → openronin's fix → hot review with the epic's context.</figcaption>
       </figure>
     </div>
+  </section>
+
+  <section class="wrap">
+    <h2>13 interface languages</h2>
+    <ul class="languages">
+      <li><span aria-hidden="true">🇬🇧</span> <span lang="en">English</span></li>
+      <li><span aria-hidden="true">🇷🇺</span> <span lang="ru">Русский</span></li>
+      <li><span aria-hidden="true">🇩🇪</span> <span lang="de">Deutsch</span></li>
+      <li><span aria-hidden="true">🇪🇸</span> <span lang="es">Español</span></li>
+      <li><span aria-hidden="true">🇫🇷</span> <span lang="fr">Français</span></li>
+      <li><span aria-hidden="true">🇧🇷</span> <span lang="pt-BR">Português</span></li>
+      <li><span aria-hidden="true">🇺🇦</span> <span lang="uk">Українська</span></li>
+      <li><span aria-hidden="true">🇰🇿</span> <span lang="kk">Қазақша</span></li>
+      <li><span aria-hidden="true">🇺🇿</span> <span lang="uz">Oʻzbekcha</span></li>
+      <li><span aria-hidden="true">🇮🇳</span> <span lang="hi">हिन्दी</span></li>
+      <li><span aria-hidden="true">🇨🇳</span> <span lang="zh-Hans">中文</span></li>
+      <li><span aria-hidden="true">🇯🇵</span> <span lang="ja">日本語</span></li>
+      <li><span aria-hidden="true">🇰🇷</span> <span lang="ko">한국어</span></li>
+    </ul>
+    <ul>
+      <li><strong>Interface</strong> (<code>BOT_LOCALE</code>): bot texts, the command menu, the epic card and
+        notices, and the comments and commit messages the bot composes.</li>
+      <li><strong>Replies</strong> (<code>/lang</code>): each user picks the language of Claude's replies in
+        the chat.</li>
+      <li>Add or override a language with your own locale files (<code>LOCALES_DIR</code>).</li>
+    </ul>
+    <p><a href="https://github.com/gpslab/workspace-assistant/blob/master/README.md#languages">Languages in README →</a></p>
   </section>
 
   <section class="wrap">
