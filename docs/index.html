@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workspace Assistant: Claude Code in your git repository, driven from Telegram</title>
+  <meta name="description" content="A Telegram bot that runs Claude Code in a git repository of documents, commits and pushes the result, and drives epics of GitHub tasks from design to merged pull requests.">
+  <meta name="color-scheme" content="light dark">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Workspace Assistant">
+  <meta property="og:description" content="Edit a git knowledge base from Telegram with Claude Code, and drive epics of tasks from design to merged pull requests.">
+  <meta property="og:url" content="https://gpslab.github.io/workspace-assistant/">
+  <meta property="og:image" content="https://gpslab.github.io/workspace-assistant/assets/hero.jpg">
+  <meta property="og:image:alt" content="An illustrated team at a long table passing documents along: the path of a task from design to final check">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Workspace Assistant">
+  <meta name="twitter:description" content="Edit a git knowledge base from Telegram with Claude Code, and drive epics of tasks from design to merged pull requests.">
+  <meta name="twitter:image" content="https://gpslab.github.io/workspace-assistant/assets/hero.jpg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Open source · MIT · PHP 8.4+</p>
+    <h1>Workspace Assistant</h1>
+    <p class="lead">A Telegram bot that runs Claude Code in your git repository, commits the result and
+      drives epics of tasks from design to merged pull requests.</p>
+    <p class="actions">
+      <a class="button primary" href="https://github.com/gpslab/workspace-assistant/blob/master/INSTALL.md">Install</a>
+      <a class="button" href="https://github.com/gpslab/workspace-assistant">GitHub</a>
+    </p>
+  </div>
+  <figure class="hero-image">
+    <img src="assets/hero.jpg" width="1680" height="626"
+         alt="An illustrated team at a long table passing documents along: the path of a task from design to final check">
+    <figcaption>An epic from start to finish: design → issues → pull requests → review → merge → final check.</figcaption>
+  </figure>
+</header>
+
+<main>
+
+  <section class="wrap split">
+    <div>
+      <h2>A knowledge base you edit from your phone</h2>
+      <p>The bot works in a git repository of documents, the <em>managed repository</em>: notes,
+        decisions, plans, task texts. You write to the bot in Telegram; the message goes to
+        <code>claude -p</code> in the context of that repository, the changes are committed and pushed
+        automatically (unless <code>AUTO_COMMIT=0</code>), and the reply links to the commit.</p>
+      <pre class="flow"><code>Telegram ↔ bot ↔ claude -p ↔ git push</code></pre>
+      <p>It is meant for documents, not for a code base: nothing is reviewed before a push. Code lives in
+        separate repositories, and changes there go through pull requests.</p>
+    </div>
+    <figure class="phone">
+      <img src="assets/screenshot-topics.jpg" width="640" height="1424" loading="lazy"
+           alt="A Telegram forum group with Workspace Assistant: one topic per task, the bot is replying in the i18n topic">
+      <figcaption>Each forum topic is a separate Claude session.</figcaption>
+    </figure>
+  </section>
+
+  <section class="wrap">
+    <div class="warning" role="note" aria-labelledby="security-title">
+      <h2 id="security-title">⚠️ Read this before you start the bot</h2>
+      <ul>
+        <li>By default the bot starts Claude with <code>--dangerously-skip-permissions</code>: no
+          permission prompts, Claude executes whatever a message asks for — shell commands, file edits,
+          network access, <code>git push</code>, <code>gh</code> calls.</li>
+        <li>Everything runs with the rights of the system user that runs the bot and with that user's
+          <code>gh</code> token.</li>
+        <li>Anyone in <code>ALLOWED_USER_IDS</code> (or who takes over such a Telegram account), and anyone
+          who can influence the text Claude reads — repository files, issues, pull requests — can make the
+          bot act as that user.</li>
+        <li>Isolate the process before you start it: a dedicated user without sudo, a narrow token, a
+          container or VM.</li>
+      </ul>
+      <p><a href="https://github.com/gpslab/workspace-assistant/blob/master/README.md#security">Security and the isolation recipe →</a></p>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>Features</h2>
+    <ul class="cards">
+      <li><h3>Sessions per chat</h3><p>Every chat or forum topic is its own Claude session that continues
+        between messages.</p></li>
+      <li><h3>Commit and push</h3><p>Clean-tree check and <code>git pull --rebase</code> before a run,
+        commit and push after it, a commit link in the reply. Off with <code>AUTO_COMMIT=0</code>.</p></li>
+      <li><h3>Queue, not rejection</h3><p>A request that arrives while the bot is busy waits in a
+        queue.</p></li>
+      <li><h3>Live progress</h3><p>The "Thinking..." message shows what Claude says and which tools it
+        calls.</p></li>
+      <li><h3>Files both ways</h3><p>Send files to Claude; files Claude puts into the outbox come back to
+        the chat.</p></li>
+      <li><h3>Modes and epics</h3><p><code>arch</code>, <code>review</code> and <code>pm</code> modes with
+        replaceable personas, interface locales, and epics of tasks the bot drives to completion.</p></li>
+    </ul>
+    <figure class="phone center">
+      <img src="assets/screenshot-files.jpg" width="640" height="1423" loading="lazy"
+           alt="A forum topic: the user asks for a pipeline diagram, the bot replies with a PNG image, its Mermaid source file and an explanation">
+      <figcaption>Files Claude puts into the outbox arrive in the chat: here a diagram and its Mermaid source.</figcaption>
+    </figure>
+  </section>
+
+  <section class="wrap">
+    <h2>Epics: from an idea to merged pull requests</h2>
+    <p>Besides chatting with a repository, the bot can carry a set of tasks to completion. Claude handles
+      the steps that need judgement, the bot's <code>Orchestrator</code> handles the deterministic ones, an
+      external executor writes the code, and the author keeps the decisions that must stay human.</p>
+    <ol class="pipeline">
+      <li><strong>Architect</strong><span>Claude in the <code>pm</code> mode designs the change, runs it
+        through cold critique, verification, editing and a scope check, and opens the issues.</span></li>
+      <li><strong>Author</strong><span>re-reads the tasks and sends <code>/epic start</code>.</span></li>
+      <li><strong>Implementer</strong><span><a href="https://github.com/openronin/openronin">openronin</a>
+        writes the code and opens pull requests; independent tasks run in parallel.</span></li>
+      <li><strong>Review</strong><span>an optional cold CI review, then a hot review against the intent of
+        the task and the epic plan.</span></li>
+      <li><strong>Merge</strong><span>the <code>Orchestrator</code> merges, labels and releases, and stops
+        a stuck epic.</span></li>
+      <li><strong>Final check</strong><span>verifies the whole epic and writes the report for the
+        author.</span></li>
+    </ol>
+    <p class="note">Epics rely on openronin as the external executor. Regular chat with the bot does not
+      need it.</p>
+    <div class="gallery">
+      <figure class="phone">
+        <img src="assets/screenshot-epic.jpg" width="640" height="1423" loading="lazy"
+             alt="The epic card in a forum topic: eight tasks with their state — merged, in review, CI is running, waiting for other tasks — and the last journal entry">
+        <figcaption>The epic card: each task's state, what it waits for, and the last journal entry.</figcaption>
+      </figure>
+      <figure class="phone">
+        <img src="assets/screenshot-review.jpg" width="800" height="1843" loading="lazy"
+             alt="A pull request timeline on GitHub: the cold CI reviewer leaves a recommendation, openronin answers it and pushes a fix, then the hot review with the epic's context requests changes">
+        <figcaption>Cold review recommendation → openronin's fix → hot review with the epic's context.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>GitHub and GitLab</h2>
+    <p>GitHub is the default. With <code>FORGE=gitlab</code> the bot works with gitlab.com or, with
+      <code>FORGE_HOST</code>, a self-hosted instance, through the GitLab CLI <code>glab</code>.
+      Minimum versions: GitLab 16.0 and glab 1.40.</p>
+    <div class="table">
+      <table>
+        <thead><tr><th>Feature</th><th>GitHub</th><th>GitLab</th></tr></thead>
+        <tbody>
+          <tr><td>Chat mode</td><td class="yes">supported</td><td class="yes">supported</td></tr>
+          <tr><td>PM mode</td><td class="yes">supported</td><td class="yes">supported</td></tr>
+          <tr><td>Review mode</td><td class="yes">supported</td><td class="yes">supported<small>verdict note
+            with a marker; cold reviewer findings are not collected</small></td></tr>
+          <tr><td>Epics (<code>/epic</code>)</td><td class="yes">supported</td><td class="no">not supported</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><a href="https://github.com/gpslab/workspace-assistant/blob/master/README.md#gitlab">Setting up GitLab →</a></p>
+  </section>
+
+  <section class="wrap">
+    <h2>Get started</h2>
+    <p>You need PHP 8.4+, the Claude Code CLI, git with access to the repository's remote, and
+      <code>gh</code> (or <code>glab</code> for GitLab).</p>
+    <ul class="links">
+      <li><a href="https://github.com/gpslab/workspace-assistant/blob/master/INSTALL.md">Installation and configuration</a></li>
+      <li><a href="https://github.com/gpslab/workspace-assistant/blob/master/README.md">README: how it works, commands</a></li>
+      <li><a href="https://github.com/gpslab/workspace-assistant/blob/master/TASKS.md">Working out a task</a></li>
+      <li><a href="https://github.com/gpslab/workspace-assistant/blob/master/EPICS.md">Epics</a></li>
+      <li><a href="https://github.com/gpslab/workspace-assistant/blob/master/PROMPTS.md">Prompts and personas</a></li>
+    </ul>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Workspace Assistant is released under the
+      <a href="https://github.com/gpslab/workspace-assistant/blob/master/LICENSE">MIT License</a>.</p>
+    <p>Third-party interfaces, marks and content (including chat avatars) shown in the screenshots belong to
+      their respective owners and are not covered by the MIT License. The illustration at the top was
+      generated with Midjourney and is not covered by the MIT License. Claude is a trademark of Anthropic,
+      PBC; Telegram, GitHub, GitLab and other names mentioned are trademarks of their respective owners.
+      This project is not affiliated with or endorsed by them.</p>
+  </div>
+</footer>
+
+</body>
+</html>
