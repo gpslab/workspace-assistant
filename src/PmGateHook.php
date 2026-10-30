@@ -30,7 +30,7 @@ namespace GpsLab\WorkspaceAssistant;
  * (stdin or heredoc), a query held in a shell variable (`-f query="$Q"`), `eval`, `glab -R … mr`, an
  * absolute CLI path and `${VAR:+…}` obfuscation.
  *
- * A command substitution (`$(…)`, backticks) stays inside its word, so `projects/$(echo 1)/issues` is
+ * A command substitution (`$(…)`, backticks; also inside double quotes) stays inside its word, so `projects/$(echo 1)/issues` is
  * recognised as an endpoint; its inner command is still checked as a command of its own. The method is
  * the last `-X`/`--method` outside quoted values ({@see apiIsPost()}), like in gh and glab; a method that
  * is not a literal word counts as POST.
@@ -251,7 +251,7 @@ final class PmGateHook
     /**
      * Simple commands of a command line: split on `; & | ( )` and newlines outside quotes, so a
      * separator inside a quoted argument (`git commit -m "x; gh issue create"`) does not start a command.
-     * An unquoted command substitution (`$(…)`, backticks) stays whole inside its word, and its inner
+     * A command substitution (`$(…)`, backticks; also inside double quotes) stays whole inside its word, and its inner
      * commands follow as segments of their own.
      *
      * @return list<string>
@@ -287,6 +287,21 @@ final class PmGateHook
                 $quote = $char === "'" ? '' : $quote;
             } elseif ($char === '\\' && $i + 1 < $length) {
                 $current .= $char.$command[++$i];
+            } elseif ($quote === '"' && $char === '$' && substr($command, $i, 2) === '$(' && substr($command, $i, 3) !== '$((') {
+                $stop = 0;
+                $inner = [...$inner, ...self::parse($command, $i + 2, true, $stop)];
+                $current .= substr($command, $i, min($stop + 1, $length) - $i);
+                $i = $stop;
+            } elseif ($quote === '"' && $char === '`') {
+                $close = $i + 1;
+                while ($close < $length && $command[$close] !== '`') {
+                    $close += $command[$close] === '\\' ? 2 : 1;
+                }
+                $close = min($close, $length);
+                $stop = 0;
+                $inner = [...$inner, ...self::parse(substr($command, $i + 1, $close - $i - 1), 0, false, $stop)];
+                $current .= substr($command, $i, $close - $i + 1);
+                $i = $close;
             } elseif ($quote === '"') {
                 $current .= $char;
                 $quote = $char === '"' ? '' : $quote;

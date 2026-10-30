@@ -91,7 +91,7 @@ final class ReviewCommitHook
                 }
             }
             if (self::match(self::GLAB_API_RE, $segment, $call) === 1) {
-                $reason = self::checkGlabApi($call['args']);
+                $reason = self::checkGlabApi($call['args'], $command);
                 if ($reason !== null) {
                     return $reason;
                 }
@@ -209,10 +209,11 @@ final class ReviewCommitHook
     }
 
     /** `glab api` POST to `projects/<id>/merge_requests/<N>/approve`: only with a literal lowercase 40-hex `sha`. */
-    private static function checkGlabApi(string $args): ?string
+    private static function checkGlabApi(string $args, string $command): ?string
     {
-        // Fail-closed: an unquoted substitution can assemble the path, the method or the fields at run time, beyond what the grammars here recognise.
-        if (str_contains($args, 'merge_requests') && self::hasUnquotedSubstitution($args)) {
+        // Fail-closed: a substitution (also inside double quotes) can assemble the path, the method or the fields at run time, beyond what the grammars here recognise.
+        // `merge_requests` is looked up in the whole command: a variable set earlier can supply it (`M=merge_requests; glab api … projects/1/$(echo $M)/5/approve`).
+        if (str_contains($command, 'merge_requests') && self::hasSubstitution($args)) {
             return 'MR approval denied: a `$(…)` in a `glab api` command that touches `merge_requests` can hide the path, method or fields from the check. Approve only as `glab mr approve <N> --sha <SHA>` or `glab api -X POST projects/<id>/merge_requests/<N>/approve -f sha=<SHA>`, with a literal path, method and the literal lowercase 40-hex commit you reviewed.';
         }
         if (self::match(self::GLAB_APPROVE_ENDPOINT_RE, $args, $path) !== 1) {
@@ -247,8 +248,8 @@ final class ReviewCommitHook
         return null;
     }
 
-    /** An unquoted `$(…)` (not `$((…))`) or backtick: outside quotes, a backslash escape and single/double-quoted text. */
-    private static function hasUnquotedSubstitution(string $text): bool
+    /** A `$(…)` (not `$((…))`) or backtick that the shell expands: outside quotes or inside double quotes; not after a backslash or in single quotes. */
+    private static function hasSubstitution(string $text): bool
     {
         $quote = '';
         $length = strlen($text);
@@ -258,12 +259,12 @@ final class ReviewCommitHook
                 $quote = $char === "'" ? '' : $quote;
             } elseif ($char === '\\') {
                 ++$i;
+            } elseif ($char === '`' || ($char === '$' && substr($text, $i, 2) === '$(' && substr($text, $i, 3) !== '$((')) {
+                return true;
             } elseif ($quote === '"') {
                 $quote = $char === '"' ? '' : $quote;
             } elseif ($char === '"' || $char === "'") {
                 $quote = $char;
-            } elseif ($char === '`' || ($char === '$' && substr($text, $i, 2) === '$(' && substr($text, $i, 3) !== '$((')) {
-                return true;
             }
         }
 

@@ -398,8 +398,8 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
   last `-m`, while the Stop hook joins every value, so such a note is denied here, not normalised there. A
   multi-line body is `-m "$(cat <<'EOF' … EOF)"`; a bare top-level heredoc is cut out before the hook
   and is never counted. The MR number of the `glab api` approve path may be any expression (`$N`, `$(…)`);
-  the `sha` check still applies. An unquoted `$(…)` or backtick anywhere in a `glab api` command that contains
-  `merge_requests` is always denied (fail-closed: a substitution can assemble the path, method or fields at run
+  the `sha` check still applies. A `$(…)` or backtick (unquoted or inside double quotes) in a `glab api` command, when
+  the whole command line contains `merge_requests` (a variable set earlier can supply it), is always denied (fail-closed: a substitution can assemble the path, method or fields at run
   time, beyond what the grammars recognise). The method of `gh api` / `glab api` is the **last** `-X`/`--method`
   outside quoted values (gh and glab keep the last one; `PmGateHook::apiIsPost()`, shared with the issue gate),
   and a method that is not a literal word (`"$M"`, `$(…)`) counts as POST. `PmGateHook::commands()` keeps a

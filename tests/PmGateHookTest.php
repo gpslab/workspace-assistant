@@ -134,7 +134,12 @@ final class PmGateHookTest extends TestCase
         yield 'issue create inside a substitution' => ['echo $(gh issue create -t x)', true];
         yield 'issue create inside backticks' => ['echo `gh issue create -t x`', true];
         yield 'issue create after an assignment with a substitution' => ['X=$(echo a) gh issue create -t x', true];
-        yield 'issue create in a nested substitution' => ['echo "$(echo $(gh issue create -t x))"', false];
+        yield 'issue create in a nested substitution in double quotes' => ['echo "$(echo $(gh issue create -t x))"', true];
+        yield 'issue create in a substitution in double quotes' => ['echo "$(gh issue create -t x)"', true];
+        yield 'issue create in a substitution in a commit message' => ['git commit -m "$(gh issue create -t x)"', true];
+        yield 'issue create in backticks in double quotes' => ['echo "`gh issue create -t x`"', true];
+        yield 'issue create text in single quotes' => ["echo '\$(gh issue create -t x)'", false];
+        yield 'issue create text in an escaped substitution' => ['echo "\\$(gh issue create -t x)"', false];
         yield 'substitution without an issue command' => ['echo $(date) && ls', false];
     }
 
