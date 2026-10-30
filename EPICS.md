@@ -66,7 +66,7 @@ How the task text and the issues of stage 1 are produced is shown in [Working ou
   `hold` parks a single task; the rest of the epic keeps going.
 
 <p align="center">
-  <img src="assets/screenshot-epic.jpg" width="320"
+  <img src="docs/assets/screenshot-epic.jpg" width="320"
        alt="The epic card in a forum topic: eight tasks with their state — merged, in review, CI is running, waiting for other tasks — and the last journal entry">
   <br>
   <em>The epic card is one message the bot keeps up to date: each task's state, what it waits for, and the last journal entry.</em>
@@ -103,7 +103,7 @@ cold CI reviewer is set up, its findings come first and the hot review gives eac
 answers the findings and pushes fixes:
 
 <p align="center">
-  <img src="assets/screenshot-review.jpg" width="400"
+  <img src="docs/assets/screenshot-review.jpg" width="400"
        alt="A pull request timeline on GitHub: the cold CI reviewer leaves a recommendation, openronin answers it and pushes a fix, then the hot review with the epic's context requests changes">
   <br>
   <em>Cold review recommendation → openronin's fix → hot review with the epic's context.</em>

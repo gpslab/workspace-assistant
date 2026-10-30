@@ -2,8 +2,10 @@
 
 [![CI](https://github.com/gpslab/workspace-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/gpslab/workspace-assistant/actions/workflows/ci.yml)
 
+**Website:** [gpslab.github.io/workspace-assistant](https://gpslab.github.io/workspace-assistant/)
+
 <p align="center">
-  <img src="assets/hero.jpg" width="100%"
+  <img src="docs/assets/hero.jpg" width="100%"
        alt="An illustrated team at a long table passing documents along: the path of a task from design to final check">
   <br>
   <em>An <a href="EPICS.md">epic</a> from start to finish: design → issues → pull requests → review → merge → final check.</em>
@@ -21,7 +23,7 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
 ```
 
 <p align="center">
-  <img src="assets/screenshot-topics.jpg" width="320"
+  <img src="docs/assets/screenshot-topics.jpg" width="320"
        alt="A Telegram forum group with Workspace Assistant: one topic per task, the bot is replying in the i18n topic">
   <br>
   <em>Each forum topic is a separate Claude session; the bot is replying in <code>i18n</code> right now.</em>
@@ -238,7 +240,7 @@ implementer (openronin), not by the bot's Claude runs.
   combined into one request. Files are deleted after the run.
 
 <p align="center">
-  <img src="assets/screenshot-files.jpg" width="320"
+  <img src="docs/assets/screenshot-files.jpg" width="320"
        alt="A forum topic: the user asks for a pipeline diagram, the bot replies with a PNG image, its Mermaid source file and an explanation">
   <br>
   <em>Files Claude puts into the outbox arrive in the chat: here a diagram and its Mermaid source.</em>
@@ -259,7 +261,7 @@ plan format, the `/epic` commands, the status card and the merge and release gat
 [EPICS.md](EPICS.md).
 
 <p align="center">
-  <img src="assets/screenshot-epic.jpg" width="320"
+  <img src="docs/assets/screenshot-epic.jpg" width="320"
        alt="The epic card in a forum topic: eight tasks with their state — merged, in review, CI is running, waiting for other tasks — and the last journal entry">
   <br>
   <em>The epic card is one message the bot keeps up to date: each task's state, what it waits for, and the last journal entry.</em>
@@ -333,4 +335,4 @@ Pull requests are welcome; the rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Released under the [MIT License](LICENSE).
 
-Third-party interfaces, marks and content (including chat avatars) shown in the screenshots in `assets/` belong to their respective owners and are not covered by the MIT License. `assets/hero.jpg` was generated with Midjourney and is not covered by the MIT License. Claude is a trademark of Anthropic, PBC; Telegram, GitHub and other names mentioned are trademarks of their respective owners. This project is not affiliated with or endorsed by them.
+Third-party interfaces, marks and content (including chat avatars) shown in the screenshots in `docs/assets/` belong to their respective owners and are not covered by the MIT License. `docs/assets/hero.jpg` was generated with Midjourney and is not covered by the MIT License. Claude is a trademark of Anthropic, PBC; Telegram, GitHub and other names mentioned are trademarks of their respective owners. This project is not affiliated with or endorsed by them.

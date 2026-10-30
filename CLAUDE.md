@@ -34,7 +34,8 @@ php bin/bot.php     # run the bot (daemonizing: bin/ctl.sh or a service manager)
 (`.github/workflows/ci.yml`) runs a matrix of 8.4 and 8.5, and PHPStan checks against 8.4
 (`phpVersion: 80400` in `phpstan.dist.neon`), so a function or class newer than 8.4 fails `composer stan`
 even on 8.5. If the supported version changes, `composer.json`, `composer.lock`, CI, PHPStan, the
-reviewer prompt in `claude-review.yml` and this section move together.
+reviewer prompt in `claude-review.yml`, the landing page `docs/index.html` and this section move
+together.
 
 ## Boundaries
 
@@ -51,6 +52,9 @@ reviewer prompt in `claude-review.yml` and this section move together.
 - `git pull` before starting any edits: this repository receives direct pushes from independent runs,
   so a stale checkout means editing outdated code and a rejected push (see
   [gotchas.md](.claude-docs/gotchas.md)).
+- `docs/index.html` is the landing page (GitHub Pages, branch `master`, folder `/docs`). A PR that
+  changes a fact the page states (features, requirements, security warning, pipeline, GitHub/GitLab
+  support) updates the page in the same PR. Images live in `docs/assets/`.
 - Docs describe only current rules: no history, incidents or dates, no host, path or user names of any
   particular deployment.
 
