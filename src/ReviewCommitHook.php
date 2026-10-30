@@ -47,7 +47,10 @@ final class ReviewCommitHook
     private const string GLAB_NOTE_RE = '/^glab\s+mr\s+note\b/';
     private const string MARKER_LOOSE_RE = '/<!--\s*verdict:(?<state>[^\s>]*)\s+sha=(?<sha>[^\s>]*)/';
     private const string GLAB_API_RE = '/^glab\s+api\b(?<args>.*)$/s';
-    private const string GLAB_APPROVE_ENDPOINT_RE = '~'.PmGateHook::GLAB_PROJECT_PATH.'/merge_requests/(?<n>\d+|[^\s/"\'?]+)/approve(?<query>\?[^\s"\']*)?(?=[\s"\'?]|$)~';
+    // Fail-closed: anything between `merge_requests/` and `/approve` (a number, `$N`, `"$N"`, `$(…)`, backticks).
+    private const string GLAB_APPROVE_ENDPOINT_RE = '~(?:'.PmGateHook::GLAB_PROJECT_PATH.'|projects/[^\n]*?)/merge_requests/(?<n>[^\n]*?)/approve(?<query>\?[^\s"\']*)?(?=[\s"\'?]|$)~';
+    // PmGateHook::commands() cuts a segment at `$(`, so `merge_requests/$(echo 5)/approve` reaches us as `…merge_requests/$`.
+    private const string GLAB_APPROVE_SUBST_RE = '~merge_requests/[^\s/]*\$$~';
     private const string BODY_FLAG_RE = '/(?:^|\s)(?:--message\b|-m)/';
     private const string QUERY_SHA_RE = '/[?&]sha=(?<value>[^\s&"\']*)/';
     private const string SHA_FIELD_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field)[\s=]*["\']?sha=(?<value>\S*)/';
@@ -181,7 +184,10 @@ final class ReviewCommitHook
     private static function checkGlabApi(string $args): ?string
     {
         if (preg_match(self::GLAB_APPROVE_ENDPOINT_RE, $args, $path) !== 1) {
-            return null;
+            if (preg_match(self::GLAB_APPROVE_SUBST_RE, rtrim($args)) !== 1) {
+                return null;
+            }
+            $path = ['n' => '$(…)'];
         }
         $post = preg_match(self::METHOD_RE, $args, $m) === 1
             ? strtoupper($m['method']) === 'POST'

@@ -122,6 +122,7 @@ final class ReviewCommitHookTest extends TestCase
         yield 'second -m bare word' => ["glab mr note 12 -m \"{$m}\" -m LGTM", true, true];
         yield 'second --message variable' => ["glab mr note 12 -m \"{$m}\" --message \$B", true, true];
         yield '-m in heredoc text' => ["glab mr note 12 -m \"\$(cat <<'EOF'\nC1 — fixed, use -m 'x'\n{$m}\nEOF\n)\"", false, true];
+        yield 'double quote inside the heredoc' => ["glab mr note 12 -m \"\$(cat <<'EOF'\nC1 — \"fixed\"\n{$m}\nEOF\n)\"", false, true];
         yield 'marker in a positional heredoc' => ["glab mr note 12 -m \"x\" \"\$(cat <<'EOF'\n{$m}\nEOF\n)\"", true, false];
     }
 
@@ -162,6 +163,11 @@ final class ReviewCommitHookTest extends TestCase
         yield 'literal N without sha' => [$base.'5/approve', true];
         yield '$N without sha' => [$base.'$N/approve', true];
         yield '${N} without sha' => [$base.'${N}/approve', true];
+        yield '"$N" without sha' => [$base.'"$N"/approve', true];
+        yield '$(echo 5) without sha' => [$base.'$(echo 5)/approve', true];
+        yield 'backticks without sha' => [$base.'`cat n`/approve', true];
+        yield 'quoted project without sha' => ['glab api -X POST projects/"$P"/merge_requests/5/approve', true];
+        yield '"$N" with sha' => [$base.'"$N"/approve -f sha='.self::SHA, false];
         yield '$N with sha' => [$base.'$N/approve -f sha='.self::SHA, false];
         yield '${N} with sha' => [$base.'${N}/approve -f sha='.self::SHA, false];
         yield '$N with a variable sha' => [$base.'$N/approve -f sha=$SHA', true];

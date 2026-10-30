@@ -321,10 +321,10 @@ final class ReviewStatusHook
         $body = '';
         $spans = [];
         $heredocs = [];
-        if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
+        if (preg_match_all('/(?<![\w-])(?:--message|-m)(?:=|\s+)(?:"(?<d>(?:\$\([^\n]*<<-?\s*([\'"]?)(?<t>\w+)\2[^\n]*\n.*?\n\s*\k<t>\s*\)|[^"\\\\]|\\\\.)*)"|\'(?<s>[^\']*)\')/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
             foreach ($m as $hit) {
                 $spans[] = [$hit[0][1], $hit[0][1] + strlen($hit[0][0])];
-                $body .= "\n".(($hit[1][0] ?? '') !== '' ? $hit[1][0] : ($hit[2][0] ?? ''));
+                $body .= "\n".(($hit['d'][0] ?? '') !== '' ? $hit['d'][0] : ($hit['s'][0] ?? ''));
             }
         }
         if (preg_match_all('/<<-?\s*([\'"]?)(\w+)\1[^\n]*\n(.*?)\n\s*\2(?=\s|\)|$)/s', $segment, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) > 0) {
