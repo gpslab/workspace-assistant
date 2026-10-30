@@ -27,7 +27,13 @@ namespace GpsLab\WorkspaceAssistant;
  * repos/<o>/<r>/issues` (POST), `glab issue create|new`, `glab api projects/<id>/issues` (POST) and a
  * `createIssue` mutation sent with `gh api graphql` / `glab api graphql` as `-f query=…`. Limitation:
  * Not detected: `-F query=@file` and `--input body.json` (body files are not read), `-F query=@-`
- * (stdin or heredoc) and a query held in a shell variable (`-f query="$Q"`).
+ * (stdin or heredoc), a query held in a shell variable (`-f query="$Q"`), `eval`, `glab -R … mr`, an
+ * absolute CLI path and `${VAR:+…}` obfuscation.
+ *
+ * A command substitution (`$(…)`, backticks; also inside double quotes) stays inside its word, so `projects/$(echo 1)/issues` is
+ * recognised as an endpoint; its inner command is still checked as a command of its own. The method is
+ * the last `-X`/`--method` outside quoted values ({@see apiIsPost()}), like in gh and glab; a method that
+ * is not a literal word counts as POST.
  *
  * The hook is fail-closed (see bin/pm-gate-hook.php): the opposite of the review Stop hook.
  */
@@ -42,25 +48,32 @@ final class PmGateHook
     public const string DENY = 'deny';
 
     /** Shell keywords, wrappers and `VAR=value` assignments that may precede the command itself. */
-    private const string PREFIX_RE = '/^(?:env(?:\s+(?:-(?:[uCS]|-unset|-chdir|-split-string)\s+\S+|-\S+))*(?=\s)|timeout(?:\s+(?:-[ks]\s+\S+|--?[A-Za-z]\S*))*\s+[\d.]+[smhd]?(?=\s)|(?:(?:if|then|elif|else|do|while|until|time|command|exec|xargs|sudo|nohup)(?:\s+-[^\s=]+)*|[!{])(?=\s)|[A-Za-z_]\w*=(?:"[^"]*"|\'[^\']*\'|\S*))\s*/';
+    private const string PREFIX_RE = '/^(?:env(?:\s+(?:-(?:[uCS]|-unset|-chdir|-split-string)\s+\S+|-\S+))*(?=\s)|timeout(?:\s+(?:-[ks]\s+\S+|--?[A-Za-z]\S*))*\s+[\d.]+[smhd]?(?=\s)|(?:(?:if|then|elif|else|do|while|until|time|command|exec|xargs|sudo|nohup)(?:\s+-[^\s=]+)*|[!{])(?=\s)|[A-Za-z_]\w*=(?:"[^"]*"|\'[^\']*\'|\$(?<sub>\((?:[^()]++|(?&sub))*\))|`[^`]*`|\S)*+)\s*/';
 
     private const string HEREDOC_RE = '/\G<<(?!<)(?<dash>-?)\s*(?:\'(?<word>[^\']+)\'|"(?<dq>[^"]+)"|\\\\?(?<bare>\w+))/';
     private const string GH_ISSUE_CREATE_RE = '/^gh\s+issue\s+create\b/';
     private const string GH_API_RE = '/^gh\s+api\b(?<args>.*)$/s';
-    private const string ISSUES_ENDPOINT_RE = '~(?<![\w/.-])(?:https?://api\.github\.com)?/?repos/[^\s/"\']+/[^\s/"\']+/issues(?=[\s"\'?]|$)~';
+    /**
+     * A command substitution (`$(…)` with nested parentheses, or backticks): one unit of a path segment, spaces inside
+     * allowed. A GitHub `repos/<o>/<r>` may be a single substitution (`repos/$(gh repo view … -q .nameWithOwner)`).
+     */
+    public const string SUBSTITUTION = '\$\((?:[^()]++|\((?:[^()]++|\([^()]*\))*\))*\)|`[^`]*`';
+
+    private const string ISSUES_ENDPOINT_RE = '~(?<![\w/.-])(?:https?://api\.github\.com)?/?repos/(?:(?:'.self::SUBSTITUTION.'|[^\s/"\'])+/(?:'.self::SUBSTITUTION.'|[^\s/"\'])+|'.self::SUBSTITUTION.')/issues(?=[\s"\'?]|$)~';
     private const string GLAB_ISSUE_CREATE_RE = '/^glab\s+issue\s+(?:create|new)\b/';
     private const string GLAB_API_RE = '/^glab\s+api\b(?<args>.*)$/s';
     /**
      * The `projects/<id>` part of a GitLab API path, shared with {@see ReviewCommitHook}: `<id>` is numeric,
      * a URL-encoded path or `:id`/`:fullpath`; the path may start with `/`, `api/v4/` or `https://<host>/api/v4/`.
      */
-    public const string GLAB_PROJECT_PATH = '(?<![\w/.-])(?:https?://[^\s/"\']+/)?/?(?:api/v4/)?projects/[^\s/"\'?]+';
+    public const string GLAB_PROJECT_PATH = '(?<![\w/.-])(?:https?://[^\s/"\']+/)?/?(?:api/v4/)?projects/(?:'.self::SUBSTITUTION.'|[^\s/"\'?])+';
 
     private const string GLAB_ISSUES_ENDPOINT_RE = '~'.self::GLAB_PROJECT_PATH.'/issues(?=[\s"\'?]|$)~';
     private const string GRAPHQL_ENDPOINT_RE = '~(?:^|\s)["\']?(?:https?://[^\s"\']+/|/)?(?:api/)?graphql(?=[\s"\'?]|$)~';
     private const string CREATE_ISSUE_MUTATION_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field)(?:\s+|=)["\']?query=[^@].*\bmutation\b.*\bcreateIssue\b/s';
-    private const string METHOD_RE = '/(?:^|\s)(?:-X\s*|--method(?:=|\s+))["\']?(?<method>[A-Za-z]+)/';
-    private const string BODY_FLAG_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field|--input)(?:[\s=]|$)/';
+
+    /** A field or body flag of `gh api` / `glab api`: without a method flag it makes the request a POST. */
+    public const string API_FIELD_FLAG_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field|--input)(?:[\s=]|$)/';
 
     /** Whether the command creates an issue (`gh`/`glab issue create`, a POST to the issues endpoint, or a `createIssue` GraphQL mutation). */
     public static function createsIssue(string $command): bool
@@ -119,38 +132,176 @@ final class PmGateHook
 
     private static function isPost(string $args, string $endpointRe): bool
     {
-        if (preg_match($endpointRe, $args) !== 1) {
-            return false;
+        return preg_match($endpointRe, $args) === 1 && self::apiIsPost($args);
+    }
+
+    /**
+     * Whether a `gh api` / `glab api` request is a POST: the method is the last `-X`/`--method` outside
+     * quoted values (gh and glab keep the last one); a method that is not a literal word (`"$M"`, `$(…)`)
+     * is unknown and counts as POST; without a method flag, a field or body flag means POST.
+     */
+    public static function apiIsPost(string $args): bool
+    {
+        $words = self::words($args);
+        $method = null;
+        foreach ($words as $i => $word) {
+            if ($word['text'] === '-X' || $word['text'] === '--method') {
+                $value = $words[$i + 1] ?? ['text' => '', 'literal' => false];
+            } elseif (preg_match('/^(?:-X=?|--method=)(?<v>.*)$/s', $word['text'], $m) === 1) {
+                $value = ['text' => $m['v'], 'literal' => $word['literal']];
+            } else {
+                continue;
+            }
+            $method = $value['literal'] && preg_match('/^[A-Za-z]+$/', $value['text']) === 1 ? strtoupper($value['text']) : '';
         }
-        if (preg_match(self::METHOD_RE, $args, $m) === 1) {
-            return strtoupper($m['method']) === 'POST';
+        if ($method !== null) {
+            return $method === '' || $method === 'POST';
         }
 
-        return preg_match(self::BODY_FLAG_RE, $args) === 1;
+        return preg_match(self::API_FIELD_FLAG_RE, $args) === 1;
+    }
+
+    /**
+     * Shell words of a string: quotes removed, a command substitution kept whole inside its word.
+     * `literal` is false when the word holds an expansion (`$…`, backticks) outside single quotes.
+     *
+     * @return list<array{text: string, literal: bool}>
+     */
+    private static function words(string $s): array
+    {
+        $words = [];
+        $text = '';
+        $literal = true;
+        $open = false;
+        $quote = '';
+        $length = strlen($s);
+        for ($i = 0; $i < $length; ++$i) {
+            $char = $s[$i];
+            if ($quote === "'") {
+                $quote = $char === "'" ? '' : $quote;
+                $text .= $char === "'" ? '' : $char;
+            } elseif ($char === '\\' && $i + 1 < $length) {
+                $text .= $s[++$i];
+                $open = true;
+            } elseif ($char === '$' && ($s[$i + 1] ?? '') === '(') {
+                $end = self::substitutionEnd($s, $i);
+                $text .= substr($s, $i, $end - $i);
+                $i = $end - 1;
+                $literal = false;
+                $open = true;
+            } elseif ($char === '`') {
+                $end = strpos($s, '`', $i + 1);
+                $end = $end === false ? $length : $end + 1;
+                $text .= substr($s, $i, $end - $i);
+                $i = $end - 1;
+                $literal = false;
+                $open = true;
+            } elseif ($char === '"') {
+                $quote = $quote === '"' ? '' : '"';
+                $open = true;
+            } elseif ($quote === '' && $char === "'") {
+                $quote = "'";
+                $open = true;
+            } elseif ($quote === '' && ctype_space($char)) {
+                if ($open) {
+                    $words[] = ['text' => $text, 'literal' => $literal];
+                }
+                $text = '';
+                $literal = true;
+                $open = false;
+            } else {
+                $literal = $literal && $char !== '$';
+                $text .= $char;
+                $open = true;
+            }
+        }
+        if ($open) {
+            $words[] = ['text' => $text, 'literal' => $literal];
+        }
+
+        return $words;
+    }
+
+    /** Offset right after the `)` that closes the `$(` at $at (the end of the string when it is not closed). */
+    private static function substitutionEnd(string $s, int $at): int
+    {
+        $length = strlen($s);
+        $depth = 0;
+        $quote = '';
+        for ($i = $at + 1; $i < $length; ++$i) {
+            $char = $s[$i];
+            if ($quote === "'") {
+                $quote = $char === "'" ? '' : $quote;
+            } elseif ($char === '\\') {
+                ++$i;
+            } elseif ($quote === '"') {
+                $quote = $char === '"' ? '' : $quote;
+            } elseif ($char === '"' || $char === "'") {
+                $quote = $char;
+            } elseif ($char === '(') {
+                ++$depth;
+            } elseif ($char === ')' && --$depth === 0) {
+                return $i + 1;
+            }
+        }
+
+        return $length;
     }
 
     /**
      * Simple commands of a command line: split on `; & | ( )` and newlines outside quotes, so a
      * separator inside a quoted argument (`git commit -m "x; gh issue create"`) does not start a command.
+     * A command substitution (`$(…)`, backticks; also inside double quotes) stays whole inside its word, and its inner
+     * commands follow as segments of their own.
      *
      * @return list<string>
      */
     private static function segments(string $command): array
     {
+        $end = 0;
+
+        return self::parse($command, 0, false, $end);
+    }
+
+    /**
+     * @param bool $nested stop at the `)` that closes a `$(`; $end is the offset of that `)` (or the end of the string)
+     *
+     * @return list<string>
+     */
+    private static function parse(string $command, int $start, bool $nested, int &$end): array
+    {
         $segments = [];
+        /** @var list<string> $inner commands of the substitutions of the current segment */
+        $inner = [];
         $current = '';
         $quote = '';
         /** @var list<array{string, bool}> $heredocs delimiter and whether leading tabs are ignored */
         $heredocs = [];
         $arith = 0;
+        $depth = 0;
         $length = strlen($command);
-        for ($i = 0; $i < $length; ++$i) {
+        for ($i = $start; $i < $length; ++$i) {
             $char = $command[$i];
             if ($quote === "'") {
                 $current .= $char;
                 $quote = $char === "'" ? '' : $quote;
             } elseif ($char === '\\' && $i + 1 < $length) {
                 $current .= $char.$command[++$i];
+            } elseif ($quote === '"' && $char === '$' && substr($command, $i, 2) === '$(' && substr($command, $i, 3) !== '$((') {
+                $stop = 0;
+                $inner = [...$inner, ...self::parse($command, $i + 2, true, $stop)];
+                $current .= substr($command, $i, min($stop + 1, $length) - $i);
+                $i = $stop;
+            } elseif ($quote === '"' && $char === '`') {
+                $close = $i + 1;
+                while ($close < $length && $command[$close] !== '`') {
+                    $close += $command[$close] === '\\' ? 2 : 1;
+                }
+                $close = min($close, $length);
+                $stop = 0;
+                $inner = [...$inner, ...self::parse(substr($command, $i + 1, $close - $i - 1), 0, false, $stop)];
+                $current .= substr($command, $i, $close - $i + 1);
+                $i = $close;
             } elseif ($quote === '"') {
                 $current .= $char;
                 $quote = $char === '"' ? '' : $quote;
@@ -165,6 +316,21 @@ final class PmGateHook
                 $current .= '$((';
                 $i += 2;
                 $arith = 2;
+            } elseif ($char === '$' && substr($command, $i, 2) === '$(') {
+                $stop = 0;
+                $inner = [...$inner, ...self::parse($command, $i + 2, true, $stop)];
+                $current .= substr($command, $i, min($stop + 1, $length) - $i);
+                $i = $stop;
+            } elseif ($char === '`') {
+                $close = $i + 1;
+                while ($close < $length && $command[$close] !== '`') {
+                    $close += $command[$close] === '\\' ? 2 : 1;
+                }
+                $close = min($close, $length);
+                $stop = 0;
+                $inner = [...$inner, ...self::parse(substr($command, $i + 1, $close - $i - 1), 0, false, $stop)];
+                $current .= substr($command, $i, $close - $i + 1);
+                $i = $close;
             } elseif ($char === '<' && substr($command, $i, 3) === '<<<') {
                 // here-string: has no body
                 $current .= '<<<';
@@ -173,8 +339,15 @@ final class PmGateHook
                 $current .= $m[0];
                 $i += strlen($m[0]) - 1;
                 $heredocs[] = [($m['word'] ?? '') !== '' ? $m['word'] : (($m['dq'] ?? '') !== '' ? $m['dq'] : ($m['bare'] ?? '')), $m['dash'] !== ''];
-            } elseif (strpbrk($char, ";&|()\n") !== false) {
+            } elseif ($nested && $char === ')' && $depth === 0) {
+                $end = $i;
                 $segments[] = trim($current);
+
+                return array_values(array_filter([...$segments, ...$inner], static fn (string $s): bool => $s !== ''));
+            } elseif (strpbrk($char, ";&|()\n") !== false) {
+                $depth += $char === '(' ? 1 : ($char === ')' ? -1 : 0);
+                $segments = [...$segments, trim($current), ...$inner];
+                $inner = [];
                 $current = '';
                 if ($char === "\n" && $heredocs !== []) {
                     $i = self::skipHeredocBodies($command, $i + 1, $heredocs) - 1;
@@ -184,7 +357,8 @@ final class PmGateHook
                 $current .= $char;
             }
         }
-        $segments[] = trim($current);
+        $end = $length;
+        $segments = [...$segments, trim($current), ...$inner];
 
         return array_values(array_filter($segments, static fn (string $s): bool => $s !== ''));
     }

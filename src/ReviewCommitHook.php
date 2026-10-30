@@ -58,9 +58,6 @@ final class ReviewCommitHook
     private const string STATE_FLAG_RE = '/(?:^|\s)(?:--approve|--request-changes|-a|-r)(?=[\s=]|$)/';
     private const string GH_API_RE = '/^gh\s+api\b(?<args>.*)$/s';
     private const string REVIEWS_ENDPOINT_RE = '~(?<![\w.-])(?:(?:https?://api\.github\.com)?/?repos/(?<owner>[^\s/"\']+)/(?<repo>[^\s/"\']+)/)?pulls/(?<n>\d+)/reviews(?=[\s"\'?]|$)~';
-    private const string METHOD_FLAG_RE = '/(?:^|\s)(?:-X|--method(?:=|\s|$))/';
-    private const string METHOD_RE = '/(?:^|\s)(?:-X\s*|--method(?:=|\s+))(?<q>["\']?)(?<method>[A-Za-z]+)\k<q>(?=\s|$)/';
-    private const string FIELD_FLAG_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field|--input)(?:[\s=]|$)/';
     private const string INPUT_FLAG_RE = '/(?:^|\s)--input(?:[\s=]|$)/';
     private const string COMMIT_FIELD_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field)[\s=]*["\']?commit_id=(?<value>\S*)/';
     private const string SHA_VALUE_RE = '/^["\']?(?<sha>[0-9a-fA-F]{40})["\']?$/';
@@ -211,30 +208,18 @@ final class ReviewCommitHook
         return $result;
     }
 
-    /** A method flag whose value is not a literal word (`$M`, `"$(…)"`, a backtick) is treated as POST: it is unknown to the check. */
-    private static function isPost(string $args): bool
-    {
-        if (self::match(self::METHOD_RE, $args, $m) === 1) {
-            return strtoupper($m['method']) === 'POST';
-        }
-        if (self::match(self::METHOD_FLAG_RE, $args) === 1) {
-            return true;
-        }
-
-        return self::match(self::FIELD_FLAG_RE, $args) === 1;
-    }
-
     /** `glab api` POST to `projects/<id>/merge_requests/<N>/approve`: only with a literal lowercase 40-hex `sha`. */
     private static function checkGlabApi(string $args, string $command): ?string
     {
-        // PmGateHook::commands() cuts a segment at an unquoted `$(`: the rest of the command (path, method, fields) is not visible here.
-        if (str_ends_with(rtrim($args), '$') && str_contains($command, 'merge_requests')) {
-            return 'MR approval denied: a `$(…)` in a `glab api` command that touches `merge_requests` hides the rest of the command (path, method, fields) from the check. Approve only as `glab mr approve <N> --sha <SHA>` or `glab api -X POST projects/<id>/merge_requests/<N>/approve -f sha=<SHA>`, with a literal path, method and the literal lowercase 40-hex commit you reviewed.';
+        // Fail-closed: a substitution (also inside double quotes) can assemble the path, the method or the fields at run time, beyond what the grammars here recognise.
+        // `merge_requests` is looked up in the whole command: a variable set earlier can supply it (`M=merge_requests; glab api … projects/1/$(echo $M)/5/approve`).
+        if (str_contains($command, 'merge_requests') && self::hasSubstitution($args)) {
+            return 'MR approval denied: a `$(…)` in a `glab api` command that touches `merge_requests` can hide the path, method or fields from the check. Approve only as `glab mr approve <N> --sha <SHA>` or `glab api -X POST projects/<id>/merge_requests/<N>/approve -f sha=<SHA>`, with a literal path, method and the literal lowercase 40-hex commit you reviewed.';
         }
         if (self::match(self::GLAB_APPROVE_ENDPOINT_RE, $args, $path) !== 1) {
             return null;
         }
-        $post = self::isPost($args);
+        $post = PmGateHook::apiIsPost($args);
         if (!$post) {
             return null;
         }
@@ -263,6 +248,29 @@ final class ReviewCommitHook
         return null;
     }
 
+    /** A `$(…)` (not `$((…))`) or backtick that the shell expands: outside quotes or inside double quotes; not after a backslash or in single quotes. */
+    private static function hasSubstitution(string $text): bool
+    {
+        $quote = '';
+        $length = strlen($text);
+        for ($i = 0; $i < $length; ++$i) {
+            $char = $text[$i];
+            if ($quote === "'") {
+                $quote = $char === "'" ? '' : $quote;
+            } elseif ($char === '\\') {
+                ++$i;
+            } elseif ($char === '`' || ($char === '$' && substr($text, $i, 2) === '$(' && substr($text, $i, 3) !== '$((')) {
+                return true;
+            } elseif ($quote === '"') {
+                $quote = $char === '"' ? '' : $quote;
+            } elseif ($char === '"' || $char === "'") {
+                $quote = $char;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @param array<string, string> $shas
      */
@@ -271,7 +279,7 @@ final class ReviewCommitHook
         if (self::match(self::REVIEWS_ENDPOINT_RE, $args, $path) !== 1) {
             return null;
         }
-        $post = self::isPost($args);
+        $post = PmGateHook::apiIsPost($args);
         if (!$post) {
             return null;
         }
