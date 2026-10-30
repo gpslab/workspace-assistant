@@ -205,6 +205,34 @@ final class ReviewCommitHookTest extends TestCase
         yield '100 x ${a} as the number, no sha' => ['glab api -X POST projects/1/merge_requests/'.$many.'/approve', true];
     }
 
+    /**
+     * @return iterable<string, array{string, bool}> command, whether it is denied
+     */
+    public static function lastMethodProvider(): iterable
+    {
+        $sha = self::SHA;
+        yield 'glab approve, -X GET -X POST, no sha' => ['glab api -X GET -X POST projects/1/merge_requests/5/approve', true];
+        yield 'glab approve, -X POST -X GET' => ['glab api -X POST -X GET projects/1/merge_requests/5/approve', false];
+        yield 'glab approve, --method GET --method POST, no sha' => ['glab api --method GET --method=POST projects/1/merge_requests/5/approve', true];
+        yield 'glab approve, -X GET -X POST, with sha' => ['glab api -X GET -X POST projects/1/merge_requests/5/approve -f sha='.$sha, false];
+        yield 'gh review, -X GET -X POST, no commit_id' => ['gh api -X GET -X POST repos/o/r/pulls/5/reviews -f event=APPROVE', true];
+        yield 'gh review, -X POST -X GET' => ['gh api -X POST -X GET repos/o/r/pulls/5/reviews -f event=APPROVE', false];
+        yield 'gh review, -X in a quoted body, no commit_id' => ['gh api -X POST repos/o/r/pulls/5/reviews -f event=APPROVE -f body="run gh api -X GET repos/o/r to check"', true];
+        yield 'gh review, -X GET in a quoted body with commit_id' => ['gh api -X POST repos/o/r/pulls/5/reviews -f commit_id='.$sha.' -f body="-X GET"', false];
+        yield 'gh review, non-literal method' => ['gh api -X "$M" repos/o/r/pulls/5/reviews -f event=APPROVE', true];
+        yield 'glab approve, unquoted backtick in the path' => ['glab api projects/1/merge_requests/`echo 5`/approve -X GET', true];
+        yield 'glab approve, quoted substitution in the path, GET' => ['glab api -X GET "projects/1/merge_requests/$(echo 5)/approve"', false];
+        yield 'glab approve, unquoted substitution in a header, GET' => ['glab api -X GET projects/1/merge_requests/5 -H x:$(echo 1)', true];
+        yield 'glab, quoted substitution in a header, GET' => ['glab api -X GET projects/1/merge_requests/5 -H "x:$(echo 1)"', false];
+        yield 'glab, arithmetic expansion is not a substitution' => ['glab api -X GET projects/1/merge_requests/$((1+2))', false];
+    }
+
+    #[DataProvider('lastMethodProvider')]
+    public function testLastMethodWins(string $command, bool $denied): void
+    {
+        self::assertSame($denied, ReviewCommitHook::check($command) !== null);
+    }
+
     #[DataProvider('glabApiSubstitutionProvider')]
     public function testGlabApiSubstitutionAndLongNumber(string $command, bool $denied): void
     {

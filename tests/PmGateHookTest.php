@@ -112,6 +112,30 @@ final class PmGateHookTest extends TestCase
         yield 'graphql query keyword' => ['glab api graphql -f query=\'query { project(fullPath: "g/p") { issues { nodes { id } } } }\'', false];
         yield 'graphql other mutation' => ['gh api graphql -f query=\'mutation { addComment(input: {}) { clientMutationId } }\'', false];
         yield 'graphql createIssue text in grep' => ['grep -rn "mutation createIssue" docs', false];
+        yield 'glab api substitution in the project id' => ['glab api -X POST projects/$(echo 1)/issues -f title=x', true];
+        yield 'glab api backtick in the project id' => ['glab api -X POST projects/`echo 1`/issues -f title=x', true];
+        yield 'glab api quoted substitution in the project id' => ['glab api -X POST "projects/$(echo 1)/issues" -f title=x', true];
+        yield 'glab api repeated -X, last POST' => ['glab api -X GET -X POST projects/1/issues -f title=x', true];
+        yield 'glab api repeated -X, last GET' => ['glab api -X POST -X GET projects/1/issues -f title=x', false];
+        yield 'gh api repeated -X, last POST' => ['gh api -X GET -X POST repos/o/r/issues -f title=x', true];
+        yield 'gh api repeated -X, last GET' => ['gh api -X POST -X GET repos/o/r/issues -f title=x', false];
+        yield 'gh api repeated --method, last POST' => ['gh api --method=GET --method POST repos/o/r/issues', true];
+        yield 'gh api substitution in the repo, unquoted' => ['gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/issues -f title=x', true];
+        yield 'gh api substitution in the repo, quoted' => ['gh api "repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/issues" -f title=x', true];
+        yield 'gh api substitution in the owner' => ['gh api -X POST repos/$(echo o)/r/issues', true];
+        yield 'gh api backtick in the repo' => ['gh api -X POST repos/o/`echo r`/issues', true];
+        yield 'glab api non-literal method' => ['glab api -X "$M" projects/1/issues', true];
+        yield 'glab api method from a substitution' => ['glab api --method $(echo GET) projects/1/issues', true];
+        yield 'glab api non-literal method overridden by a later GET' => ['glab api -X "$M" -X GET projects/1/issues', false];
+        yield 'glab api -X in a quoted field value' => ['glab api -X POST projects/1/issues -f title="x -X GET y"', true];
+        yield 'gh api -X in a quoted field value' => ['gh api repos/o/r/issues -f body="run gh api -X GET repos/o/r to check"', true];
+        yield 'glab api GET listing with a substitution in the path' => ['glab api "projects/$(echo 1)/issues"', false];
+        yield 'glab api explicit GET with a substitution in the path' => ['glab api -X GET projects/$(echo 1)/issues', false];
+        yield 'issue create inside a substitution' => ['echo $(gh issue create -t x)', true];
+        yield 'issue create inside backticks' => ['echo `gh issue create -t x`', true];
+        yield 'issue create after an assignment with a substitution' => ['X=$(echo a) gh issue create -t x', true];
+        yield 'issue create in a nested substitution' => ['echo "$(echo $(gh issue create -t x))"', false];
+        yield 'substitution without an issue command' => ['echo $(date) && ls', false];
     }
 
     #[DataProvider('commandProvider')]

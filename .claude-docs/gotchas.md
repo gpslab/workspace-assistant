@@ -398,9 +398,14 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
   last `-m`, while the Stop hook joins every value, so such a note is denied here, not normalised there. A
   multi-line body is `-m "$(cat <<'EOF' … EOF)"`; a bare top-level heredoc is cut out before the hook
   and is never counted. The MR number of the `glab api` approve path may be any expression (`$N`, `$(…)`);
-  the `sha` check still applies. An unquoted `$(…)` anywhere in a `glab api` command that contains
-  `merge_requests` is always denied (`PmGateHook::commands()` cuts the segment there, so the path, method and
-  fields after it are not visible). A regex error (`preg_match` returning `false`) fails the hook, not allows.
+  the `sha` check still applies. An unquoted `$(…)` or backtick anywhere in a `glab api` command that contains
+  `merge_requests` is always denied (fail-closed: a substitution can assemble the path, method or fields at run
+  time, beyond what the grammars recognise). The method of `gh api` / `glab api` is the **last** `-X`/`--method`
+  outside quoted values (gh and glab keep the last one; `PmGateHook::apiIsPost()`, shared with the issue gate),
+  and a method that is not a literal word (`"$M"`, `$(…)`) counts as POST. `PmGateHook::commands()` keeps a
+  command substitution inside its word (its inner command is still a segment of its own), so a substitution in
+  an issue endpoint (`projects/$(…)/issues`, `repos/$(…)/issues`) is recognised and the method decides: a GET
+  listing stays ungated. A regex error (`preg_match` returning `false`) fails the hook, not allows.
   Known limitations: a body flag written in quotes or escaped (`"-m"`, `\-m`) is not recognised, so the flags are
   counted in every unquoted form only; quotes inside the approve path (`5"/approve"`) are not parsed; a
   `merge_requests` word assembled from substitutions (`merge_req$(echo uests)`) is not recognised. The
