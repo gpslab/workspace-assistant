@@ -393,12 +393,17 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
   `?sha=` in the URL; `--input` is denied, GET and `unapprove` are not), and a `glab mr note` whose
   `verdict:` markers are not exactly one marker of the grammar the Stop hook counts
   (`ReviewStatusHook::GITLAB_MARKER_RE`, the only definition; a note is denied here or counted there).
-  A note with a marker must also have exactly one `-m`/`--message` flag (counted in every form outside the
+  A note with a marker must also have exactly one `-m`/`--message` flag (counted in every unquoted form outside the
   body values the Stop hook reads) and no marker in a heredoc outside the `-m` value: glab publishes only the
   last `-m`, while the Stop hook joins every value, so such a note is denied here, not normalised there. A
   multi-line body is `-m "$(cat <<'EOF' … EOF)"`; a bare top-level heredoc is cut out before the hook
-  and is never counted. The MR number of the `glab api` approve path may be a shell variable (`$N`); the
-  `sha` check still applies. The
+  and is never counted. The MR number of the `glab api` approve path may be any expression (`$N`, `$(…)`);
+  the `sha` check still applies. An unquoted `$(…)` anywhere in a `glab api` command that contains
+  `merge_requests` is always denied (`PmGateHook::commands()` cuts the segment there, so the path, method and
+  fields after it are not visible). A regex error (`preg_match` returning `false`) fails the hook, not allows.
+  Known limitations: a body flag written in quotes or escaped (`"-m"`, `\-m`) is not recognised, so the flags are
+  counted in every unquoted form only; quotes inside the approve path (`5"/approve"`) are not parsed; a
+  `merge_requests` word assembled from substitutions (`merge_req$(echo uests)`) is not recognised. The
   `sha` is a literal: `$(…)` and shell variables resolve at publish time. The `<id>` grammar of the `glab api`
   path is `PmGateHook::GLAB_PROJECT_PATH`, shared with the issue-creation gate. Known limitation: the bot records no SHAs on GitLab (there is no
   GitLab API client), so the SHA is checked by form only and is not compared with the MR head.

@@ -48,11 +48,7 @@ final class ReviewCommitHook
     private const string MARKER_LOOSE_RE = '/<!--\s*verdict:(?<state>[^\s>]*)\s+sha=(?<sha>[^\s>]*)/';
     private const string GLAB_API_RE = '/^glab\s+api\b(?<args>.*)$/s';
     // Fail-closed: anything between `merge_requests/` and `/approve` (a number, `$N`, `"$N"`, `$(…)`, backticks).
-    private const string GLAB_APPROVE_ENDPOINT_RE = '~(?:'.PmGateHook::GLAB_PROJECT_PATH.'|projects/[^\n]*?)/merge_requests/(?<n>(?:[^\s/"\'`$]|\$(?:\{[^}\n]*\}|\([^)\n]*\))?|"[^"\n]*"|\'[^\'\n]*\'|`[^`\n]*`)*)/approve(?<query>\?[^\s"\']*)?(?=[\s"\'?]|$)~';
-    // PmGateHook::commands() cuts a segment at `$(`, so `merge_requests/$(echo 5)/approve` reaches us as `…merge_requests/$`.
-    private const string GLAB_APPROVE_SUBST_RE = '~merge_requests/[^\s/]*\$$~';
-    // The same in the whole command: a `$(…)` number followed by `/approve` somewhere after it.
-    private const string GLAB_APPROVE_SUBST_FULL_RE = '~merge_requests/[^\s/]*\$\(.*/approve(?=[\s"\'?]|$)~s';
+    private const string GLAB_APPROVE_ENDPOINT_RE = '~(?:'.PmGateHook::GLAB_PROJECT_PATH.'|projects/[^\n]*?)/merge_requests/(?<n>(?:[^\s/"\'`$]|\$(?:\{[^}\n]*\}|\([^)\n]*\))?+|"[^"\n]*"|\'[^\'\n]*\'|`[^`\n]*`)*+)/approve(?<query>\?[^\s"\']*)?(?=[\s"\'?]|$)~';
     private const string BODY_FLAG_RE = '/(?:^|\s)(?:--message\b|-m)/';
     private const string QUERY_SHA_RE = '/[?&]sha=(?<value>[^\s&"\']*)/';
     private const string SHA_FIELD_RE = '/(?:^|\s)(?:-f|-F|--field|--raw-field)[\s=]*["\']?sha=(?<value>\S*)/';
@@ -81,28 +77,28 @@ final class ReviewCommitHook
     public static function check(string $command, array $shas = []): ?string
     {
         foreach (PmGateHook::commands($command) as $segment) {
-            if (preg_match(self::GH_PR_REVIEW_RE, $segment) === 1 && preg_match(self::STATE_FLAG_RE, $segment) === 1) {
+            if (self::match(self::GH_PR_REVIEW_RE, $segment) === 1 && self::match(self::STATE_FLAG_RE, $segment) === 1) {
                 return self::deny('`gh pr review --approve | --request-changes` attaches the review to the PR head at the moment of sending, not to the commit you reviewed.', null);
             }
-            if (preg_match(self::GLAB_APPROVE_RE, $segment) === 1) {
+            if (self::match(self::GLAB_APPROVE_RE, $segment) === 1) {
                 $reason = self::checkApprove($segment);
                 if ($reason !== null) {
                     return $reason;
                 }
             }
-            if (preg_match(self::GLAB_NOTE_RE, $segment) === 1) {
+            if (self::match(self::GLAB_NOTE_RE, $segment) === 1) {
                 $reason = self::checkNote($segment);
                 if ($reason !== null) {
                     return $reason;
                 }
             }
-            if (preg_match(self::GLAB_API_RE, $segment, $call) === 1) {
+            if (self::match(self::GLAB_API_RE, $segment, $call) === 1) {
                 $reason = self::checkGlabApi($call['args'], $command);
                 if ($reason !== null) {
                     return $reason;
                 }
             }
-            if (preg_match(self::GH_API_RE, $segment, $call) === 1) {
+            if (self::match(self::GH_API_RE, $segment, $call) === 1) {
                 $reason = self::checkApi($call['args'], $shas);
                 if ($reason !== null) {
                     return $reason;
@@ -116,12 +112,12 @@ final class ReviewCommitHook
     private static function checkApprove(string $segment): ?string
     {
         // Every value counts: pflag keeps the last one, so a literal followed by a variable is unpinned.
-        if (preg_match_all(self::GLAB_APPROVE_SHA_RE, $segment, $hits) === 0) {
+        if (self::matchAll(self::GLAB_APPROVE_SHA_RE, $segment, $hits) === 0) {
             return 'MR approval denied: `glab mr approve` without a literal lowercase 40-hex `-s|--sha` approves whatever the MR head is when it runs, not the commit you reviewed. Run `glab mr approve <N> --sha <SHA>` with the literal lowercase 40-hex commit you reviewed.';
         }
         foreach ($hits['sha'] as $value) {
-            if (preg_match(self::LOWER_SHA_RE, $value) !== 1) {
-                return preg_match(self::ANY_CASE_SHA_RE, $value) === 1
+            if (self::match(self::LOWER_SHA_RE, $value) !== 1) {
+                return self::match(self::ANY_CASE_SHA_RE, $value) === 1
                     ? 'MR approval denied: the `--sha` must be lowercase 40-hex (GitLab compares it strictly with the lowercase MR head SHA and answers 409 otherwise).'
                     : 'MR approval denied: every `-s|--sha` must be the literal lowercase 40-hex commit you reviewed (`$(…)`, shell variables and short SHAs resolve or match differently at publish time, and the last `--sha` wins).';
             }
@@ -136,19 +132,19 @@ final class ReviewCommitHook
      */
     private static function checkNote(string $segment): ?string
     {
-        $any = preg_match_all(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $segment);
+        $any = self::matchAll(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $segment);
         if ($any === 0) {
             return null;
         }
         // The Stop hook reads only `-m "…"`, `-m '…'`, `--message` and heredoc bodies; a marker elsewhere
         // (`-m"…"`, `$'…'`) would be published but never counted.
         $body = ReviewStatusHook::gitlabNoteBody($segment);
-        if (preg_match_all(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $body) !== $any) {
+        if (self::matchAll(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $body) !== $any) {
             return 'MR note denied: the `verdict:` marker is outside a body the Stop hook reads. Pass the note as `-m "…"`, `-m \'…\'`, `--message="…"` or, for several lines, `-m "$(cat <<\'EOF\' … EOF)"` (no `-m"…"`, no `$\'…\'`, no heredoc outside the `-m` value): '.self::MARKER_FORM.'.';
         }
         $parts = ReviewStatusHook::gitlabNoteParts($segment);
         foreach ($parts['heredocs'] as [, , $text]) {
-            if (preg_match(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $text) === 1) {
+            if (self::match(ReviewStatusHook::GITLAB_MARKER_ANY_RE, $text) === 1) {
                 return 'MR note denied: the `verdict:` marker is in a heredoc outside the `-m` value, glab does not publish it as the note. Pass the note as `-m "…"`, `-m \'…\'`, `--message="…"` or, for several lines, `-m "$(cat <<\'EOF\' … EOF)"`: '.self::MARKER_FORM.'.';
             }
         }
@@ -157,24 +153,24 @@ final class ReviewCommitHook
         foreach ([...$parts['values'], ...array_map(static fn (array $h): array => [$h[0], $h[1]], $parts['heredocs'])] as [$from, $to]) {
             $rest = substr_replace($rest, str_repeat(' ', $to - $from), $from, $to - $from);
         }
-        if (count($parts['values']) + preg_match_all(self::BODY_FLAG_RE, $rest) > 1) {
+        if (count($parts['values']) + self::matchAll(self::BODY_FLAG_RE, $rest) > 1) {
             return 'MR note denied: a note with a `verdict:` marker has more than one `-m`/`--message` flag, and glab publishes only the last `-m`, so the marker or the findings may not be on the MR. Use exactly one: `-m "…"`, `-m \'…\'`, `--message="…"` or, for several lines, `-m "$(cat <<\'EOF\' … EOF)"`: '.self::MARKER_FORM.'.';
         }
         $segment = $body;
         if ($any > 1) {
             return 'MR note denied: the note carries '.$any.' `verdict:` markers, a note with more than one counts as no verdict. Write exactly one: '.self::MARKER_FORM.'.';
         }
-        if (preg_match(ReviewStatusHook::GITLAB_MARKER_RE, $segment) === 1) {
+        if (self::match(ReviewStatusHook::GITLAB_MARKER_RE, $segment) === 1) {
             return null;
         }
-        if (preg_match(self::MARKER_LOOSE_RE, $segment, $marker) === 1) {
-            if (preg_match('/^(?:approve|changes)$/', $marker['state']) !== 1) {
+        if (self::match(self::MARKER_LOOSE_RE, $segment, $marker) === 1) {
+            if (self::match('/^(?:approve|changes)$/', $marker['state']) !== 1) {
                 return 'MR note denied: the verdict state `'.$marker['state'].'` is not recognised, it is exactly `approve` or `changes` in lowercase: '.self::MARKER_FORM.'.';
             }
-            if (preg_match('/^[0-9a-fA-F]{40}$/', $marker['sha']) === 1) {
+            if (self::match('/^[0-9a-fA-F]{40}$/', $marker['sha']) === 1) {
                 return 'MR note denied: the `sha` of the verdict marker must be lowercase 40-hex: '.self::MARKER_FORM.'.';
             }
-            if (preg_match('/^[0-9a-f]{40}$/', $marker['sha']) !== 1) {
+            if (self::match('/^[0-9a-f]{40}$/', $marker['sha']) !== 1) {
                 return 'MR note denied: the `sha` of the verdict marker must be the literal lowercase 40-hex commit you reviewed, written out in the command (`$(…)` and shell variables resolve at publish time): '.self::MARKER_FORM.'.';
             }
         }
@@ -182,41 +178,71 @@ final class ReviewCommitHook
         return 'MR note denied: the `verdict:` marker is malformed, write it as '.self::MARKER_FORM.'.';
     }
 
+    /**
+     * @param array<string, string>|null $matches
+     *
+     * @param-out array<string, string> $matches
+     */
+    private static function match(string $pattern, string $subject, ?array &$matches = null): int
+    {
+        $result = preg_match($pattern, $subject, $found);
+        if ($result === false) {
+            throw new \RuntimeException('regex error: '.preg_last_error_msg());
+        }
+        /** @var array<string, string> $found */
+        $matches = $found;
+
+        return $result;
+    }
+
+    /**
+     * @param array<array-key, mixed>|null $matches
+     *
+     * @param-out array<array-key, mixed> $matches
+     */
+    private static function matchAll(string $pattern, string $subject, ?array &$matches = null, int $flags = PREG_PATTERN_ORDER): int
+    {
+        $result = preg_match_all($pattern, $subject, $matches, $flags);
+        if ($result === false) {
+            throw new \RuntimeException('regex error: '.preg_last_error_msg());
+        }
+
+        return $result;
+    }
+
     /** `glab api` POST to `projects/<id>/merge_requests/<N>/approve`: only with a literal lowercase 40-hex `sha`. */
     private static function checkGlabApi(string $args, string $command): ?string
     {
-        if (preg_match(self::GLAB_APPROVE_ENDPOINT_RE, $args, $path) !== 1) {
-            if (preg_match(self::GLAB_APPROVE_SUBST_RE, rtrim($args)) !== 1
-                || preg_match(self::GLAB_APPROVE_SUBST_FULL_RE, $command) !== 1) {
-                return null;
-            }
-
-            // The segment is cut at `$(`: the method, fields and `sha` after the path are not visible, so fail closed.
-            return 'MR approval denied: a `$(…)` in the MR number hides the rest of the command from the check. Approve only as `glab mr approve <N> --sha <SHA>` or `glab api -X POST projects/<id>/merge_requests/<N>/approve -f sha=<SHA>`, with a literal MR number and the literal lowercase 40-hex commit you reviewed.';
+        // PmGateHook::commands() cuts a segment at an unquoted `$(`: the rest of the command (path, method, fields) is not visible here.
+        if (str_ends_with(rtrim($args), '$') && str_contains($command, 'merge_requests')) {
+            return 'MR approval denied: a `$(…)` in a `glab api` command that touches `merge_requests` hides the rest of the command (path, method, fields) from the check. Approve only as `glab mr approve <N> --sha <SHA>` or `glab api -X POST projects/<id>/merge_requests/<N>/approve -f sha=<SHA>`, with a literal path, method and the literal lowercase 40-hex commit you reviewed.';
         }
-        $post = preg_match(self::METHOD_RE, $args, $m) === 1
+        if (self::match(self::GLAB_APPROVE_ENDPOINT_RE, $args, $path) !== 1) {
+            return null;
+        }
+        $post = self::match(self::METHOD_RE, $args, $m) === 1
             ? strtoupper($m['method']) === 'POST'
-            : preg_match(self::FIELD_FLAG_RE, $args) === 1;
+            : self::match(self::FIELD_FLAG_RE, $args) === 1;
         if (!$post) {
             return null;
         }
         $form = ' Approve only as `glab mr approve <N> --sha <SHA>` or `glab api -X POST projects/<id>/merge_requests/<N>/approve -f sha=<SHA>`, with the literal lowercase 40-hex commit you reviewed.';
-        if (preg_match(self::INPUT_FLAG_RE, $args) === 1) {
+        if (self::match(self::INPUT_FLAG_RE, $args) === 1) {
             return 'MR approval denied: `--input` hides the `sha` from the check.'.$form;
         }
         $values = [];
-        if (preg_match_all(self::SHA_FIELD_RE, $args, $hits) > 0) {
+        if (self::matchAll(self::SHA_FIELD_RE, $args, $hits) > 0) {
             $values = $hits['value'];
         }
-        if (isset($path['query']) && preg_match_all(self::QUERY_SHA_RE, $path['query'], $hits) > 0) {
+        if (isset($path['query']) && self::matchAll(self::QUERY_SHA_RE, $path['query'], $hits) > 0) {
             $values = [...$values, ...$hits['value']];
         }
         if ($values === []) {
             return 'MR approval denied: a POST to `merge_requests/'.$path['n'].'/approve` without `sha` approves whatever the MR head is when it runs, not the commit you reviewed.'.$form;
         }
         foreach ($values as $value) {
-            if (preg_match(self::LOWER_SHA_RE, $value) !== 1) {
-                return preg_match(self::ANY_CASE_SHA_RE, $value) === 1
+            if (self::match(self::LOWER_SHA_RE, $value) !== 1) {
+                return self::match(self::ANY_CASE_SHA_RE, $value) === 1
                     ? 'MR approval denied: the `sha` must be lowercase 40-hex (GitLab compares it strictly with the lowercase MR head SHA and answers 409 otherwise).'.$form
                     : 'MR approval denied: the `sha` must be a literal lowercase 40-hex SHA: `$(…)` and shell variables resolve at publish time, to the current MR head.'.$form;
             }
@@ -230,25 +256,25 @@ final class ReviewCommitHook
      */
     private static function checkApi(string $args, array $shas): ?string
     {
-        if (preg_match(self::REVIEWS_ENDPOINT_RE, $args, $path) !== 1) {
+        if (self::match(self::REVIEWS_ENDPOINT_RE, $args, $path) !== 1) {
             return null;
         }
-        $post = preg_match(self::METHOD_RE, $args, $m) === 1
+        $post = self::match(self::METHOD_RE, $args, $m) === 1
             ? strtoupper($m['method']) === 'POST'
-            : preg_match(self::FIELD_FLAG_RE, $args) === 1;
+            : self::match(self::FIELD_FLAG_RE, $args) === 1;
         if (!$post) {
             return null;
         }
         $recorded = self::recorded($shas, $path['owner'], $path['repo'], (int) $path['n']);
 
-        if (preg_match(self::INPUT_FLAG_RE, $args) === 1) {
+        if (self::match(self::INPUT_FLAG_RE, $args) === 1) {
             return self::deny('a POST to `pulls/'.$path['n'].'/reviews` with `--input` hides `event` and `commit_id` from the check.', $recorded);
         }
-        if (preg_match_all(self::COMMIT_FIELD_RE, $args, $hits, PREG_SET_ORDER) === 0) {
+        if (self::matchAll(self::COMMIT_FIELD_RE, $args, $hits, PREG_SET_ORDER) === 0) {
             return self::deny('a POST to `pulls/'.$path['n'].'/reviews` has no `commit_id`, so GitHub attaches the review to the PR head at the moment of sending.', $recorded);
         }
         foreach ($hits as $hit) {
-            if (preg_match(self::SHA_VALUE_RE, $hit['value'], $sha) !== 1) {
+            if (self::match(self::SHA_VALUE_RE, $hit['value'], $sha) !== 1) {
                 return self::deny('`commit_id` must be a literal 40-hex SHA: `$(…)` and shell variables resolve at publish time, to the current PR head.', $recorded);
             }
             if ($recorded !== null && strtolower($sha['sha']) !== $recorded) {
@@ -268,7 +294,7 @@ final class ReviewCommitHook
     private static function recorded(array $shas, string $owner, string $repo, int $n): ?string
     {
         // `gh api` expands `{owner}`/`:owner` placeholders from the current repository: match by number.
-        $placeholder = static fn (string $s): bool => preg_match('/^(?:\{[^}]*\}|:.*)$/', $s) === 1;
+        $placeholder = static fn (string $s): bool => self::match('/^(?:\{[^}]*\}|:.*)$/', $s) === 1;
         if ($owner !== '' && $repo !== '' && !$placeholder($owner) && !$placeholder($repo)) {
             return $shas[strtolower("{$owner}/{$repo}#{$n}")] ?? null;
         }
@@ -303,7 +329,7 @@ final class ReviewCommitHook
     {
         $out = [];
         foreach ($shas as $pr => $sha) {
-            if (is_string($sha) && preg_match('/^[0-9a-fA-F]{40}$/', $sha) === 1) {
+            if (is_string($sha) && self::match('/^[0-9a-fA-F]{40}$/', $sha) === 1) {
                 $out[strtolower((string) $pr)] = strtolower($sha);
             }
         }

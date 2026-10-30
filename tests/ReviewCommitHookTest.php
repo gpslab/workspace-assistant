@@ -168,7 +168,7 @@ final class ReviewCommitHookTest extends TestCase
         yield '$(echo 5) with -X POST after the path' => ['glab api projects/1/merge_requests/$(echo 5)/approve -X POST', true];
         yield '$(echo 5) with --method POST after the path' => ['glab api projects/1/merge_requests/$(echo 5)/approve --method POST', true];
         yield '$(echo 5) with an implicit POST' => ['glab api projects/1/merge_requests/$(echo 5)/approve -f x=y', true];
-        yield '$(echo 5) on another endpoint' => ['glab api projects/1/merge_requests/$(echo 5)/notes', false];
+        yield '$(echo 5) on another endpoint' => ['glab api projects/1/merge_requests/$(echo 5)/notes', true];
         yield '/approve in a note body' => ['glab api -X POST projects/1/merge_requests/5/notes -f body="see /approve now"', false];
         yield 'backticks without sha' => [$base.'`cat n`/approve', true];
         yield 'quoted project without sha' => ['glab api -X POST projects/"$P"/merge_requests/5/approve', true];
@@ -176,6 +176,49 @@ final class ReviewCommitHookTest extends TestCase
         yield '$N with sha' => [$base.'$N/approve -f sha='.self::SHA, false];
         yield '${N} with sha' => [$base.'${N}/approve -f sha='.self::SHA, false];
         yield '$N with a variable sha' => [$base.'$N/approve -f sha=$SHA', true];
+    }
+
+    /**
+     * @return iterable<string, array{string, bool}> command, whether it is denied
+     */
+    public static function glabApiSubstitutionProvider(): iterable
+    {
+        $sha = self::SHA;
+        $ahead = str_repeat('${a}', 20);
+        $many = str_repeat('${a}', 100);
+        yield 'substitution in the project id' => ['glab api -X POST projects/$(echo 1)/merge_requests/5/approve', true];
+        yield 'substitution glued to the project id' => ['glab api -X POST projects/1$(true)/merge_requests/5/approve', true];
+        yield 'substitution inside the approve word' => ['glab api -X POST projects/1/merge_requests/5/appro$(echo ve)', true];
+        yield 'method after the cut' => ['glab api projects/1/merge_requests/5/approve --hostname $(glab config get host) -X POST', true];
+        yield 'method is a substitution' => ['glab api projects/1/merge_requests/5/approve -X $(echo POST)', true];
+        yield 'second sha after the cut' => ['glab api -X POST projects/1/merge_requests/5/approve -f sha='.$sha.' --hostname $(x) -f sha=$HEAD', true];
+        yield 'substitution on another endpoint' => ['glab api projects/1/merge_requests/$(echo 5)/notes', true];
+        yield 'substitution without merge_requests' => ['glab api projects/$(echo 1)/issues', false];
+        yield 'literal approve with sha' => ['glab api -X POST projects/1/merge_requests/5/approve -f sha='.$sha, false];
+        yield 'regex error shape (20 x ${a})' => ["glab api -H 'X-A: projects/1/merge_requests/".$ahead."/q' -X POST projects/1/merge_requests/5/approve", true];
+        yield '100 x ${a} in a header, literal sha' => ["glab api -H 'X-A: projects/1/merge_requests/".$many."/q' -X POST projects/1/merge_requests/5/approve -f sha=".$sha, false];
+        yield '100 x ${a} as the number, no sha' => ['glab api -X POST projects/1/merge_requests/'.$many.'/approve', true];
+    }
+
+    #[DataProvider('glabApiSubstitutionProvider')]
+    public function testGlabApiSubstitutionAndLongNumber(string $command, bool $denied): void
+    {
+        self::assertSame($denied, ReviewCommitHook::check($command) !== null);
+    }
+
+    public function testRegexErrorFailsTheHook(): void
+    {
+        $old = ini_get('pcre.backtrack_limit');
+        $jit = ini_get('pcre.jit');
+        ini_set('pcre.jit', '0');
+        ini_set('pcre.backtrack_limit', '1');
+        try {
+            $this->expectException(\RuntimeException::class);
+            ReviewCommitHook::check("glab api -H 'X-A: projects/1/merge_requests/".str_repeat('${a}', 100)."/q' -X POST projects/1/merge_requests/5/approve -f sha=".self::SHA);
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $old);
+            ini_set('pcre.jit', (string) $jit);
+        }
     }
 
     #[DataProvider('approveEndpointProvider')]
