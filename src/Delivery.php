@@ -19,7 +19,7 @@ final class Delivery
     private const int OUTBOX_MAX_FILES = 10;
 
     /** Extensions of outbox files that are scanned for secrets, besides every `text/*` MIME type. */
-    private const array OUTBOX_TEXT_EXTENSIONS = ['md', 'json', 'yaml', 'log', 'env'];
+    private const int OUTBOX_BINARY_PROBE_BYTES = 8192;
 
     /** Extension → MIME for outbox files so that images go out via sendPhoto. */
     private const array OUTBOX_IMAGE_MIME_TYPES = [
@@ -270,19 +270,19 @@ final class Delivery
     }
 
     /**
-     * For a text outbox file with secrets: a temporary copy with them masked (the caller sends it
-     * instead of the file and deletes it); null if the file is not text or has nothing to mask.
-     * Binary and image files are not scanned.
+     * For an outbox file with secrets: a temporary copy with them masked (the caller sends it
+     * instead of the file and deletes it); null if the file is an image, looks binary or has nothing
+     * to mask. The decision is made by content (no NUL byte in the first bytes), not by MIME type or
+     * extension, so it does not depend on the optional ext-fileinfo.
      */
     private function maskedCopy(string $path, string $mimeType): ?string
     {
-        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-        if (!str_starts_with($mimeType, 'text/') && !in_array($ext, self::OUTBOX_TEXT_EXTENSIONS, true)) {
+        if (TelegramClient::isImageMimeType($mimeType)) {
             return null;
         }
 
         $content = @file_get_contents($path);
-        if ($content === false) {
+        if ($content === false || str_contains(substr($content, 0, self::OUTBOX_BINARY_PROBE_BYTES), "\0")) {
             return null;
         }
         $scanner = $this->scanner ?? SecretScanner::shared();

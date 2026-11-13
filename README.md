@@ -337,8 +337,8 @@ part of the value.
 - **Shapes**: GitHub (`ghp_`, `github_pat_`), GitLab (`glpat-`), Anthropic and OpenAI-style (`sk-ant-`, `sk-`),
   Slack, AWS access key, Google API key, Telegram bot token, JWT, PEM private key, and the password in
   `scheme://user:password@host`.
-- **Where**: replies, `/verbose` progress lines, captions, `.md` replies and text outbox files (`text/*`, `.md`,
-  `.json`, `.yaml`, `.log`, `.env`); a masked copy is sent, the original file is not changed.
+- **Where**: replies, `/verbose` progress lines, captions, `.md` replies and text outbox files (any non-image file
+  without a NUL byte in its first 8 KB, whatever its extension); a masked copy is sent, the original file is not changed.
 
 Not masked: incoming messages, binary and image outbox files, logs in `state/`, generic `password=…` strings
 and high-entropy strings without a known shape. A secret in a format that is neither in a listed file nor in

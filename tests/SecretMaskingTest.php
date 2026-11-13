@@ -138,10 +138,18 @@ final class SecretMaskingTest extends TestCase
         self::assertSame('{"k":"[REDACTED]"}', $tg->fileContents[0]['content']);
     }
 
-    public function testExtensionDecidesWhenTheMimeTypeIsNotText(): void
+    public function testTextFilesAreMaskedByContentWhateverTheExtension(): void
     {
         $tg = new FakeTelegram();
-        file_put_contents($this->dir.'/outbox/prod.env', self::SECRET);
+        $files = [
+            'id_rsa.pem' => 'key='.self::SECRET,
+            'config.yml' => 'token: '.self::SECRET,
+            'notes.txt' => self::SECRET,
+            'noext' => self::SECRET."\xff",
+        ];
+        foreach ($files as $name => $content) {
+            file_put_contents($this->dir.'/outbox/'.$name, $content);
+        }
         file_put_contents($this->dir.'/outbox/blob.bin', "\x00\x01\x02\xff".self::SECRET);
         $this->delivery($tg)->flushOutbox(1, 0);
 
@@ -149,7 +157,10 @@ final class SecretMaskingTest extends TestCase
         foreach ($tg->files as $i => $file) {
             $byName[$file['name']] = $tg->fileContents[$i]['content'];
         }
-        self::assertSame('[REDACTED]', $byName['prod.env']);
+        self::assertSame('key=[REDACTED]', $byName['id_rsa.pem']);
+        self::assertSame('token: [REDACTED]', $byName['config.yml']);
+        self::assertSame('[REDACTED]', $byName['notes.txt']);
+        self::assertSame("[REDACTED]\xff", $byName['noext'], 'a stray non-UTF-8 byte does not hide the file');
         self::assertSame("\x00\x01\x02\xff".self::SECRET, $byName['blob.bin'], 'binary files are not scanned');
     }
 
