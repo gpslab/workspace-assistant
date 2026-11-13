@@ -22,7 +22,7 @@ interface QueueControl
     /**
      * Pending items (not started) in FIFO order.
      *
-     * @return list<array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}>
+     * @return list<array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}>
      */
     public function waiting(): array;
 

@@ -396,4 +396,12 @@ final class ClaudeRunnerTest extends TestCase
             unlink($bin);
         }
     }
+
+    public function testModelFromArgsReadsBothFlagForms(): void
+    {
+        self::assertNull(ClaudeRunner::modelFromArgs(['--dangerously-skip-permissions']));
+        self::assertSame('haiku', ClaudeRunner::modelFromArgs(['--model', 'haiku']));
+        self::assertSame('opus[1m]', ClaudeRunner::modelFromArgs(['--x', '--model=opus[1m]']));
+        self::assertSame('', ClaudeRunner::modelFromArgs(['--model']));
+    }
 }

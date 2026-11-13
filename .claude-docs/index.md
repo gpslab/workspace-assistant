@@ -42,9 +42,9 @@ Which file to read for which task. Start here when unsure.
 | `src/CompactFlow.php` / `JobLauncher.php` / `RunKind.php` | `/compact` phases after their runs finish (`finishSummarize`, `finishReseed`); `JobLauncher` is the port that starts phase 2 (`JobRunner` implements it); `RunKind` holds the run kinds (`KIND_*`) |
 | `src/Command/Router.php`                         | Parses `/cmd@bot argument`, resolves aliases, answers `command.unknown`; registration order is the menu order                    |
 | `src/Command/Menu.php`                           | Builds and registers the per-locale and default command menus from the router (`setMyCommands`)                                  |
-| `src/Command/*Command.php`                       | One class per moved command (`Help`, `Verbose`, `Mode`, `Lang`, `Epic`, `New`, `Compact`, `Cancel`, `Queue`, `Stats`, `Restart`) |
+| `src/Command/*Command.php`                       | One class per moved command (`Help`, `Verbose`, `Mode`, `Model`, `Lang`, `Epic`, `New`, `Compact`, `Cancel`, `Queue`, `Stats`, `Restart`) |
 | `src/Command/QueueControl.php` / `RunControl.php` / `LoopControl.php` / `LocaleResolver.php` | Ports: the queue (`QueueScheduler`), the current run and `cancelTopic` (`CancelResult`) (`JobRunner`), the stop request (`Bot`), locale lookup (`Command\Locales`) |
-| `src/Callback/Handler.php`, `*Handler.php`       | Inline keyboard callbacks in an ordered list: `ModeHandler`, `LangHandler`, `EpicHandler` (stateless), then `DirtyTreeDecision` |
+| `src/Callback/Handler.php`, `*Handler.php`       | Inline keyboard callbacks in an ordered list: `ModeHandler`, `ModelHandler`, `LangHandler`, `EpicHandler` (stateless), then `DirtyTreeDecision` |
 | `src/Callback/DirtyTreeDecision.php` / `DecisionHost.php` | Commit/discard decision on a dirty tree (offer, buttons, AUTO_COMMIT=0 refusal, unknown tree state); `DecisionHost` is the port `RunResult` implements for the prompt-files warning and `commitUrl` |
 | `src/Queue/QueueTexts.php`                       | `topicLabel`, `describeItem` and `thinkingText`: texts about queue items and topics, shared by `Bot`, `QueueScheduler` and the commands |
 | `src/SubRepoSync.php`                            | Nested repositories: pull before a run, HEAD snapshot, commit links, sync profile                                                |
@@ -52,6 +52,7 @@ Which file to read for which task. Start here when unsure.
 | `src/Inbox.php`                                  | Incoming files: download into the inbox, file/queue prompts, inbox cleanup                                                       |
 | `src/Epic/ChatSurface.php`                       | The `/epic` command, its menu and inline keyboard, and the `epic:` callbacks                                                     |
 | `src/Keyboards.php` / `Keyboard.php`             | Pure builders of every inline keyboard (language, mode, epic menu/candidates/confirmation, decision, removal) and their result: markup plus a "button skipped by the 64-byte `callback_data` limit" flag; callers send it and keep their own reaction to a skip |
+| `src/ModelChoice.php` / `ModelSwitcher.php`      | The model of a run: resolution (topic → all topics → none), `CLAUDE_MODELS` check; the `/model` command, its keyboards and the `model:` callbacks |
 | `src/ModeAndLang.php`                            | The `/mode` and `/lang` commands, their keyboards and the `mode:`/`lang:` callbacks                                              |
 | `src/ClaudeErrorText.php`                        | Claude error text for the chat; usage-limit parsing and reset moment (pause of the queue)                                        |
 | `src/ClaudeRunner.php` / `ClaudeResult.php`      | Asynchronous `claude -p` via `proc_open`, timeouts; parsing of its output                                                        |

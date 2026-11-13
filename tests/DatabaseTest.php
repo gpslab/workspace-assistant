@@ -583,4 +583,36 @@ final class DatabaseTest extends TestCase
 
         self::assertTrue($this->db->queueHead()['closed'] ?? false);
     }
+
+    public function testMigrationAddsModelColumnsToAnOldDatabase(): void
+    {
+        $dir = sys_get_temp_dir().'/tgdbm_'.uniqid('', true);
+        mkdir($dir);
+        $pdo = new \PDO('sqlite:'.$dir.'/state.sqlite');
+        $pdo->exec("CREATE TABLE sessions (chat_id INTEGER NOT NULL, thread_id INTEGER NOT NULL DEFAULT 0, session_id TEXT, pid INTEGER, started_at TEXT, message_count INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, verbose INTEGER NOT NULL DEFAULT 0, mode TEXT NOT NULL DEFAULT 'pm', PRIMARY KEY (chat_id, thread_id))");
+        $pdo->exec("CREATE TABLE queue (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, thread_id INTEGER NOT NULL DEFAULT 0, message_id INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'chat', mode TEXT NOT NULL, parts TEXT NOT NULL DEFAULT '[]', placeholder_id INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0, running INTEGER NOT NULL DEFAULT 0, locale TEXT, UNIQUE (chat_id, message_id))");
+        $pdo = null;
+
+        $db = new Database($dir);
+        $db->setTopicModel(1, 0, 'sonnet');
+        $db->setLastModel(1, 0, 'claude-x');
+        $id = $db->queueAdd(1, 0, 5, 'chat', 'pm', [], 0, null, 'haiku');
+
+        self::assertSame('sonnet', $db->getTopicModel(1));
+        self::assertSame('claude-x', $db->getLastModel(1));
+        self::assertSame('haiku', $db->queueGet((int) $id)['model'] ?? null);
+
+        $db = null;
+        @unlink($dir.'/state.sqlite');
+        @rmdir($dir);
+    }
+
+    public function testModelForAllTopicsIsStoredAndCleared(): void
+    {
+        self::assertNull($this->db->getDefaultModel());
+        $this->db->setDefaultModel('opus');
+        self::assertSame('opus', $this->db->getDefaultModel());
+        $this->db->setDefaultModel(null);
+        self::assertNull($this->db->getDefaultModel());
+    }
 }

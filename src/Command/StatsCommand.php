@@ -6,10 +6,11 @@ namespace GpsLab\WorkspaceAssistant\Command;
 
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\ModelChoice;
 use GpsLab\WorkspaceAssistant\TelegramClient;
 use GpsLab\WorkspaceAssistant\UsageTotals;
 
-/** /stats: the mode, the queue position and the session counters of the topic. */
+/** /stats: the mode, the model, the queue position and the session counters of the topic. */
 final readonly class StatsCommand implements Command
 {
     public function __construct(
@@ -18,6 +19,7 @@ final readonly class StatsCommand implements Command
         private Locale $locale,
         private QueueControl $queue,
         private RunControl $run,
+        private ModelChoice $models,
     ) {
     }
 
@@ -45,6 +47,11 @@ final readonly class StatsCommand implements Command
         // silently trims replies, and /stats is often checked right after /new, when there is
         // no active session yet. One message in both cases.
         $modeLine = $this->locale->t('stats.mode', ['mode' => $this->db->getMode($chatId, $threadId)]);
+        $modeLine .= "\n".$this->locale->t('stats.model', ['value' => $this->models->describe($this->locale, $chatId, $threadId)]);
+        $lastModel = $this->db->getLastModel($chatId, $threadId);
+        if ($lastModel !== null) {
+            $modeLine .= "\n".$this->locale->t('stats.last_model', ['model' => $lastModel]);
+        }
         $position = $this->queuePosition($chatId, $threadId);
         $modeLine .= "\n".$this->locale->t('stats.queue', ['state' => $position === null
             ? $this->locale->t('stats.queue_none')

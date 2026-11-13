@@ -124,7 +124,7 @@ final class BotLocaleTest extends TestCase
         self::assertSame('Token statistics display: enabled', $this->lastText($tg));
 
         $this->command($bot, '/stats');
-        self::assertSame("Mode: review\nQueue: no requests of this topic\nThere is no active session. Write a message to start one.", $this->lastText($tg));
+        self::assertSame("Mode: review\nModel: Claude Code default\nQueue: no requests of this topic\nThere is no active session. Write a message to start one.", $this->lastText($tg));
 
         $this->command($bot, '/epic');
         self::assertSame("Nothing to do for the epic here.\nUsage: /epic start <slug> | pause | resume | status", $this->lastText($tg));
@@ -219,7 +219,7 @@ final class BotLocaleTest extends TestCase
     {
         $expected = [];
         $emoji = ['new' => '🆕', 'compact' => '🗜️', 'cancel' => '⛔', 'queue' => '📋', 'stats' => '📊', 'verbose' => '🔍',
-            'mode' => '🎭', 'lang' => '🌐', 'epic' => '🗺️', 'restart' => '🔄', 'help' => '❓'];
+            'mode' => '🎭', 'model' => '🤖', 'lang' => '🌐', 'epic' => '🗺️', 'restart' => '🔄', 'help' => '❓'];
         foreach ($emoji as $command => $icon) {
             $expected[] = ['command' => $command, 'description' => $icon.' '.($texts["command.{$command}"] ?? $english["command.{$command}"])];
         }

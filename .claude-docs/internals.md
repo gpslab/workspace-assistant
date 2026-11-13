@@ -37,7 +37,7 @@ Telegram getUpdates (long poll)
         ▼
    Bot::dispatch ──► whitelist (ALLOWED_USER_IDS)? ──no──► access denied
         │ yes
-        ├─ "/..." ──► handleCommand → Command\Router (/new /compact /cancel /queue /stats /verbose /mode /lang /epic /restart /help)
+        ├─ "/..." ──► handleCommand → Command\Router (/new /compact /cancel /queue /stats /verbose /mode /model /lang /epic /restart /help)
         │
         └─ text or files ──► enqueue (FIFO in SQLite) ──► QueueScheduler::startQueueHead (each tick, when no job is active)
                                 │
@@ -236,8 +236,8 @@ non-blocking reads with a deadline; on timeout SIGTERM → 300 ms → SIGKILL, `
 ## `Database` — SQLite
 
 PDO with `ERRMODE_EXCEPTION`, prepared statements only. Tables: `sessions` (key `(chat_id, thread_id)`;
-`session_id`, `pid`, `started_at`, `message_count`, Claude's last usage snapshot (`input_tokens`, `cache_creation_tokens`, `cache_read_tokens`, `output_tokens`, `cost_usd`), `verbose`, `mode`, `prompt_hash`), `queue` and
-`queue_messages` (the request queue), `kv` (decision, owner of a dirty tree, timers, per-user language),
+`session_id`, `pid`, `started_at`, `message_count`, Claude's last usage snapshot (`input_tokens`, `cache_creation_tokens`, `cache_read_tokens`, `output_tokens`, `cost_usd`), `verbose`, `mode`, `model` (the topic's chosen model, NULL = not set), `last_model` (the `model` of the last chat or `/compact` run's `system/init` event), `prompt_hash`), `queue` (with `model`, the model resolved at enqueue) and
+`queue_messages` (the request queue), `kv` (decision, owner of a dirty tree, timers, per-user language, `model.default`, the model for all topics),
 epic tables. `migrate()` is idempotent and rebuilds old schemas. No concurrency: one process, sequential jobs.
 
 ## `Config` / `Env`

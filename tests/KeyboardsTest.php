@@ -160,4 +160,25 @@ final class KeyboardsTest extends TestCase
         self::assertFalse($keyboard->skipped);
         self::assertSame(['inline_keyboard' => []], $keyboard->markup);
     }
+
+    public function testModelKeyboardLabelsAreTheValuesAndALongValueGetsNoButton(): void
+    {
+        $long = str_repeat('x', 60);
+        $keyboard = Keyboards::model(['opus[1m]', 'opus', $long], 'opus', 7);
+
+        $buttons = array_merge(...$keyboard->markup['inline_keyboard']);
+        self::assertSame(['opus[1m]', 'opus ✓', 'default'], array_column($buttons, 'text'));
+        self::assertSame('model:pick:7:opus[1m]', $buttons[0]['callback_data']);
+        self::assertTrue($keyboard->skipped);
+    }
+
+    public function testModelLevelKeyboardCarriesTheValueLast(): void
+    {
+        $keyboard = Keyboards::modelLevel(7, 'vendor:m', 'This topic', 'All topics');
+
+        self::assertSame(
+            [['text' => 'This topic', 'callback_data' => 'model:topic:7:vendor:m'], ['text' => 'All topics', 'callback_data' => 'model:all:7:vendor:m']],
+            $keyboard->markup['inline_keyboard'][0],
+        );
+    }
 }
