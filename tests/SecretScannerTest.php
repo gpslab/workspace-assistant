@@ -243,7 +243,7 @@ final class SecretScannerTest extends TestCase
     {
         $scanner = new SecretScanner();
 
-        self::assertSame('git clone https://user:[REDACTED]@example.com/r.git', $scanner->mask(sprintf('git clone https://user:%s@example.com/r.git', 'hunter2-pass')));
+        self::assertSame(sprintf('git clone https://user:%s@example.com/r.git', '[REDACTED]'), $scanner->mask(sprintf('git clone https://user:%s@example.com/r.git', 'hunter2-pass')));
         self::assertSame('https://example.com/a:b', $scanner->mask('https://example.com/a:b'));
     }
 
