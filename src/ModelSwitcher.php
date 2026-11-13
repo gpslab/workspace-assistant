@@ -35,7 +35,10 @@ final class ModelSwitcher
         $argument = trim($argument);
 
         if ($argument === '') {
-            $this->tg->sendText($chatId, $this->stateText($chatId, $threadId), Keyboards::model($this->models->allowed(), $this->models->effective($chatId, $threadId)[0], $threadId)->markup, $threadId);
+            $markup = $this->models->pinnedByExtraArgs() === null
+                ? Keyboards::model($this->models->allowed(), $this->models->effective($chatId, $threadId)[0], $threadId)->markup
+                : null;
+            $this->tg->sendText($chatId, $this->stateText($chatId, $threadId), $markup, $threadId);
 
             return;
         }
@@ -144,7 +147,7 @@ final class ModelSwitcher
 
     /**
      * Writes the choice and returns [what was set, the session warning]; the warning is empty unless the
-     * change reaches a non-empty session. The topic level closes the topic's gluing group; the level
+     * effective model of a non-empty session changes. The topic level closes the topic's gluing group; the level
      * for all topics cannot (it is not tied to one topic), the gluing check on the pinned model does it.
      */
     /** @return array{0: string, 1: string} */
@@ -152,17 +155,18 @@ final class ModelSwitcher
     {
         $model = $value === ModelChoice::VALUE_DEFAULT ? null : $value;
         $hadSession = $this->db->getSessionId($chatId, $threadId) !== null;
-        $reaches = $hadSession;
+        $before = $this->models->effective($chatId, $threadId)[0];
 
         if ($level === ModelChoice::LEVEL_TOPIC) {
             $this->db->setTopicModel($chatId, $threadId, $model);
             $this->db->queueCloseGroup($chatId, $threadId);
             $text = $this->locale->t('model.switched_topic', ['model' => $model ?? $this->locale->t('model.unset')]);
         } else {
-            $reaches = $reaches && $this->db->getTopicModel($chatId, $threadId) === null;
             $this->db->setDefaultModel($model);
             $text = $this->locale->t('model.switched_all', ['model' => $model ?? $this->locale->t('model.unset')]);
         }
+
+        $reaches = $hadSession && $this->models->effective($chatId, $threadId)[0] !== $before;
 
         return [$text, $reaches ? $this->locale->t('model.session_warning') : ''];
     }

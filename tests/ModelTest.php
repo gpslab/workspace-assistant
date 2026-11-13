@@ -356,7 +356,7 @@ final class ModelTest extends TestCase
         $this->command(1, '/model sonnet');
         self::assertStringContainsString('Work is in progress', $this->lastText());
         $this->command(1, '/model default');
-        self::assertNull($this->db->getTopicModel(100, 1));
+        self::assertStringContainsString('Work is in progress', $this->lastText());
         $this->db->setTopicModel(100, 1, 'opus');
         $this->command(1, '/model default');
         self::assertSame('opus', $this->db->getTopicModel(100, 1), 'default is gated too');
