@@ -20,6 +20,7 @@ try {
     foreach ($config->startupWarnings() as $warning) {
         Log::line('warning: '.$warning);
     }
+    SecretScanner::setShared(new SecretScanner(new SecretSources($envPath, $config->secretEnvFiles)));
     $db = new Database($config->stateDir);
     $locale = Locale::fromConfig($config);
     $tg = new TelegramClient($config->botToken, $locale);

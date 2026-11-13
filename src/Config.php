@@ -61,6 +61,8 @@ final class Config
         public readonly array $configWarnings = [],
         /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
         public readonly array $claudeModels = self::DEFAULT_CLAUDE_MODELS,
+        /** @var list<string> files whose values are all masked in outgoing messages, `~` not yet expanded */
+        public readonly array $secretEnvFiles = [],
     ) {
     }
 
@@ -184,6 +186,7 @@ final class Config
             forgeHost: $forgeHost,
             configWarnings: $configWarnings,
             claudeModels: array_values(array_unique($env->list('CLAUDE_MODELS', implode(',', self::DEFAULT_CLAUDE_MODELS)))),
+            secretEnvFiles: array_values($env->list('SECRET_ENV_FILES')),
         );
     }
 
