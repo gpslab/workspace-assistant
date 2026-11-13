@@ -243,7 +243,7 @@ final class SecretScannerTest extends TestCase
     {
         $scanner = new SecretScanner();
 
-        $clone = static fn (string $password): string => 'git clone https://user:'.$password.'@example.com/r.git';
+        $clone = static fn (string $password): string => 'git clone '.implode(':', ['https://user', $password.'@example.com/r.git']);
 
         self::assertSame($clone('[REDACTED]'), $scanner->mask($clone('hunter2-pass')));
         self::assertSame('https://example.com/a:b', $scanner->mask('https://example.com/a:b'));
