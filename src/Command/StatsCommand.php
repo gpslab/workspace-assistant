@@ -68,11 +68,11 @@ final readonly class StatsCommand implements Command
             $this->locale->t('stats.tokens_cache_read', ['count' => number_format((int) $row['cache_read_tokens'], 0, '.', ' ')]),
             $this->locale->t('stats.tokens_cache_write', ['count' => number_format((int) $row['cache_creation_tokens'], 0, '.', ' ')]),
             $this->locale->t('stats.tokens_out', ['count' => number_format((int) $row['output_tokens'], 0, '.', ' ')]),
-            $this->locale->t('stats.verbose', ['state' => ((int) $row['verbose']) === 1 ? $this->locale->t('common.on') : $this->locale->t('common.off')]),
         ];
         if ($row['cost_usd'] !== null) {
-            array_splice($lines, 7, 0, [$this->locale->t('stats.cost', ['cost' => UsageTotals::formatCost((float) $row['cost_usd'])])]);
+            $lines[] = $this->locale->t('stats.cost', ['cost' => UsageTotals::formatCost((float) $row['cost_usd'])]);
         }
+        $lines[] = $this->locale->t('stats.verbose', ['state' => ((int) $row['verbose']) === 1 ? $this->locale->t('common.on') : $this->locale->t('common.off')]);
 
         $this->tg->sendText($chatId, implode("\n", $lines), null, $threadId);
     }

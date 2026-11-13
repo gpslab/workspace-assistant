@@ -1475,6 +1475,35 @@ final class QueueFlowTest extends TestCase
         self::assertStringContainsString('Queue: #2', implode("\n", $this->tg->textsTo(100, 2)));
     }
 
+    public function testStatsShowsSnapshotTokensAndCostBeforeVerbose(): void
+    {
+        $this->db->recordRun(100, 1, 's-1', new UsageTotals(1200, 30, 4000, 600, 0.0043));
+
+        $this->command(100, 1, '/stats');
+
+        $lines = explode("\n", implode("\n", $this->tg->textsTo(100, 1)));
+        $find = static fn (string $needle): int => (int) array_key_first(array_filter($lines, static fn (string $l): bool => str_contains($l, $needle)));
+        self::assertContains('Input tokens: 1 200', $lines);
+        self::assertContains('Cache read tokens: 4 000', $lines);
+        self::assertContains('Cache write tokens: 30', $lines);
+        self::assertContains('Output tokens: 600', $lines);
+        self::assertStringContainsString('≈ $0.0043', implode("\n", $lines));
+        self::assertStringContainsString('API list prices', implode("\n", $lines));
+        self::assertSame($find('Output tokens') + 1, $find('Cost:'));
+        self::assertSame($find('Cost:') + 1, $find('Verbose:'));
+    }
+
+    public function testStatsOmitsCostLineWhenCostUnknown(): void
+    {
+        $this->db->recordRun(100, 1, 's-1', new UsageTotals(10, 0, 0, 5, null));
+
+        $this->command(100, 1, '/stats');
+
+        $out = implode("\n", $this->tg->textsTo(100, 1));
+        self::assertStringContainsString('Output tokens: 5', $out);
+        self::assertStringNotContainsString('Cost:', $out);
+    }
+
     public function testQueueCommandListsItemsAndPauseReason(): void
     {
         $this->say(200, 5, 'waiting for decision', 10);
