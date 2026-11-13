@@ -93,15 +93,32 @@ class TelegramClient
      */
     public function call(string $method, array $params = [], ?int $timeout = null): array
     {
-        $ch = curl_init(self::API.$this->token.'/'.$method);
-        if ($ch === false) {
-            throw new \RuntimeException('curl_init failed');
-        }
-
         foreach (['text', 'caption'] as $field) {
             if (isset($params[$field]) && is_string($params[$field])) {
                 $params[$field] = $this->scanner()->mask($params[$field]);
             }
+        }
+
+        return $this->request($method, $params, $timeout);
+    }
+
+    /**
+     * The HTTP transport of {@see call()}: receives params that are already masked.
+     *
+     * @param array<string, mixed> $params
+     * @param int|null             $timeout request timeout, sec; null — DEFAULT_TIMEOUT
+     *
+     * @return array<string, mixed>
+     *
+     * @throws TelegramApiException       Telegram replied with a refusal; the outcome is known
+     * @throws TelegramTimeoutException   the request timed out
+     * @throws TelegramTransportException any other transport failure
+     */
+    protected function request(string $method, array $params, ?int $timeout): array
+    {
+        $ch = curl_init(self::API.$this->token.'/'.$method);
+        if ($ch === false) {
+            throw new \RuntimeException('curl_init failed');
         }
 
         $hasFile = false;

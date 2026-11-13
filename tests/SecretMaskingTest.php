@@ -109,6 +109,25 @@ final class SecretMaskingTest extends TestCase
         self::assertStringNotContainsString('snake', $caption);
     }
 
+    public function testCallMasksTextOfEditMessageTextBeforeTheTransport(): void
+    {
+        $tg = new TransportRecordingTelegram();
+
+        $tg->editMessageText(1, 5, 'journal: '.self::SECRET);
+
+        self::assertSame('editMessageText', $tg->requests[0]['method']);
+        self::assertSame('journal: [REDACTED]', $tg->requests[0]['params']['text']);
+    }
+
+    public function testCallMasksCaptionBeforeTheTransport(): void
+    {
+        $tg = new TransportRecordingTelegram();
+
+        $tg->call('sendDocument', ['chat_id' => 1, 'caption' => 'note '.self::SECRET]);
+
+        self::assertSame('note [REDACTED]', $tg->requests[0]['params']['caption']);
+    }
+
     public function testTextOutboxFileIsSentAsAMaskedCopyAndTheOriginalIsUntouched(): void
     {
         $tg = new FakeTelegram();
@@ -220,5 +239,24 @@ final class RecordingTelegram extends TelegramClient
         }
 
         return ['message_id' => 1];
+    }
+}
+
+/** TelegramClient with only the HTTP transport replaced: the real call() runs. */
+final class TransportRecordingTelegram extends TelegramClient
+{
+    /** @var list<array{method: string, params: array<string, mixed>}> */
+    public array $requests = [];
+
+    public function __construct()
+    {
+        parent::__construct('test-token', new Locale());
+    }
+
+    protected function request(string $method, array $params, ?int $timeout): array
+    {
+        $this->requests[] = ['method' => $method, 'params' => $params];
+
+        return [];
     }
 }

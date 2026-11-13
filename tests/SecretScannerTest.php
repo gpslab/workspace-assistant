@@ -153,12 +153,14 @@ final class SecretScannerTest extends TestCase
         self::assertSame('[REDACTED] [REDACTED]', $scanner->mask('first-secret-value second-secret-value'));
     }
 
-    public function testKnownValueWinsOverAPatternThatWouldCutItsPrefix(): void
+    public function testKnownValueEndingAfterAnOverlappingPatternLeavesNoTail(): void
     {
-        $secret = 'ghp_'.str_repeat('a', 10);
-        $scanner = $this->scanner('MY_TOKEN='.$secret.'-tail-of-the-key');
+        $scanner = $this->scanner('MY_TOKEN=Zq7Xm2Vb9Lk4.Pw8Rt5Yu');
 
-        self::assertSame('[REDACTED]', $scanner->mask($secret.'-tail-of-the-key'));
+        // The openai pattern ends inside the known value, which ends after it.
+        $text = 'x sk-'.str_repeat('A', 20).'Zq7Xm2Vb9Lk4.Pw8Rt5YuEND y';
+
+        self::assertSame('x [REDACTED]END y', $scanner->mask($text));
     }
 
     public function testFindingHasTypeAndLocationOnly(): void
