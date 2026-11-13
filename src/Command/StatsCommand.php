@@ -7,6 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Command;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\TelegramClient;
+use GpsLab\WorkspaceAssistant\UsageTotals;
 
 /** /stats: the mode, the queue position and the session counters of the topic. */
 final readonly class StatsCommand implements Command
@@ -64,9 +65,14 @@ final readonly class StatsCommand implements Command
             $this->locale->t('stats.session', ['id' => substr($sessionId, 0, 8)]),
             $this->locale->t('stats.messages', ['count' => (int) $row['message_count']]),
             $this->locale->t('stats.tokens_in', ['count' => number_format((int) $row['input_tokens'], 0, '.', ' ')]),
+            $this->locale->t('stats.tokens_cache_read', ['count' => number_format((int) $row['cache_read_tokens'], 0, '.', ' ')]),
+            $this->locale->t('stats.tokens_cache_write', ['count' => number_format((int) $row['cache_creation_tokens'], 0, '.', ' ')]),
             $this->locale->t('stats.tokens_out', ['count' => number_format((int) $row['output_tokens'], 0, '.', ' ')]),
-            $this->locale->t('stats.verbose', ['state' => ((int) $row['verbose']) === 1 ? $this->locale->t('common.on') : $this->locale->t('common.off')]),
         ];
+        if ($row['cost_usd'] !== null) {
+            $lines[] = $this->locale->t('stats.cost', ['cost' => UsageTotals::formatCost((float) $row['cost_usd'])]);
+        }
+        $lines[] = $this->locale->t('stats.verbose', ['state' => ((int) $row['verbose']) === 1 ? $this->locale->t('common.on') : $this->locale->t('common.off')]);
 
         $this->tg->sendText($chatId, implode("\n", $lines), null, $threadId);
     }

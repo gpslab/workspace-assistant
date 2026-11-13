@@ -52,7 +52,7 @@ Telegram getUpdates (long poll)
         ├─ Running ──► keep waiting ─────────────────────────────────┘
         ├─ Timeout ──► kill, "process killed", offer a decision if the tree is dirty (AUTO_COMMIT=1 only)
         └─ Done    ──► result()
-                         ├─ recordRun (session_id, tokens, counter)
+                         ├─ recordRun (session_id, usage snapshot, counter)
                          ├─ error ──► "Claude error", offer a decision if dirty (AUTO_COMMIT=1 only)
                          └─ ok ──► `RunResult::sendResult`: commit + push (AUTO_COMMIT=1), commit link, optional token usage, reply
 ```
@@ -169,8 +169,9 @@ proc_open($argv, $descriptors, $pipes, $repoPath, $env);
 - The working directory is the managed repository.
 
 `ClaudeResult::fromJson`: not a JSON object → the process died before a result (`isError`, text =
-stderr | stdout | "exit code N"); otherwise `input_tokens` (input + cache read + cache creation),
-`output_tokens`, `session_id` (empty → `null`), `is_error`, `result`.
+stderr | stdout | "exit code N"); otherwise `totals` (a `UsageTotals`: `modelUsage` summed over models — input, cache creation, cache read,
+output — and `total_cost_usd`; `null` without `modelUsage`), `session_id` (empty → `null`), `is_error`,
+`result`. `ClaudeRunner` replaces `totals` with those of the last `result` event of the process.
 
 ---
 
@@ -235,7 +236,7 @@ non-blocking reads with a deadline; on timeout SIGTERM → 300 ms → SIGKILL, `
 ## `Database` — SQLite
 
 PDO with `ERRMODE_EXCEPTION`, prepared statements only. Tables: `sessions` (key `(chat_id, thread_id)`;
-`session_id`, `pid`, `started_at`, `message_count`, token sums, `verbose`, `mode`, `prompt_hash`), `queue` and
+`session_id`, `pid`, `started_at`, `message_count`, Claude's last usage snapshot (`input_tokens`, `cache_creation_tokens`, `cache_read_tokens`, `output_tokens`, `cost_usd`), `verbose`, `mode`, `prompt_hash`), `queue` and
 `queue_messages` (the request queue), `kv` (decision, owner of a dirty tree, timers, per-user language),
 epic tables. `migrate()` is idempotent and rebuilds old schemas. No concurrency: one process, sequential jobs.
 

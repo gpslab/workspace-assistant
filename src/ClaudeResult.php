@@ -13,8 +13,8 @@ final class ClaudeResult
         public readonly bool $isError,
         public readonly string $text,
         public readonly ?string $sessionId,
-        public readonly int $inputTokens,
-        public readonly int $outputTokens,
+        /** Claude's totals from the last `result` event (a session snapshot); null when Claude returned none. */
+        public readonly ?UsageTotals $totals = null,
         /** The process exited with code 0 but the stream carried no result event. */
         public readonly bool $exitedWithoutResult = false,
         /** The text is the last assistant message, taken instead of the missing result. */
@@ -34,13 +34,8 @@ final class ClaudeResult
                 $msg = $locale->t('claude.no_output', ['code' => $exitCode]);
             }
 
-            return new self(true, $msg, null, 0, 0);
+            return new self(true, $msg, null);
         }
-
-        $usage = is_array($data['usage'] ?? null) ? $data['usage'] : [];
-        $inputTokens = (int) ($usage['input_tokens'] ?? 0)
-            + (int) ($usage['cache_read_input_tokens'] ?? 0)
-            + (int) ($usage['cache_creation_input_tokens'] ?? 0);
 
         $sessionId = $data['session_id'] ?? null;
 
@@ -53,9 +48,14 @@ final class ClaudeResult
             isError: (bool) ($data['is_error'] ?? false),
             text: $text,
             sessionId: is_string($sessionId) && $sessionId !== '' ? $sessionId : null,
-            inputTokens: $inputTokens,
-            outputTokens: (int) ($usage['output_tokens'] ?? 0),
+            totals: UsageTotals::fromResultEvent($data),
         );
+    }
+
+    /** The same result with other totals (a per-run figure instead of the snapshot, or the last result's). */
+    public function withTotals(?UsageTotals $totals): self
+    {
+        return new self($this->isError, $this->text, $this->sessionId, $totals, $this->exitedWithoutResult, $this->recovered);
     }
 
     /**
