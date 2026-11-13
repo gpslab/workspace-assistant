@@ -750,7 +750,8 @@ final class ClaudeRunner
             }
             $type = $block['type'] ?? null;
             if ($type === 'text') {
-                $raw = trim((string) ($block['text'] ?? ''));
+                // Masked before stripMarkdown and clip: a secret at the clip boundary must not leave a tail.
+                $raw = trim(SecretScanner::shared()->mask((string) ($block['text'] ?? '')));
                 if ($raw !== '') {
                     $lines[] = '💬 '.self::clip(self::stripMarkdown($raw), 180);
                 }
@@ -770,12 +771,16 @@ final class ClaudeRunner
      */
     public static function formatToolUse(string $name, array $input): string
     {
+        // Masked before baseName and clip, see progressLinesFromEvent().
+        $scanner = SecretScanner::shared();
+        $arg = static fn (string $key): string => $scanner->mask((string) ($input[$key] ?? ''));
+
         return match ($name) {
-            'Read' => '📖 '.self::baseName((string) ($input['file_path'] ?? '')),
-            'Edit' => '✏️ '.self::baseName((string) ($input['file_path'] ?? '')),
-            'Write' => '📝 '.self::baseName((string) ($input['file_path'] ?? '')),
-            'Bash' => '🔧 '.self::firstRealBashLine((string) ($input['command'] ?? '')),
-            'Agent' => '🤖 '.self::clip((string) ($input['description'] ?? '')),
+            'Read' => '📖 '.self::baseName($arg('file_path')),
+            'Edit' => '✏️ '.self::baseName($arg('file_path')),
+            'Write' => '📝 '.self::baseName($arg('file_path')),
+            'Bash' => '🔧 '.self::firstRealBashLine($arg('command')),
+            'Agent' => '🤖 '.self::clip($arg('description')),
             default => '🔨 '.($name !== '' ? $name : 'Tool'),
         };
     }

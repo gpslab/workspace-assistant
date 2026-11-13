@@ -65,12 +65,23 @@ class TelegramClient
 
     private readonly MarkdownConverter $markdown;
 
-    public function __construct(private readonly string $token, private readonly Locale $locale = new Locale())
-    {
+    public function __construct(
+        private readonly string $token,
+        private readonly Locale $locale = new Locale(),
+        private readonly ?SecretScanner $scanner = null,
+    ) {
         $this->markdown = new MarkdownConverter();
     }
 
+    private function scanner(): SecretScanner
+    {
+        return $this->scanner ?? SecretScanner::shared();
+    }
+
     /**
+     * Text and caption are masked here once more, as a safety net: the send methods mask before
+     * truncation and conversion, this catches whatever reaches the API by another path.
+     *
      * @param array<string, mixed> $params
      * @param int|null             $timeout request timeout, sec; null — DEFAULT_TIMEOUT
      *
@@ -85,6 +96,12 @@ class TelegramClient
         $ch = curl_init(self::API.$this->token.'/'.$method);
         if ($ch === false) {
             throw new \RuntimeException('curl_init failed');
+        }
+
+        foreach (['text', 'caption'] as $field) {
+            if (isset($params[$field]) && is_string($params[$field])) {
+                $params[$field] = $this->scanner()->mask($params[$field]);
+            }
         }
 
         $hasFile = false;
@@ -195,6 +212,8 @@ class TelegramClient
      */
     public function sendText(int $chatId, string $text, ?array $replyMarkup = null, int $threadId = 0, ?string $overflowCaption = null, bool $silent = false): int
     {
+        // Before the conversion and the length checks: a secret must not be split or escaped past the scanner.
+        $text = $this->scanner()->mask($text);
         $html = $this->markdown->convert($text);
         $tooLong = mb_strlen($html) > self::TELEGRAM_MAX;
 
@@ -236,7 +255,7 @@ class TelegramClient
      */
     public function sendPlain(int $chatId, string $text, int $threadId = 0, bool $silent = false): int
     {
-        $params = ['chat_id' => $chatId, 'text' => mb_substr($text, 0, self::TELEGRAM_MAX)];
+        $params = ['chat_id' => $chatId, 'text' => mb_substr($this->scanner()->mask($text), 0, self::TELEGRAM_MAX)];
         if ($threadId > 0) {
             $params['message_thread_id'] = $threadId;
         }
@@ -253,7 +272,7 @@ class TelegramClient
         $tmp = tempnam(sys_get_temp_dir(), 'tg_') ?: sys_get_temp_dir().'/tg_'.uniqid('', true);
         $file = $tmp.'.md';
         rename($tmp, $file);
-        file_put_contents($file, $content);
+        file_put_contents($file, $this->scanner()->mask($content));
 
         try {
             $this->sendFile($chatId, $file, $caption, 'text/markdown', $threadId, 'response.md');
@@ -281,7 +300,7 @@ class TelegramClient
         $params = [
             'chat_id' => $chatId,
             $field => new \CURLFile($path, $mimeType, $filename ?? basename($path)),
-            'caption' => mb_substr($caption, 0, 1000),
+            'caption' => mb_substr($this->scanner()->mask($caption), 0, 1000),
         ];
         if ($threadId > 0) {
             $params['message_thread_id'] = $threadId;

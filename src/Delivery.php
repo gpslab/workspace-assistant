@@ -18,6 +18,9 @@ final class Delivery
     /** Cap on outbox files per run — otherwise a hundred files turn into a hundred messages in a row. */
     private const int OUTBOX_MAX_FILES = 10;
 
+    /** Extensions of outbox files that are scanned for secrets, besides every `text/*` MIME type. */
+    private const array OUTBOX_TEXT_EXTENSIONS = ['md', 'json', 'yaml', 'log', 'env'];
+
     /** Extension → MIME for outbox files so that images go out via sendPhoto. */
     private const array OUTBOX_IMAGE_MIME_TYPES = [
         'png' => 'image/png',
@@ -31,6 +34,7 @@ final class Delivery
         private readonly TelegramClient $tg,
         private readonly Config $config,
         private readonly Locale $locale,
+        private readonly ?SecretScanner $scanner = null,
     ) {
     }
 
@@ -246,7 +250,14 @@ final class Delivery
                 return $this->locale->t('outbox.too_big', ['name' => $name, 'size' => sprintf('%.1f', $size / 1_048_576), 'limit' => intdiv($limit, 1_048_576)]);
             }
 
-            $this->tg->sendFile($chatId, $path, $name, $mimeType, $threadId);
+            $masked = $this->maskedCopy($path, $mimeType);
+            try {
+                $this->tg->sendFile($chatId, $masked ?? $path, $name, $mimeType, $threadId, $name);
+            } finally {
+                if ($masked !== null) {
+                    @unlink($masked);
+                }
+            }
 
             return null;
         } catch (\Throwable $e) {
@@ -256,6 +267,36 @@ final class Delivery
         } finally {
             @unlink($path);
         }
+    }
+
+    /**
+     * For a text outbox file with secrets: a temporary copy with them masked (the caller sends it
+     * instead of the file and deletes it); null if the file is not text or has nothing to mask.
+     * Binary and image files are not scanned.
+     */
+    private function maskedCopy(string $path, string $mimeType): ?string
+    {
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        if (!str_starts_with($mimeType, 'text/') && !in_array($ext, self::OUTBOX_TEXT_EXTENSIONS, true)) {
+            return null;
+        }
+
+        $content = @file_get_contents($path);
+        if ($content === false) {
+            return null;
+        }
+        $scanner = $this->scanner ?? SecretScanner::shared();
+        if ($scanner->scan($content)['findings'] === []) {
+            return null;
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'tg_out_');
+        if ($tmp === false) {
+            throw new \RuntimeException('failed to create a temporary file for the masked outbox copy');
+        }
+        file_put_contents($tmp, $scanner->mask($content));
+
+        return $tmp;
     }
 
     /**

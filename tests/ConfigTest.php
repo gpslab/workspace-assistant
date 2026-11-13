@@ -384,4 +384,13 @@ final class ConfigTest extends TestCase
         $this->writeEnv('CLAUDE_MODELS=sonnet, claude-haiku-4-5-20251001');
         self::assertSame(['sonnet', 'claude-haiku-4-5-20251001'], Config::load($this->envFile)->claudeModels);
     }
+
+    public function testSecretEnvFilesAreAList(): void
+    {
+        $this->writeEnv();
+        self::assertSame([], Config::load($this->envFile)->secretEnvFiles);
+
+        $this->writeEnv('SECRET_ENV_FILES=~/.secrets.env, /etc/app/prod.env');
+        self::assertSame(['~/.secrets.env', '/etc/app/prod.env'], Config::load($this->envFile)->secretEnvFiles);
+    }
 }

@@ -152,6 +152,7 @@ GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |
 | `CLAUDE_EXTRA_ARGS` | `--dangerously-skip-permissions` | Extra `claude` arguments, comma-separated |
 | `CLAUDE_MODELS` | `fable,opus[1m],opus,sonnet,haiku` | Models selectable with `/model`, comma-separated; values are passed to `claude --model` as they are. A `--model` in `CLAUDE_EXTRA_ARGS` pins the model and `/model` becomes read-only |
+| `SECRET_ENV_FILES` | empty | Comma-separated dotenv files (`~` is expanded, an `export ` prefix is allowed) whose **values** are all masked in what the bot sends to Telegram. Listing a file is the statement that its values are secret. A missing file is a log line, not a failure. Values of `.env` and of the environment are masked by key name without this setting, see [README](README.md#secret-masking) |
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | empty | Text appended to the system prompt |
 | `PROMPTS_DIR` | empty | Persona files, relative to `REPO_PATH`; the texts in `prompts/` apply without it |
 | `STATE_DIR` | `./state` | State directory (SQLite, inbox, outbox, epic signals) |

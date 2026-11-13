@@ -323,6 +323,27 @@ remote shell for everyone in `ALLOWED_USER_IDS`.
   automatically with no review (see [How it works](#how-it-works)), including edits to persona and
   locale files. With `AUTO_COMMIT=0` nothing is committed or pushed by the bot.
 
+### Secret masking
+
+Everything the bot sends to Telegram is scanned for secrets, and a match is replaced with `[REDACTED]`; the
+message is masked and sent, never blocked. The log records that a match was found and its type, never any
+part of the value.
+
+- **Known values**, in all their forms (raw, per line, urlencoded, JSON-escaped, base64, base64url,
+  HTML-escaped): the values of `.env` and of the process environment whose key name contains `TOKEN`,
+  `SECRET`, `PASSWORD`, `PASSWD` or `CREDENTIAL`, or ends with `_KEY` or `_PAT` (`BOT_TOKEN` always), and
+  **all** values of every file listed in `SECRET_ENV_FILES`. A value shorter than 12 characters or made of
+  one repeated character is not masked. The set is rebuilt when one of these files changes.
+- **Shapes**: GitHub (`ghp_`, `github_pat_`), GitLab (`glpat-`), Anthropic and OpenAI-style (`sk-ant-`, `sk-`),
+  Slack, AWS access key, Google API key, Telegram bot token, JWT, PEM private key, and the password in
+  `scheme://user:password@host`.
+- **Where**: replies, `/verbose` progress lines, captions, `.md` replies and text outbox files (`text/*`, `.md`,
+  `.json`, `.yaml`, `.log`, `.env`); a masked copy is sent, the original file is not changed.
+
+Not masked: incoming messages, binary and image outbox files, logs in `state/`, generic `password=…` strings
+and high-entropy strings without a known shape. A secret in a format that is neither in a listed file nor in
+the shapes above reaches the chat as it is: list the files that hold your secrets in `SECRET_ENV_FILES`.
+
 To report a vulnerability privately, see [SECURITY.md](SECURITY.md).
 
 ### Isolation recipe

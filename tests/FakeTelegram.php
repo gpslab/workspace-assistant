@@ -20,6 +20,12 @@ final class FakeTelegram extends TelegramClient
     /** @var list<array{chat: int, thread: int, name: string}> */
     public array $files = [];
 
+    /** Called by sendFile before it returns, e.g. to look at the original file while the copy is sent. */
+    public ?\Closure $onSendFile = null;
+
+    /** @var list<array{path: string, content: string}> path and content of every sent file, read at send time */
+    public array $fileContents = [];
+
     /** @var list<array{chat: int, message_id: int, text: string, markup: array<string, mixed>|null}> */
     public array $edits = [];
 
@@ -141,6 +147,10 @@ final class FakeTelegram extends TelegramClient
         if ($this->fileFails) {
             throw new TelegramApiException('sendDocument', 'Bad Request: boom');
         }
+        if ($this->onSendFile !== null) {
+            ($this->onSendFile)();
+        }
+        $this->fileContents[] = ['path' => $path, 'content' => (string) @file_get_contents($path)];
         $this->files[] = ['chat' => $chatId, 'thread' => $threadId, 'name' => $filename ?? basename($path)];
     }
 
