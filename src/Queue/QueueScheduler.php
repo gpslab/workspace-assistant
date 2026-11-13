@@ -25,6 +25,7 @@ use GpsLab\WorkspaceAssistant\PmRunbook;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\RunKind;
 use GpsLab\WorkspaceAssistant\RunState;
+use GpsLab\WorkspaceAssistant\SecretBlocker;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\SubRepoSync;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
@@ -156,7 +157,8 @@ final class QueueScheduler implements QueueControl
         }
 
         try {
-            return $this->config->autoCommit && $this->git->hasChanges();
+            // Blocked by a secret, the dirty tree waits for the author's reply and must not stop it.
+            return $this->config->autoCommit && $this->db->getSecretBlock() === null && $this->git->hasChanges();
         } catch (GitStatusException $e) {
             $statusError = $e->getMessage();
 
@@ -467,14 +469,16 @@ final class QueueScheduler implements QueueControl
 
                 return;
             }
-            if ($dirty) {
+            if ($dirty && $this->db->getSecretBlock() === null) {
                 $this->treePaused = true;
                 $this->dirtyTree->ensureDecision($chatId, $threadId);
 
                 return;
             }
-            $this->db->clearDecision();
-            $this->db->clearDirtyOwner();
+            if (!$dirty) {
+                $this->db->clearDecision();
+                $this->db->clearDirtyOwner();
+            }
         }
 
         if ($head['kind'] === self::ITEM_NEW) {
@@ -565,6 +569,10 @@ final class QueueScheduler implements QueueControl
             $prompt = Inbox::buildQueuePrompt($head['parts'], $pathsByPart);
             if ($head['mode'] === SystemPrompt::MODE_PM) {
                 $prompt = PmRunbook::line($this->config->absolutePromptsDir())."\n\n".$prompt;
+            }
+            // Blocked by a secret: this run is the way out, its prompt carries the findings (no values).
+            if (($secrets = $this->db->getSecretBlock()) !== null) {
+                $prompt = PromptFiles::render('secret_blocked', ['findings' => SecretBlocker::lines($secrets, $this->locale)])."\n\n".$prompt;
             }
         } catch (\RuntimeException $e) {
             $this->inbox->deleteInboxFiles($paths);

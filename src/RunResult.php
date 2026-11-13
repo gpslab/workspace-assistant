@@ -6,6 +6,7 @@ namespace GpsLab\WorkspaceAssistant;
 
 use GpsLab\WorkspaceAssistant\Callback\DecisionHost;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
+use GpsLab\WorkspaceAssistant\Exception\SecretFoundException;
 
 /**
  * The reply to a finished run: the result message, the auto-commit with its link, the sub-repository
@@ -21,6 +22,7 @@ final class RunResult implements DecisionHost
         private readonly Delivery $delivery,
         private readonly Locale $locale,
         private readonly RunState $runState,
+        private readonly SecretBlocker $secretBlocker,
     ) {
     }
 
@@ -47,6 +49,7 @@ final class RunResult implements DecisionHost
         $text .= $this->promptFilesNote();
 
         $commitLinks = [];
+        $blocked = null;
 
         if (!$this->config->autoCommit) {
             $changed = [];
@@ -70,10 +73,14 @@ final class RunResult implements DecisionHost
                 $text .= "\n\n".$this->t('result.status_failed', ['error' => $e->getMessage()]);
                 $dirty = false;
             }
-            if ($dirty) {
+            // In the blocked-by-secret state the gate also runs on a clean tree: the run may have rewritten the unpushed commit.
+            if ($dirty || $this->db->getSecretBlock() !== null) {
                 try {
                     $hash = $this->git->commitAndPush($this->commitMessage($prompt));
+                    $this->db->clearSecretBlock();
                     $commitLinks[] = $this->commitUrl($hash);
+                } catch (SecretFoundException $e) {
+                    $blocked = $e;
                 } catch (\RuntimeException $e) {
                     $text .= "\n\n".$this->t('result.git_failed', ['error' => $e->getMessage()]);
                 }
@@ -92,6 +99,9 @@ final class RunResult implements DecisionHost
         }
 
         $this->delivery->deliver($chatId, $threadId, $text, null, $this->delivery->overflowCaption($mode));
+        if ($blocked !== null) {
+            $this->secretBlocker->block($chatId, $threadId, $blocked);
+        }
     }
 
     /** The verbose footer: the figures of this run as Claude reported them, or a note that it returned none. */

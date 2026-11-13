@@ -79,9 +79,11 @@ final class SecretScanner
     }
 
     /**
+     * @param bool $shapes false looks for known values only (paths of `SECRET_SCAN_EXCLUDE`)
+     *
      * @return array{text: string, findings: list<SecretFinding>} locations are in the ORIGINAL text
      */
-    public function scan(string $text): array
+    public function scan(string $text, bool $shapes = true): array
     {
         if ($text === '') {
             return ['text' => $text, 'findings' => []];
@@ -95,7 +97,7 @@ final class SecretScanner
                 $ranges[] = [$offset, $offset + strlen($match), 'known:'.($this->knownTypes[self::normalize($match)] ?? 'value')];
             }
         }
-        foreach (self::PATTERNS as $type => $regex) {
+        foreach ($shapes ? self::PATTERNS : [] as $type => $regex) {
             foreach ($this->matches($regex, $text) as [$match, $offset]) {
                 $ranges[] = [$offset, $offset + strlen($match), $type];
             }

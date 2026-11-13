@@ -105,6 +105,13 @@ RunResult::sendResult(...) | "Claude error"
 With `AUTO_COMMIT=1` (the default), after `/cancel`, a timeout or a Claude error the tree may stay dirty. `Callback\DirtyTreeDecision::offerDecisionIfDirty()` stores the decision and
 sends the inline buttons "Commit / Discard"; the queue is paused while the tree is dirty.
 
+`GitManager::commitAndPush()` is a commit gate: after `add -A` it scans the added lines of the staged diff and of
+`git log -p HEAD --not --remotes`; on a finding it resets the index and throws `SecretFoundException`. `RunResult`,
+`Epic\RunLifecycle` and `DirtyTreeDecision` catch it and call `SecretBlocker::block()`, which stores the
+"blocked by secret" state (`kv` key `secret_block`) and sends the findings with a Discard-only button. While the state
+is set a dirty tree does not pause the queue, the next chat run's prompt gets `secret_blocked`, and the callers run
+the gate even on a clean tree. A successful commit, a discard or a failed epic run clears it.
+
 - **commit** → `git add -A && commit && push`, commit link;
 - **discard** → `git reset --hard && git clean -fd` (also removes untracked files).
 

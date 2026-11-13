@@ -8,11 +8,13 @@ use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Delivery;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
+use GpsLab\WorkspaceAssistant\Exception\SecretFoundException;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Keyboards;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
+use GpsLab\WorkspaceAssistant\SecretBlocker;
 use GpsLab\WorkspaceAssistant\TelegramClient;
 use GpsLab\WorkspaceAssistant\TelegramMessage;
 
@@ -32,6 +34,7 @@ final readonly class DirtyTreeDecision implements Handler
         private Locale $locale,
         private QueueTexts $queueTexts,
         private DecisionHost $host,
+        private SecretBlocker $secretBlocker,
     ) {
     }
 
@@ -94,8 +97,12 @@ final readonly class DirtyTreeDecision implements Handler
                     ? $this->t('commit.external')
                     : $this->t('commit.interrupted'));
                 $this->db->clearDirtyOwner();
+                $this->db->clearSecretBlock();
                 $this->tg->answerCallback($callbackId, $this->t('decision.committed_toast'));
                 $this->delivery->deliver($chatId, $threadId, $this->t('decision.saved', ['url' => $this->host->commitUrl($hash)]));
+            } catch (SecretFoundException $e) {
+                $this->tg->answerCallback($callbackId, $this->t('decision.secret_blocked_toast'));
+                $this->secretBlocker->block($chatId, $threadId, $e);
             } catch (\RuntimeException $e) {
                 $this->tg->answerCallback($callbackId, $this->t('decision.git_error_toast'));
                 $this->delivery->deliver($chatId, $threadId, $this->t('decision.git_failed', ['error' => $e->getMessage()]));
@@ -109,6 +116,7 @@ final readonly class DirtyTreeDecision implements Handler
         if ($data === 'discard') {
             $this->git->discardChanges();
             $this->db->clearDirtyOwner();
+            $this->db->clearSecretBlock();
             $this->tg->answerCallback($callbackId, $this->t('decision.discarded_toast'));
             $this->delivery->deliver($chatId, $threadId, $this->t('decision.discarded'));
 

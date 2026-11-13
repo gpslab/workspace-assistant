@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant;
 
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
+use GpsLab\WorkspaceAssistant\Exception\SecretFoundException;
 
 /**
  * Synchronous git operations on the managed repository.
@@ -17,8 +18,9 @@ final class GitManager
     private const int LOCAL_TIMEOUT = 30;
 
     /**
-     * @param int $netTimeout timeout for network operations (pull/push), sec;
-     *                        guards against hanging forever on SSH/network
+     * @param int          $netTimeout        timeout for network operations (pull/push), sec;
+     *                                        guards against hanging forever on SSH/network
+     * @param list<string> $secretScanExclude `SECRET_SCAN_EXCLUDE`: path globs where the commit gate skips shape patterns
      */
     public function __construct(
         private readonly string $repoPath,
@@ -26,6 +28,7 @@ final class GitManager
         private readonly Locale $locale = new Locale(),
         private readonly string $forge = Config::FORGE_GITHUB,
         private readonly string $forgeHost = 'github.com',
+        private readonly array $secretScanExclude = [],
     ) {
     }
 
@@ -627,13 +630,29 @@ final class GitManager
 
     /**
      * Commit all changes and push. Returns the hash of the new commit.
+     *
+     * The commit gate runs first: what leaves the machine is the staged diff plus the unpushed
+     * commits, and both are scanned for secrets. A finding resets the index (the working tree is
+     * not touched), commits and pushes nothing, and throws. The gate blocks, it never masks.
+     * With nothing staged (a rerun after a block) only the push happens.
+     *
+     * @throws SecretFoundException when the outgoing changes contain a secret
      */
     public function commitAndPush(string $message): string
     {
         $this->git(['add', '-A']);
-        $commit = $this->git(['commit', '-m', $message]);
-        if ($commit['exit'] !== 0) {
-            throw new \RuntimeException('git commit failed: '.trim($commit['stderr']));
+        $findings = $this->scanOutgoing();
+        if ($findings !== []) {
+            $this->git(['reset', '-q']);
+
+            throw new SecretFoundException($findings);
+        }
+
+        if ($this->git(['diff', '--cached', '--quiet'])['exit'] !== 0) {
+            $commit = $this->git(['commit', '-m', $message]);
+            if ($commit['exit'] !== 0) {
+                throw new \RuntimeException('git commit failed: '.trim($commit['stderr']));
+            }
         }
 
         $push = $this->git(['push'], $this->netTimeout);
@@ -642,6 +661,107 @@ final class GitManager
         }
 
         return $this->headHash();
+    }
+
+    /**
+     * Added lines of the staged diff and of the commits no remote has (`HEAD --not --remotes`;
+     * without a matching remote branch that is the whole history, as intended). Binary files have no
+     * added lines in a patch, so they are not scanned. A scan that cannot run fails closed.
+     *
+     * @return list<OutgoingSecret>
+     */
+    private function scanOutgoing(): array
+    {
+        $options = ['-c', 'core.quotePath=false'];
+        $patch = ['-p', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/'];
+        $staged = $this->git([...$options, 'diff', '--cached', ...$patch], $this->netTimeout);
+        if ($staged['exit'] !== 0) {
+            $this->git(['reset', '-q']);
+
+            throw new \RuntimeException('secret scan failed: '.trim($staged['stderr']));
+        }
+        $findings = $this->scanPatch($staged['stdout'], false);
+
+        if ($this->headHashOrNull() !== null) {
+            $log = $this->git([...$options, 'log', ...$patch, '--format=commit:%h', 'HEAD', '--not', '--remotes'], $this->netTimeout);
+            if ($log['exit'] !== 0) {
+                $this->git(['reset', '-q']);
+
+                throw new \RuntimeException('secret scan failed: '.trim($log['stderr']));
+            }
+            $findings = [...$findings, ...$this->scanPatch($log['stdout'], true)];
+        }
+
+        return $findings;
+    }
+
+    /**
+     * @param bool $withCommits the patch comes from `git log` with `commit:<hash>` lines
+     *
+     * @return list<OutgoingSecret>
+     */
+    private function scanPatch(string $patch, bool $withCommits): array
+    {
+        /** @var array<string, array{commit: ?string, path: string, numbers: list<int>, lines: list<string>}> $files */
+        $files = [];
+        $commit = null;
+        $path = null;
+        $inHunk = false;
+        $number = 0;
+        foreach (explode("\n", $patch) as $line) {
+            if ($withCommits && str_starts_with($line, 'commit:')) {
+                $commit = substr($line, 7);
+                $path = null;
+                $inHunk = false;
+            } elseif (str_starts_with($line, 'diff --git ')) {
+                $path = null;
+                $inHunk = false;
+            } elseif (!$inHunk && str_starts_with($line, '+++ ')) {
+                $path = self::patchPath(substr($line, 4));
+            } elseif (str_starts_with($line, '@@ ')) {
+                $inHunk = $path !== null;
+                $number = preg_match('/^@@ -\S+ \+(\d+)/', $line, $m) === 1 ? (int) $m[1] : 1;
+            } elseif ($inHunk && $path !== null && str_starts_with($line, '+')) {
+                $key = $commit."\0".$path;
+                $files[$key] ??= ['commit' => $commit, 'path' => $path, 'numbers' => [], 'lines' => []];
+                $files[$key]['numbers'][] = $number++;
+                $files[$key]['lines'][] = substr($line, 1);
+            }
+        }
+
+        $scanner = SecretScanner::shared();
+        $found = [];
+        foreach ($files as $file) {
+            $shapes = !$this->isScanExcluded($file['path']);
+            foreach ($scanner->scan(implode("\n", $file['lines']), $shapes)['findings'] as $finding) {
+                $secret = new OutgoingSecret($finding->type, $file['path'], $file['numbers'][$finding->line - 1] ?? 0, $file['commit']);
+                $found[$secret->location().' '.$secret->type] = $secret;
+            }
+        }
+
+        return array_values($found);
+    }
+
+    /** Path of a `+++ ` header: `b/<path>`, quoted by git when it has odd characters, null for a deleted file. */
+    private static function patchPath(string $header): ?string
+    {
+        $header = rtrim($header, "\t");
+        if (str_starts_with($header, '"') && str_ends_with($header, '"')) {
+            $header = stripcslashes(substr($header, 1, -1));
+        }
+
+        return str_starts_with($header, 'b/') ? substr($header, 2) : null;
+    }
+
+    private function isScanExcluded(string $path): bool
+    {
+        foreach ($this->secretScanExclude as $glob) {
+            if (fnmatch($glob, $path)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

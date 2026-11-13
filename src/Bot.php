@@ -80,6 +80,7 @@ final class Bot implements LoopControl
     private readonly DirtyTreeDecision $dirtyTree;
     private readonly RunState $runState;
     private readonly RunResult $runResult;
+    private readonly SecretBlocker $secretBlocker;
     private readonly JobRunner $jobRunner;
     private readonly ?Orchestrator $orchestrator;
     private readonly Locales $locales;
@@ -110,7 +111,8 @@ final class Bot implements LoopControl
         $this->subRepoSync = new SubRepoSync($config, $this->locale);
         $this->runState = new RunState();
         $this->delivery = new Delivery($tg, $config, $this->locale);
-        $this->runResult = new RunResult($config, $db, $git, $this->subRepoSync, $this->delivery, $this->locale, $this->runState);
+        $this->secretBlocker = new SecretBlocker($db, $this->delivery, $this->locale);
+        $this->runResult = new RunResult($config, $db, $git, $this->subRepoSync, $this->delivery, $this->locale, $this->runState, $this->secretBlocker);
         $this->inbox = new Inbox($tg, $config, $this->locale);
         $this->albumBuffer = new AlbumBuffer();
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
@@ -119,7 +121,7 @@ final class Bot implements LoopControl
         $this->jobRunner = new JobRunner($config, $db, $tg, $git, $this->delivery, $this->locale, $this->inbox, $this->subRepoSync, $this->queueTexts, $this->epicCard, $this->runState);
         $this->modeAndLang = new ModeAndLang($db, $tg, $this->locale, $this->jobRunner, $this->locales);
         $this->modelSwitcher = new ModelSwitcher($config, $db, $tg, $this->locale, $this->jobRunner);
-        $this->dirtyTree = new DirtyTreeDecision($config, $db, $tg, $git, $this->delivery, $this->locale, $this->queueTexts, $this->runResult);
+        $this->dirtyTree = new DirtyTreeDecision($config, $db, $tg, $git, $this->delivery, $this->locale, $this->queueTexts, $this->runResult, $this->secretBlocker);
         $this->callbackHandlers = [
             new ModeHandler($this->modeAndLang),
             new ModelHandler($this->modelSwitcher),
@@ -148,7 +150,7 @@ final class Bot implements LoopControl
             owners: $config->forgeOwners,
             locale: $this->locale,
         );
-        $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator);
+        $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator, $this->secretBlocker);
         $this->compactFlow = new CompactFlow($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->dirtyTree, $this->runState, $this->jobRunner);
     }
 

@@ -195,6 +195,12 @@ final class Keyboards
         ]]]);
     }
 
+    /** The only way out of a commit blocked by a secret that needs no reply: discard the changes. */
+    public static function discardOnly(string $discardLabel): Keyboard
+    {
+        return new Keyboard(['inline_keyboard' => [[['text' => $discardLabel, 'callback_data' => 'discard']]]]);
+    }
+
     /** Removes the keyboard from a message. */
     public static function remove(): Keyboard
     {
