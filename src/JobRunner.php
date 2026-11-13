@@ -357,9 +357,9 @@ final class JobRunner implements JobLauncher, RunControl
         // to compact (it would replace the session context); mark it in a chat reply.
         if ($claude->recovered && !$claude->isError) {
             if (in_array($kind, [RunKind::KIND_COMPACT_SUMMARIZE, RunKind::KIND_COMPACT_RESEED], true)) {
-                $claude = new ClaudeResult(true, $this->t('claude.recovered_unusable'), $claude->sessionId, $claude->inputTokens, $claude->outputTokens, true, true);
+                $claude = new ClaudeResult(true, $this->t('claude.recovered_unusable'), $claude->sessionId, $claude->totals, true, true);
             } elseif ($kind === RunKind::KIND_CHAT) {
-                $claude = new ClaudeResult(false, $claude->text."\n\n".$this->t('claude.recovered_note'), $claude->sessionId, $claude->inputTokens, $claude->outputTokens, true, true);
+                $claude = new ClaudeResult(false, $claude->text."\n\n".$this->t('claude.recovered_note'), $claude->sessionId, $claude->totals, true, true);
             }
         }
         // sendResult() appends the warnings to a normal reply itself; every
@@ -391,11 +391,14 @@ final class JobRunner implements JobLauncher, RunControl
         // resetSession; otherwise the accumulated counters of the old session
         // would be added on top of the new one. KIND_EPIC is isolated: its
         // session_id must not become the topic's session.
+        $runTotals = null;
         if ($claude->sessionId !== null && !in_array($kind, [RunKind::KIND_COMPACT_RESEED, RunKind::KIND_EPIC], true)) {
             // The prompt hash moves only after a successful run (a failed one leaves the update block due) and
             // never after the summarize phase, which runs under another prompt.
-            $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->inputTokens, $claude->outputTokens, $claude->isError || $kind === RunKind::KIND_COMPACT_SUMMARIZE ? null : $promptHash);
+            $runTotals = $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->totals, $claude->isError || $kind === RunKind::KIND_COMPACT_SUMMARIZE ? null : $promptHash);
         }
+        // From here on the totals are the figure of this run (the verbose footer), not the snapshot.
+        $claude = $claude->withTotals($runTotals);
 
         // An epic run is judged by its signal file, not by the reply, so a clean exit
         // without a result event is not a failure there.

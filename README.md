@@ -209,13 +209,20 @@ the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.
 | `/compact` | Compress the session into a summary instead of a full reset |
 | `/cancel` | Abort the topic's process and drop its queued requests |
 | `/queue` | Show the request queue |
-| `/stats` | Session statistics (tokens, messages) |
-| `/verbose` | Show token usage in every reply |
+| `/stats` | Session statistics: messages and Claude's totals for the whole session (input, cache read, cache write, output tokens, estimated cost) |
+| `/verbose` | Show the token usage and cost of this run under every reply |
 | `/mode` | Switch the mode: `arch`, `review` or `pm` |
 | `/lang` | Language of Claude's replies in the chat |
 | `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation) |
 | `/restart` | Restart the bot to pick up new code |
 | `/help` | Help |
+
+The token figures and the cost are exactly what Claude Code reports for the session (all models, subagents
+included); the bot never multiplies tokens by a price. `/stats` shows the session's running totals,
+`/verbose` the difference this run added. The cost is marked `≈` because Claude computes it at API list
+prices: on a subscription it is an estimate, not a charge. Only runs that reached Claude's final result are
+counted; when Claude returns no totals for a run (a cancelled or timed-out run, an answer recovered from the
+last assistant message), the `/verbose` footer says so and `/stats` keeps the previous totals.
 
 ### Request queue
 

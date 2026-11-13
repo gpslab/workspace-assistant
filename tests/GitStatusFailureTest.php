@@ -536,7 +536,7 @@ final class GitStatusFailureTest extends TestCase
     {
         $this->autoCommit = $autoCommit;
         $this->bot = $this->makeBot();
-        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        $this->db->recordRun(100, 1, 's-old', null);
         file_put_contents($this->root.'/out.json', '{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}'."\n");
         if ($brokenAtStart) {
             $this->corruptIndex();
@@ -564,7 +564,7 @@ final class GitStatusFailureTest extends TestCase
         $count = $this->root.'/statuscalls';
         file_put_contents($bin.'/git', "#!/bin/sh\nfor a in \"\$@\"; do if [ \"\$a\" = status ]; then echo \"\$*\" >> $count; fi; if [ \"\$a\" = --short ]; then echo 'fatal: boom' >&2; exit 128; fi; done\nexec $realGit \"\$@\"\n");
         chmod($bin.'/git', 0755);
-        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        $this->db->recordRun(100, 1, 's-old', null);
         file_put_contents($this->root.'/out.json', '{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}'."\n");
         $this->hook('echo new > "$PWD/created.txt"');
         $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);

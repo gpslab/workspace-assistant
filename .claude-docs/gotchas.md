@@ -79,10 +79,24 @@ Their commit links use each clone's own `origin`: `FORGE`/`FORGE_HOST` first, th
 
 ---
 
-## `/stats`: input tokens are a sum of three fields
+## `/stats` and `/verbose`: Claude's session snapshot, not a per-run sum
 
-`ClaudeResult` adds `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`. "Input
-tokens" in `/stats` is the **total** input including cache, not raw input.
+`result.usage` covers the main agent only; subagent tokens are in `modelUsage` and `total_cost_usd`. So
+`UsageTotals::fromResultEvent` sums `modelUsage` over all models (pure `inputTokens`, cache creation, cache
+read, `outputTokens`) and takes `total_cost_usd` (missing → `null`, never 0). These figures are
+**cumulative for the Claude session across `--resume`**, so `sessions` holds the last snapshot
+(`Database::recordRun` overwrites it, never increments) and the per-run figure of the `/verbose` footer is
+the new snapshot minus the stored one. If the new cost or any counter is lower than stored (a new session or
+a reset on Claude's side), the stored snapshot counts as zero; `resetSession` clears it.
+
+- **The last `result` event of the process** gives the totals, whatever its text (on `--resume` a process
+  may first emit an empty carry-over `result`); the answer text is still the first non-empty one.
+- **No totals, no figures.** The recovered path (no `result`), a run killed before any `result`, a `result`
+  without `modelUsage`: the snapshot is not touched, the footer says Claude returned no totals. The usage of
+  the last assistant message is one API call, not the run, and is not used.
+- **Costs are list prices** (`costBasis: "list"`): shown as `≈`, an estimate on a subscription.
+- Rows from before the snapshot columns keep their old `input_tokens` (a sum with cache); the first run with
+  totals overwrites them.
 
 ---
 
@@ -273,8 +287,9 @@ request. So `ClaudeRunner` catches the id from the first stream event (`system/i
 `JobRunner::persistSessionEarly` writes it via `Database::setSessionId` while the state is `Running`.
 
 - **Only `RunKind::KIND_CHAT`.** Compact phases manage `session_id` themselves; epic runs have no session.
-- `setSessionId` does not touch `message_count`/tokens: a killed run under-counts one message, which is
-  acceptable.
+- `setSessionId` does not touch `message_count` or the usage snapshot: a killed run under-counts one
+  message, which is acceptable. Because the new id is written before `recordRun`, the stored id always
+  matches the run's, so the per-run usage difference never compares `session_id`s.
 - Resuming a killed session carries the interrupted turn; that is by design.
 - Killing before `init` (a fraction of a second after start) still loses the request.
 

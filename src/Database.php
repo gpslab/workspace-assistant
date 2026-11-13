@@ -185,6 +185,17 @@ final class Database
         if (!$this->hasColumn('sessions', 'prompt_hash')) {
             $this->pdo->exec('ALTER TABLE sessions ADD COLUMN prompt_hash TEXT');
         }
+        // Claude's session snapshot: input_tokens is pure input from now on, cache and cost are separate.
+        // Rows from before keep their old values; the first run with totals overwrites them.
+        if (!$this->hasColumn('sessions', 'cache_creation_tokens')) {
+            $this->pdo->exec('ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0');
+        }
+        if (!$this->hasColumn('sessions', 'cache_read_tokens')) {
+            $this->pdo->exec('ALTER TABLE sessions ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0');
+        }
+        if (!$this->hasColumn('sessions', 'cost_usd')) {
+            $this->pdo->exec('ALTER TABLE sessions ADD COLUMN cost_usd REAL');
+        }
     }
 
     private const string CREATE_SESSIONS_SQL = <<<'SQL'
@@ -200,6 +211,9 @@ final class Database
             verbose        INTEGER NOT NULL DEFAULT 0,
             mode           TEXT NOT NULL DEFAULT 'pm',
             prompt_hash    TEXT,
+            cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+            cost_usd       REAL,
             PRIMARY KEY (chat_id, thread_id)
         )
         SQL;
@@ -263,32 +277,58 @@ final class Database
     }
 
     /**
-     * Record the result of a Claude call: session_id, tokens, message counter.
-     * A non-null $promptHash replaces the stored system prompt hash; null keeps it.
+     * Record the result of a Claude call: session_id and the message counter. Claude's totals are a
+     * cumulative session snapshot: it overwrites the stored one (not added to it) and the figure of
+     * this run is returned as the snapshot minus the stored one. With null $totals the stored snapshot
+     * is untouched and null is returned. A non-null $promptHash replaces the stored system prompt
+     * hash; null keeps it.
      */
-    public function recordRun(int $chatId, int $threadId, string $sessionId, int $inputTokens, int $outputTokens, ?string $promptHash = null): void
+    public function recordRun(int $chatId, int $threadId, string $sessionId, ?UsageTotals $totals, ?string $promptHash = null): ?UsageTotals
     {
         $this->ensureRow($chatId, $threadId);
+        $previous = $totals !== null ? $this->storedTotals($chatId, $threadId) : null;
         $stmt = $this->pdo->prepare(
             <<<'SQL'
             UPDATE sessions
                SET session_id    = :sid,
                    pid           = NULL,
                    message_count = message_count + 1,
-                   input_tokens  = input_tokens + :in,
-                   output_tokens = output_tokens + :out,
+                   input_tokens  = COALESCE(:in, input_tokens),
+                   cache_creation_tokens = COALESCE(:cw, cache_creation_tokens),
+                   cache_read_tokens = COALESCE(:cr, cache_read_tokens),
+                   output_tokens = COALESCE(:out, output_tokens),
+                   cost_usd      = CASE WHEN CAST(:has AS INTEGER) = 1 THEN :cost ELSE cost_usd END,
                    prompt_hash   = COALESCE(:hash, prompt_hash)
              WHERE chat_id = :chat AND thread_id = :thread
             SQL
         );
         $stmt->execute([
             'sid' => $sessionId,
-            'in' => $inputTokens,
-            'out' => $outputTokens,
+            'in' => $totals?->inputTokens,
+            'cw' => $totals?->cacheCreationTokens,
+            'cr' => $totals?->cacheReadTokens,
+            'out' => $totals?->outputTokens,
+            'has' => $totals !== null ? 1 : 0,
+            'cost' => $totals?->costUsd,
             'hash' => $promptHash,
             'chat' => $chatId,
             'thread' => $threadId,
         ]);
+
+        return $totals?->minus($previous);
+    }
+
+    private function storedTotals(int $chatId, int $threadId): UsageTotals
+    {
+        $row = $this->getSession($chatId, $threadId) ?? [];
+
+        return new UsageTotals(
+            (int) ($row['input_tokens'] ?? 0),
+            (int) ($row['cache_creation_tokens'] ?? 0),
+            (int) ($row['cache_read_tokens'] ?? 0),
+            (int) ($row['output_tokens'] ?? 0),
+            isset($row['cost_usd']) ? (float) $row['cost_usd'] : null,
+        );
     }
 
     /**
@@ -334,7 +374,10 @@ final class Database
                    started_at = NULL,
                    message_count = 0,
                    input_tokens = 0,
+                   cache_creation_tokens = 0,
+                   cache_read_tokens = 0,
                    output_tokens = 0,
+                   cost_usd = NULL,
                    prompt_hash = NULL
              WHERE chat_id = :chat AND thread_id = :thread
             SQL

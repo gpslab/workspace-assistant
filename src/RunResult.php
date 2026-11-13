@@ -88,13 +88,26 @@ final class RunResult implements DecisionHost
         }
 
         if ($this->db->isVerbose($chatId, $threadId)) {
-            $text .= "\n\n".$this->t('result.tokens', [
-                'input' => number_format($claude->inputTokens, 0, '.', ' '),
-                'output' => number_format($claude->outputTokens, 0, '.', ' '),
-            ]);
+            $text .= "\n\n".$this->tokensFooter($claude->totals);
         }
 
         $this->delivery->deliver($chatId, $threadId, $text, null, $this->delivery->overflowCaption($mode));
+    }
+
+    /** The verbose footer: the figures of this run as Claude reported them, or a note that it returned none. */
+    private function tokensFooter(?UsageTotals $run): string
+    {
+        if ($run === null) {
+            return $this->t('result.tokens_none');
+        }
+
+        return $this->t('result.tokens', [
+            'input' => number_format($run->inputTokens, 0, '.', ' '),
+            'cache_read' => number_format($run->cacheReadTokens, 0, '.', ' '),
+            'cache_write' => number_format($run->cacheCreationTokens, 0, '.', ' '),
+            'output' => number_format($run->outputTokens, 0, '.', ' '),
+            'cost' => $run->costUsd !== null ? $this->t('result.tokens_cost', ['cost' => UsageTotals::formatCost($run->costUsd)]) : '',
+        ]);
     }
 
     /**

@@ -163,6 +163,35 @@ final class ClaudeRunnerTest extends TestCase
         self::assertSame('answer to the prompt', $runner->result()->text);
     }
 
+    public function testTextIsTheFirstNonEmptyResultButTotalsAreTheLastResults(): void
+    {
+        $runner = $this->runFake(<<<'SH'
+            echo '{"type":"result","is_error":false,"result":"the answer","session_id":"s-1","modelUsage":{"m":{"inputTokens":1,"cacheCreationInputTokens":2,"cacheReadInputTokens":3,"outputTokens":4}},"total_cost_usd":0.01}'
+            echo '{"type":"result","is_error":false,"result":"","session_id":"s-1","modelUsage":{"m":{"inputTokens":10,"cacheCreationInputTokens":20,"cacheReadInputTokens":30,"outputTokens":40}},"total_cost_usd":0.02}'
+            exec sleep 60
+            SH);
+
+        $result = $runner->result();
+        self::assertSame('the answer', $result->text);
+        self::assertNotNull($result->totals);
+        self::assertSame(10, $result->totals->inputTokens);
+        self::assertSame(20, $result->totals->cacheCreationTokens);
+        self::assertSame(30, $result->totals->cacheReadTokens);
+        self::assertSame(40, $result->totals->outputTokens);
+        self::assertSame(0.02, $result->totals->costUsd);
+    }
+
+    public function testResultWithoutModelUsageHasNoTotals(): void
+    {
+        $runner = $this->runFake(<<<'SH'
+            echo '{"type":"result","is_error":false,"result":"answer","session_id":"s-1","usage":{"input_tokens":5,"output_tokens":6},"total_cost_usd":0.01}'
+            exec sleep 60
+            SH);
+
+        self::assertSame('answer', $runner->result()->text);
+        self::assertNull($runner->result()->totals);
+    }
+
     public function testTailWrittenByDescendantAfterExitIsDrained(): void
     {
         $runner = $this->runFake(<<<'SH'
@@ -194,7 +223,8 @@ final class ClaudeRunnerTest extends TestCase
             self::assertTrue($result->exitedWithoutResult);
             self::assertTrue($result->recovered);
             self::assertSame('answer', $result->text);
-            self::assertSame(7, $result->outputTokens);
+            // The usage of the last assistant message is one API call, not the run: no totals.
+            self::assertNull($result->totals);
             $path = $runner->diagnosticsPath();
             self::assertNotNull($path);
             self::assertStringStartsWith($dir.'/claude-no-result-', $path);

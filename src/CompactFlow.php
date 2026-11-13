@@ -113,7 +113,7 @@ final class CompactFlow
         }
 
         $this->db->resetSession($chatId, $threadId);
-        $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->inputTokens, $claude->outputTokens, $promptHash);
+        $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->totals, $promptHash);
 
         // The new session was created successfully, so the transcript of the
         // pre-compact session on disk is no longer needed. We delete it only now:

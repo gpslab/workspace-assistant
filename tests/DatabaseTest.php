@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\Database;
+use GpsLab\WorkspaceAssistant\UsageTotals;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -36,7 +37,7 @@ final class DatabaseTest extends TestCase
     public function testRecordRunStoresSessionTokensAndClearsPid(): void
     {
         $this->db->setPid(42, 0, 9999);
-        $this->db->recordRun(42, 0, 'sess-x', 100, 25);
+        $this->db->recordRun(42, 0, 'sess-x', new UsageTotals(100, 7, 8, 25, 0.5));
 
         $row = $this->db->getSession(42);
 
@@ -45,13 +46,16 @@ final class DatabaseTest extends TestCase
         self::assertSame(1, $row['message_count']);
         self::assertSame(100, $row['input_tokens']);
         self::assertSame(25, $row['output_tokens']);
+        self::assertSame(7, $row['cache_creation_tokens']);
+        self::assertSame(8, $row['cache_read_tokens']);
+        self::assertSame(0.5, $row['cost_usd']);
         self::assertNull($row['pid']);
     }
 
     public function testSetSessionIdStoresIdWithoutTouchingCounters(): void
     {
         // simulate accumulated stats from the previous run
-        $this->db->recordRun(42, 0, 'old-sess', 100, 25);
+        $this->db->recordRun(42, 0, 'old-sess', new UsageTotals(100, 0, 0, 25));
         $this->db->setPid(42, 0, 9999);
 
         // early capture of the forked session_id during the new run
@@ -74,22 +78,149 @@ final class DatabaseTest extends TestCase
         self::assertSame('fresh', $this->db->getSessionId(7, 3));
     }
 
-    public function testRecordRunAccumulates(): void
+    public function testRecordRunOverwritesSnapshotAndReturnsTheDifference(): void
     {
-        $this->db->recordRun(1, 0, 's', 10, 5);
-        $this->db->recordRun(1, 0, 's', 30, 7);
+        $first = $this->db->recordRun(1, 0, 's', new UsageTotals(10, 100, 200, 5, 0.01));
+        $second = $this->db->recordRun(1, 0, 's', new UsageTotals(30, 150, 500, 12, 0.03));
 
         $row = $this->db->getSession(1);
 
         self::assertNotNull($row);
+        self::assertNotNull($first);
+        self::assertSame(10, $first->inputTokens);
+        self::assertNotNull($second);
+        self::assertSame(20, $second->inputTokens);
+        self::assertSame(50, $second->cacheCreationTokens);
+        self::assertSame(300, $second->cacheReadTokens);
+        self::assertSame(7, $second->outputTokens);
+        self::assertEqualsWithDelta(0.02, $second->costUsd, 1e-9);
         self::assertSame(2, $row['message_count']);
-        self::assertSame(40, $row['input_tokens']);
+        self::assertSame(30, $row['input_tokens']);
+        self::assertSame(150, $row['cache_creation_tokens']);
+        self::assertSame(500, $row['cache_read_tokens']);
         self::assertSame(12, $row['output_tokens']);
+        self::assertSame(0.03, $row['cost_usd']);
+    }
+
+    public function testLowerCostThanStoredCountsPreviousSnapshotAsZero(): void
+    {
+        $this->db->recordRun(1, 0, 's', new UsageTotals(30, 150, 500, 12, 0.03));
+        $run = $this->db->recordRun(1, 0, 's', new UsageTotals(5, 10, 20, 3, 0.01));
+
+        self::assertNotNull($run);
+        self::assertSame(5, $run->inputTokens);
+        self::assertSame(20, $run->cacheReadTokens);
+        self::assertSame(0.01, $run->costUsd);
+        self::assertSame(5, $this->db->getSession(1)['input_tokens'] ?? null);
+    }
+
+    public function testLowerCostAloneCountsPreviousSnapshotAsZero(): void
+    {
+        $this->db->recordRun(1, 0, 's', new UsageTotals(30, 150, 500, 12, 0.03));
+        $run = $this->db->recordRun(1, 0, 's', new UsageTotals(40, 200, 600, 20, 0.01));
+
+        self::assertNotNull($run);
+        self::assertSame(40, $run->inputTokens);
+        self::assertSame(600, $run->cacheReadTokens);
+        self::assertSame(0.01, $run->costUsd);
+    }
+
+    public function testFirstRunAfterResetIsTheFullSnapshot(): void
+    {
+        $this->db->recordRun(1, 0, 's', new UsageTotals(30, 150, 500, 12, 0.03));
+        $this->db->resetSession(1);
+
+        $row = $this->db->getSession(1);
+        self::assertNotNull($row);
+        self::assertSame(0, $row['cache_read_tokens']);
+        self::assertNull($row['cost_usd']);
+
+        $run = $this->db->recordRun(1, 0, 's2', new UsageTotals(40, 1, 2, 3, 0.04));
+        self::assertNotNull($run);
+        self::assertSame(40, $run->inputTokens);
+        self::assertSame(0.04, $run->costUsd);
+    }
+
+    public function testRecordRunWithoutTotalsKeepsTheSnapshot(): void
+    {
+        $this->db->recordRun(1, 0, 's', new UsageTotals(30, 150, 500, 12, 0.03));
+        $run = $this->db->recordRun(1, 0, 's', null);
+
+        $row = $this->db->getSession(1);
+
+        self::assertNull($run);
+        self::assertNotNull($row);
+        self::assertSame(2, $row['message_count']);
+        self::assertSame(30, $row['input_tokens']);
+        self::assertSame(150, $row['cache_creation_tokens']);
+        self::assertSame(500, $row['cache_read_tokens']);
+        self::assertSame(12, $row['output_tokens']);
+        self::assertSame(0.03, $row['cost_usd']);
+    }
+
+    public function testUnknownCostStaysNullAndIsNotZero(): void
+    {
+        $run = $this->db->recordRun(1, 0, 's', new UsageTotals(1, 2, 3, 4, null));
+
+        $row = $this->db->getSession(1);
+
+        self::assertNotNull($run);
+        self::assertNull($run->costUsd);
+        self::assertNotNull($row);
+        self::assertNull($row['cost_usd']);
+    }
+
+    public function testSessionsWithoutSnapshotColumnsGetThemAndKeepValues(): void
+    {
+        $dir = sys_get_temp_dir().'/tgdb_presnapshot_'.uniqid('', true);
+        mkdir($dir);
+        $pdo = new \PDO('sqlite:'.$dir.'/state.sqlite');
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $pdo->exec(
+            <<<'SQL'
+            CREATE TABLE sessions (
+                chat_id        INTEGER NOT NULL,
+                thread_id      INTEGER NOT NULL DEFAULT 0,
+                session_id     TEXT,
+                pid            INTEGER,
+                started_at     TEXT,
+                message_count  INTEGER NOT NULL DEFAULT 0,
+                input_tokens   INTEGER NOT NULL DEFAULT 0,
+                output_tokens  INTEGER NOT NULL DEFAULT 0,
+                verbose        INTEGER NOT NULL DEFAULT 0,
+                mode           TEXT NOT NULL DEFAULT 'pm',
+                prompt_hash    TEXT,
+                PRIMARY KEY (chat_id, thread_id)
+            )
+            SQL
+        );
+        $pdo->exec("INSERT INTO sessions (chat_id, thread_id, session_id, message_count, input_tokens, output_tokens) VALUES (9, 0, 'old', 4, 500, 60)");
+        $pdo = null;
+
+        $db = new Database($dir);
+        $row = $db->getSession(9, 0);
+
+        self::assertNotNull($row);
+        self::assertSame(500, $row['input_tokens']);
+        self::assertSame(60, $row['output_tokens']);
+        self::assertSame(4, $row['message_count']);
+        self::assertSame(0, $row['cache_creation_tokens']);
+        self::assertSame(0, $row['cache_read_tokens']);
+        self::assertNull($row['cost_usd']);
+
+        // The first run with totals overwrites the old values with Claude's totals.
+        $run = $db->recordRun(9, 0, 'old', new UsageTotals(20, 1, 2, 3, 0.5));
+        self::assertNotNull($run);
+        self::assertSame(20, $db->getSession(9, 0)['input_tokens'] ?? null);
+        self::assertSame(20, $run->inputTokens);
+
+        @unlink($dir.'/state.sqlite');
+        @rmdir($dir);
     }
 
     public function testResetSessionClearsEverything(): void
     {
-        $this->db->recordRun(1, 0, 's', 10, 5);
+        $this->db->recordRun(1, 0, 's', new UsageTotals(10, 1, 1, 5, 0.1));
         $this->db->resetSession(1);
 
         $row = $this->db->getSession(1);
@@ -98,6 +229,7 @@ final class DatabaseTest extends TestCase
         self::assertNull($row['session_id']);
         self::assertSame(0, $row['message_count']);
         self::assertSame(0, $row['input_tokens']);
+        self::assertNull($row['cost_usd']);
     }
 
     public function testToggleVerbose(): void
@@ -121,8 +253,8 @@ final class DatabaseTest extends TestCase
     public function testSessionsIsolatedByThread(): void
     {
         // The same chat_id pair, but different topics — independent sessions.
-        $this->db->recordRun(1, 0, 'sess-root', 10, 5);
-        $this->db->recordRun(1, 777, 'sess-topic', 20, 8);
+        $this->db->recordRun(1, 0, 'sess-root', new UsageTotals(10, 0, 0, 5));
+        $this->db->recordRun(1, 777, 'sess-topic', new UsageTotals(20, 0, 0, 8));
 
         self::assertSame('sess-root', $this->db->getSessionId(1, 0));
         self::assertSame('sess-topic', $this->db->getSessionId(1, 777));
@@ -141,7 +273,7 @@ final class DatabaseTest extends TestCase
     public function testDefaultThreadIsZero(): void
     {
         // Methods without an explicit thread_id work with session 0 (1:1 / General).
-        $this->db->recordRun(42, 0, 'sess-x', 1, 1);
+        $this->db->recordRun(42, 0, 'sess-x', new UsageTotals(1, 0, 0, 1));
         self::assertSame('sess-x', $this->db->getSessionId(42));
         self::assertNotNull($this->db->getSession(42));
     }
@@ -196,15 +328,16 @@ final class DatabaseTest extends TestCase
         $pdo = null;
 
         $db = new Database($dir);
-        $db->recordRun(6, 0, 'sess-new', 1, 1);
+        $db->recordRun(6, 0, 'sess-new', new UsageTotals(1, 0, 0, 1));
 
         self::assertSame('arch', $db->getMode(5, 0));
         self::assertSame('pm', $db->getMode(6, 0));
         // The prompt hash column is added without losing rows; legacy rows have none.
         self::assertSame('none', $db->getSession(5, 0)['prompt_hash'] ?? 'none');
-        $db->recordRun(5, 0, 'sess-5', 1, 1, 'h1');
-        $db->recordRun(5, 0, 'sess-5', 1, 1);
-        self::assertSame('h1', $db->getSession(5, 0)['prompt_hash'] ?? 'none');
+        $db->recordRun(5, 0, 'sess-5', new UsageTotals(1, 0, 0, 1), 'h1');
+        $db->recordRun(5, 0, 'sess-5', new UsageTotals(1, 0, 0, 1));
+        $kept = $db->getSession(5, 0);
+        self::assertSame('h1', $kept['prompt_hash'] ?? 'none');
         $db->resetSession(5, 0);
         self::assertSame('none', $db->getSession(5, 0)['prompt_hash'] ?? 'none');
     }

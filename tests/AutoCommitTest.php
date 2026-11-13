@@ -179,6 +179,78 @@ final class AutoCommitTest extends TestCase
         file_put_contents($this->work.'/notes.txt', "untracked\n");
     }
 
+    private function resultWithTotals(string $text, int $in, int $cw, int $cr, int $out, ?float $cost): string
+    {
+        return (string) json_encode([
+            'type' => 'result',
+            'is_error' => false,
+            'result' => $text,
+            'session_id' => 's-1',
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+            'modelUsage' => ['m' => ['inputTokens' => $in, 'cacheCreationInputTokens' => $cw, 'cacheReadInputTokens' => $cr, 'outputTokens' => $out]],
+        ] + ($cost !== null ? ['total_cost_usd' => $cost] : []));
+    }
+
+    public function testVerboseFooterShowsThePerRunDifferenceOfClaudesSessionTotals(): void
+    {
+        $this->db->toggleVerbose(100, 1);
+
+        $this->claudeOutput($this->resultWithTotals('first', 10, 1000, 2000, 300, 0.0300));
+        $this->say('one');
+        $this->call('startQueueHead');
+        $this->finishJob();
+        self::assertStringContainsString('[tokens: in 10 · cache read 2 000 · cache write 1 000 · out 300 · ≈$0.0300]', $this->allText());
+
+        $this->claudeOutput($this->resultWithTotals('second', 25, 1500, 5000, 700, 0.0343));
+        $this->say('two', 11);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertStringContainsString('[tokens: in 15 · cache read 3 000 · cache write 500 · out 400 · ≈$0.0043]', $this->allText());
+        $row = $this->db->getSession(100, 1);
+        self::assertNotNull($row);
+        self::assertSame(25, $row['input_tokens']);
+        self::assertSame(1500, $row['cache_creation_tokens']);
+        self::assertSame(5000, $row['cache_read_tokens']);
+        self::assertSame(700, $row['output_tokens']);
+        self::assertSame(0.0343, $row['cost_usd']);
+    }
+
+    public function testVerboseFooterHasNoCostPartWhenClaudeReportedNone(): void
+    {
+        $this->db->toggleVerbose(100, 1);
+        $this->claudeOutput($this->resultWithTotals('first', 10, 0, 0, 3, null));
+        $this->say('one');
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertStringContainsString('[tokens: in 10 · cache read 0 · cache write 0 · out 3]', $this->allText());
+        self::assertStringNotContainsString('≈$', $this->allText());
+    }
+
+    public function testRecoveredRunLeavesTheSnapshotAndSaysClaudeReturnedNoTotals(): void
+    {
+        $this->db->toggleVerbose(100, 1);
+        $this->claudeOutput($this->resultWithTotals('first', 10, 1000, 2000, 300, 0.03));
+        $this->say('one');
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $this->claudeOutput('{"type":"system","subtype":"init","session_id":"s-1"}'."\n".'{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}],"usage":{"input_tokens":3,"output_tokens":4}}}');
+        $this->say('two', 11);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertStringContainsString('[Claude returned no totals for this run]', $this->allText());
+        $row = $this->db->getSession(100, 1);
+        self::assertNotNull($row);
+        self::assertSame(2, $row['message_count']);
+        self::assertSame(10, $row['input_tokens']);
+        self::assertSame(2000, $row['cache_read_tokens']);
+        self::assertSame(300, $row['output_tokens']);
+        self::assertSame(0.03, $row['cost_usd']);
+    }
+
     public function testRunStartsOnDirtyTreeWithoutPauseButtonsOrPull(): void
     {
         $this->dirtyOperatorTree();
@@ -553,7 +625,7 @@ final class AutoCommitTest extends TestCase
     {
         $this->dirtyOperatorTree();
         $this->hook('echo claude >> "$PWD/a.txt"');
-        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        $this->db->recordRun(100, 1, 's-old', null);
         $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
         $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
 
@@ -569,7 +641,7 @@ final class AutoCommitTest extends TestCase
     public function testCompactOnDirtyOperatorTreeReseedsWhenSummarizeChangedNothing(): void
     {
         $this->dirtyOperatorTree();
-        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        $this->db->recordRun(100, 1, 's-old', null);
         $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
         $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
 
@@ -584,7 +656,7 @@ final class AutoCommitTest extends TestCase
 
     public function testCompactKeepsItsQueueItemWhileTheReseedRuns(): void
     {
-        $this->db->recordRun(100, 1, 's-old', 0, 0);
+        $this->db->recordRun(100, 1, 's-old', null);
         $this->call('handleCommand', [100, 1, '/compact', 30, self::USER]);
         $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
 

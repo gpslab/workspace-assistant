@@ -62,6 +62,9 @@ final class ClaudeRunner
     /** Whether a result with non-empty text has already been seen; an empty one does not overwrite it. */
     private bool $hasAnswer = false;
 
+    /** Totals of the last result event, whatever its text; null when that result carried none. */
+    private ?UsageTotals $totals = null;
+
     /** session_id from the event stream (init/result); known already while the run is in progress. */
     private ?string $sessionId = null;
 
@@ -73,8 +76,6 @@ final class ClaudeRunner
 
     /** Text of the last text-bearing assistant event; fallback answer when no result arrives. */
     private string $lastAssistantText = '';
-    private int $assistantInputTokens = 0;
-    private int $assistantOutputTokens = 0;
     private ?string $diagnosticsPath = null;
 
     /** @var list<string> human-readable lines for tool calls (live progress) */
@@ -361,11 +362,15 @@ final class ClaudeRunner
         $this->closeProc();
 
         $result = ClaudeResult::fromJson($this->stdout, $this->stderr, $exit, $this->locale);
+        if ($this->stdout !== '') {
+            // The text is the first non-empty result's; usage and cost are the last result's.
+            $result = $result->withTotals($this->totals);
+        }
         if ($exit === 0 && $this->stdout === '') {
             $this->diagnosticsPath = $this->writeDiagnostics();
             $result = $this->lastAssistantText !== ''
-                ? new ClaudeResult(false, $this->lastAssistantText, $this->sessionId, $this->assistantInputTokens, $this->assistantOutputTokens, true, true)
-                : new ClaudeResult(true, $result->text, $result->sessionId ?? $this->sessionId, 0, 0, true);
+                ? new ClaudeResult(false, $this->lastAssistantText, $this->sessionId, null, true, true)
+                : new ClaudeResult(true, $result->text, $result->sessionId ?? $this->sessionId, null, true);
         }
         $this->result = $result;
 
@@ -632,6 +637,7 @@ final class ClaudeRunner
                 $this->stdout = $line;
                 $this->hasAnswer = $this->hasAnswer || $nonEmpty;
             }
+            $this->totals = UsageTotals::fromResultEvent($event);
             $this->resultAt = time();
 
             return;
@@ -670,11 +676,6 @@ final class ClaudeRunner
             return;
         }
         $this->lastAssistantText = trim($text);
-        $usage = is_array($message['usage'] ?? null) ? $message['usage'] : [];
-        $this->assistantInputTokens = (int) ($usage['input_tokens'] ?? 0)
-            + (int) ($usage['cache_read_input_tokens'] ?? 0)
-            + (int) ($usage['cache_creation_input_tokens'] ?? 0);
-        $this->assistantOutputTokens = (int) ($usage['output_tokens'] ?? 0);
     }
 
     /**
