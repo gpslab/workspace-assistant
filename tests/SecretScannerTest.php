@@ -213,12 +213,12 @@ final class SecretScannerTest extends TestCase
             'anthropic' => [self::fake('sk-ant-', 40, 'aB3dE5gH7jK9-_')],
             'openai' => [self::fake('sk-', 48)],
             'slack' => [self::fake('xoxb-', 30, '1234567890-')],
-            'aws' => ['AKIAABCDEFGHIJKLMNOP'],
+            'aws' => [self::fake('AKIA', 16, 'ABCDEFGHIJKLMNOP')],
             'google' => [self::fake('AIza', 35, 'aB3dE5gH7jK9_-')],
             'telegram' => ['123456789:'.self::fake('', 35, 'aB3dE5gH7jK9_-')],
             'jwt' => [self::fake('eyJ', 20).'.'.self::fake('eyJ', 30).'.'.self::fake('', 43)],
-            'private key' => ['-----BEGIN RSA PRIVATE KEY-----'."\nMIIEabc\ndef\n-----END ".'RSA PRIVATE KEY-----'],
-            'private key unterminated' => ['-----BEGIN PRIVATE KEY-----'."\nMIIEabc"],
+            'private key' => [sprintf('-----BEGIN %1$s-----', 'RSA PRIVATE KEY')."\nMIIEabc\ndef\n".sprintf('-----END %1$s-----', 'RSA PRIVATE KEY')],
+            'private key unterminated' => [sprintf('-----BEGIN %1$s-----', 'PRIVATE KEY')."\nMIIEabc"],
         ];
     }
 
@@ -243,7 +243,7 @@ final class SecretScannerTest extends TestCase
     {
         $scanner = new SecretScanner();
 
-        self::assertSame('git clone https://user:[REDACTED]@example.com/r.git', $scanner->mask('git clone https://user:hunter2-pass@example.com/r.git'));
+        self::assertSame('git clone https://user:[REDACTED]@example.com/r.git', $scanner->mask(sprintf('git clone https://user:%s@example.com/r.git', 'hunter2-pass')));
         self::assertSame('https://example.com/a:b', $scanner->mask('https://example.com/a:b'));
     }
 
