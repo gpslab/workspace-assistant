@@ -35,6 +35,10 @@ final class Database
         if (!$this->hasColumn('queue', 'locale')) {
             $this->pdo->exec('ALTER TABLE queue ADD COLUMN locale TEXT');
         }
+        // The model pinned at enqueue (resolved topic -> all topics -> none): NULL means no --model.
+        if (!$this->hasColumn('queue', 'model')) {
+            $this->pdo->exec('ALTER TABLE queue ADD COLUMN model TEXT');
+        }
         $this->pdo->exec(self::CREATE_QUEUE_MESSAGES_SQL);
         $this->pdo->exec(self::CREATE_KV_SQL);
         $this->pdo->exec(self::CREATE_EPICS_SQL);
@@ -68,6 +72,7 @@ final class Database
             closed         INTEGER NOT NULL DEFAULT 0,
             running        INTEGER NOT NULL DEFAULT 0,
             locale         TEXT,
+            model          TEXT,
             UNIQUE (chat_id, message_id)
         )
         SQL;
@@ -196,6 +201,13 @@ final class Database
         if (!$this->hasColumn('sessions', 'cost_usd')) {
             $this->pdo->exec('ALTER TABLE sessions ADD COLUMN cost_usd REAL');
         }
+        // The topic's chosen model (NULL = not set) and the model the last run actually used.
+        if (!$this->hasColumn('sessions', 'model')) {
+            $this->pdo->exec('ALTER TABLE sessions ADD COLUMN model TEXT');
+        }
+        if (!$this->hasColumn('sessions', 'last_model')) {
+            $this->pdo->exec('ALTER TABLE sessions ADD COLUMN last_model TEXT');
+        }
     }
 
     private const string CREATE_SESSIONS_SQL = <<<'SQL'
@@ -214,6 +226,8 @@ final class Database
             cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
             cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
             cost_usd       REAL,
+            model          TEXT,
+            last_model     TEXT,
             PRIMARY KEY (chat_id, thread_id)
         )
         SQL;
@@ -431,6 +445,59 @@ final class Database
     }
 
     /**
+     * The topic's own model as stored (NULL = not set). Sticky like the mode: resetSession() keeps it.
+     * Not validated here: the caller checks it against CLAUDE_MODELS ({@see ModelChoice}).
+     */
+    public function getTopicModel(int $chatId, int $threadId = 0): ?string
+    {
+        $model = $this->getSession($chatId, $threadId)['model'] ?? null;
+
+        return is_string($model) && $model !== '' ? $model : null;
+    }
+
+    public function setTopicModel(int $chatId, int $threadId, ?string $model): void
+    {
+        $this->ensureRow($chatId, $threadId);
+        $this->pdo->prepare(
+            'UPDATE sessions SET model = :model WHERE chat_id = :chat AND thread_id = :thread'
+        )->execute(['model' => $model, 'chat' => $chatId, 'thread' => $threadId]);
+    }
+
+    /** The model for all topics as stored (no key = not set). */
+    public function getDefaultModel(): ?string
+    {
+        $model = $this->kvGet('model.default');
+
+        return $model !== null && $model !== '' ? $model : null;
+    }
+
+    public function setDefaultModel(?string $model): void
+    {
+        if ($model === null) {
+            $this->kvDelete('model.default');
+
+            return;
+        }
+        $this->kvSet('model.default', $model);
+    }
+
+    /** The model the last run reported in its system/init event; never cleared, the next run overwrites it. */
+    public function getLastModel(int $chatId, int $threadId = 0): ?string
+    {
+        $model = $this->getSession($chatId, $threadId)['last_model'] ?? null;
+
+        return is_string($model) && $model !== '' ? $model : null;
+    }
+
+    public function setLastModel(int $chatId, int $threadId, string $model): void
+    {
+        $this->ensureRow($chatId, $threadId);
+        $this->pdo->prepare(
+            'UPDATE sessions SET last_model = :model WHERE chat_id = :chat AND thread_id = :thread'
+        )->execute(['model' => $model, 'chat' => $chatId, 'thread' => $threadId]);
+    }
+
+    /**
      * On bot start old PIDs are invalid (processes are dead or reused by the OS).
      */
     public function clearStalePids(): void
@@ -449,7 +516,7 @@ final class Database
      *
      * @param list<array<string, mixed>> $parts messages of the item in order
      */
-    public function queueAdd(int $chatId, int $threadId, int $messageId, string $kind, string $mode, array $parts, int $placeholderId = 0, ?string $locale = null): ?int
+    public function queueAdd(int $chatId, int $threadId, int $messageId, string $kind, string $mode, array $parts, int $placeholderId = 0, ?string $locale = null, ?string $model = null): ?int
     {
         $ids = self::messageIdsOf($messageId, $parts);
         $this->pdo->beginTransaction();
@@ -462,8 +529,8 @@ final class Database
                 }
             }
             $stmt = $this->pdo->prepare(
-                'INSERT OR IGNORE INTO queue (chat_id, thread_id, message_id, kind, mode, parts, placeholder_id, locale)
-                 VALUES (:chat, :thread, :msg, :kind, :mode, :parts, :ph, :locale)'
+                'INSERT OR IGNORE INTO queue (chat_id, thread_id, message_id, kind, mode, parts, placeholder_id, locale, model)
+                 VALUES (:chat, :thread, :msg, :kind, :mode, :parts, :ph, :locale, :model)'
             );
             $stmt->execute([
                 'chat' => $chatId,
@@ -474,6 +541,7 @@ final class Database
                 'parts' => json_encode($parts, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
                 'ph' => $placeholderId,
                 'locale' => $locale,
+                'model' => $model,
             ]);
             if ($stmt->rowCount() === 0) {
                 $this->pdo->rollBack();
@@ -563,7 +631,7 @@ final class Database
     }
 
     /**
-     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}|null
+     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}|null
      */
     public function queueGet(int $id): ?array
     {
@@ -577,7 +645,7 @@ final class Database
     /**
      * Pending items (not started) in FIFO order.
      *
-     * @return list<array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}>
+     * @return list<array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}>
      */
     public function queueWaiting(): array
     {
@@ -589,7 +657,7 @@ final class Database
     /**
      * Items marked as started (the job is running or was killed by a restart).
      *
-     * @return list<array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}>
+     * @return list<array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}>
      */
     public function queueRunning(): array
     {
@@ -599,7 +667,7 @@ final class Database
     }
 
     /**
-     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}|null
+     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}|null
      */
     public function queueHead(): ?array
     {
@@ -609,7 +677,7 @@ final class Database
     /**
      * The last pending item of a topic — a candidate for gluing.
      *
-     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}|null
+     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}|null
      */
     public function queueLastWaiting(int $chatId, int $threadId): ?array
     {
@@ -661,7 +729,7 @@ final class Database
      * Remove all items of a topic (chat_id, thread_id). Other topics and chats, including
      * other topics of the same chat, are not affected.
      *
-     * @return list<array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}>
+     * @return list<array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}>
      */
     public function queueCancelThread(int $chatId, int $threadId): array
     {
@@ -680,7 +748,7 @@ final class Database
     /**
      * @param array<string, mixed> $row
      *
-     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}
+     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}
      */
     private static function queueRow(array $row): array
     {
@@ -695,6 +763,7 @@ final class Database
             'kind' => (string) $row['kind'],
             'mode' => (string) $row['mode'],
             'locale' => isset($row['locale']) ? (string) $row['locale'] : null,
+            'model' => isset($row['model']) ? (string) $row['model'] : null,
             'parts' => $parts,
             'placeholder_id' => (int) $row['placeholder_id'],
             'closed' => (int) $row['closed'] === 1,

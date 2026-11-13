@@ -214,6 +214,17 @@ Traps:
   `DEFAULT 'arch'` and SQLite cannot alter it. `Database::getMode()` falls back to `DEFAULT_MODE` with a
   log line on an unknown or empty value. The mode label in "Thinking… [mode]" is shown only when the mode
   differs from the default.
+- **Topic model** works like the mode: `sessions.model`, sticky (`resetSession()` keeps it, `/new` and `/compact`
+  keep it), refused while the topic has a running job, closes the gluing group. Unlike the mode it has a second
+  level, the `kv` key `model.default` (all topics, not gated by a running job), and a queue item pins the
+  **resolved** value (`ModelChoice::resolve`: topic → all topics → none) in `queue.model`; a new message glues
+  onto a waiting item only when that value matches, which is what makes a change for all topics apply (its
+  groups cannot be closed). A stored value outside `CLAUDE_MODELS` is skipped at enqueue (next level) but
+  dropped without a fallback at run start (`ModelChoice::checkPinned`), both with a log line. The `/compact`
+  reseed resolves again; epic runs get only the all-topics level and never write `sessions.last_model`.
+  `--model` in `CLAUDE_EXTRA_ARGS` pins the model for the instance (`ClaudeRunner::modelFromArgs`): nothing
+  is resolved and `/model` is read-only. The model is the last `callback_data` segment
+  (`model:<step>:<thread_id>:<value>`, parsed with a part limit) because a full model ID may contain `:`.
 - **Updated instructions in a resumed session.** `sessions.prompt_hash` holds the sha256 of the system
   prompt actually passed in argv (contract, role, `CLAUDE_APPEND_SYSTEM_PROMPT`, language line) by the last
   successful run. On `--resume` of a chat run (`ClaudeRunner` with `updateOnResume`), a missing or different
@@ -345,14 +356,14 @@ Decide by exception **type**:
 
 ## Callback handlers: stateless ones before the decision handler, which is last
 
-- **Stateless** (`mode:<mode>:<thread_id>`, `lang:<code>`, `epic:<action>:<thread_id>[:<slug>]`): everything needed is in `callback_data`, the
+- **Stateless** (`mode:<mode>:<thread_id>`, `model:<step>:<thread_id>:<value>`, `lang:<code>`, `epic:<action>:<thread_id>[:<slug>]`): everything needed is in `callback_data`, the
   update survives a restart. Handled **before** the decision-record check and never reads or writes that record.
 - **Stateful** (`commit`/`discard`): checked against the decision record (`Database::getDecision()`: topic
   and `message_id` of the buttons message; one slot for the whole bot).
 
-The decision record is shared by all topics. The `/mode`, `/lang` and `/epic` keyboards live in the feed indefinitely, so if they
+The decision record is shared by all topics. The `/mode`, `/model`, `/lang` and `/epic` keyboards live in the feed indefinitely, so if they
 went through the commit/discard branch (`AUTO_COMMIT=1`) a tap would overwrite a pending decision from another topic. Put a
-new stateless handler **before** `DirtyTreeDecision` in `Bot::$callbackHandlers` (the list is `mode:`, `lang:`, `epic:`,
+new stateless handler **before** `DirtyTreeDecision` in `Bot::$callbackHandlers` (the list is `mode:`, `model:`, `lang:`, `epic:`,
 `DirtyTreeDecision`; `DirtyTreeDecision::supports()` accepts any data, so a handler after it never runs). `CallbackHandlerOrderTest`
 pins the order. Access control is a guard in `handleCallback()` before the list, not a handler.
 

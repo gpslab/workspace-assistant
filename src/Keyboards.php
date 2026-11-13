@@ -71,6 +71,51 @@ final class Keyboards
     }
 
     /**
+     * /model keyboard, step 1: one button per model of the list (labelled with the value itself, the
+     * effective one gets ' ✓') plus 'default'. The value is the last segment of callback_data
+     * ('model:pick:<thread_id>:<value>'). A value whose step-2 data ('model:topic:...', the longest)
+     * does not fit Telegram's limit gets no button and stays selectable by text.
+     *
+     * @param list<string> $models
+     */
+    public static function model(array $models, ?string $current, int $threadId): Keyboard
+    {
+        $buttons = [];
+        $skipped = false;
+        foreach ([...$models, ModelChoice::VALUE_DEFAULT] as $model) {
+            $button = strlen("model:topic:{$threadId}:{$model}") > self::CALLBACK_DATA_MAX_BYTES
+                ? null
+                : self::button($model === $current ? $model.' ✓' : $model, "model:pick:{$threadId}:{$model}");
+            if ($button === null) {
+                $skipped = true;
+
+                continue;
+            }
+            $buttons[] = $button;
+        }
+
+        return new Keyboard(['inline_keyboard' => array_chunk($buttons, 3)], $skipped);
+    }
+
+    /** /model keyboard, step 2: the level the chosen value is set for. */
+    public static function modelLevel(int $threadId, string $model, string $topicLabel, string $allLabel): Keyboard
+    {
+        $buttons = [];
+        $skipped = false;
+        foreach ([[ModelChoice::LEVEL_TOPIC, $topicLabel], [ModelChoice::LEVEL_ALL, $allLabel]] as [$step, $label]) {
+            $button = self::button($label, "model:{$step}:{$threadId}:{$model}");
+            if ($button === null) {
+                $skipped = true;
+
+                continue;
+            }
+            $buttons[] = $button;
+        }
+
+        return new Keyboard(['inline_keyboard' => [$buttons]], $skipped);
+    }
+
+    /**
      * The /epic menu: one row of actions; an action whose callback_data does not fit is left out.
      *
      * @param list<array{0: string, 1: string}> $actions [text, callback_data]

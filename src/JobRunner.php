@@ -126,8 +126,9 @@ final class JobRunner implements JobLauncher, RunControl
      * @param array{run:string, pr:?string}|null $epicRun
      * @param array<string, string>              $reviewShas reviewed commit per PR (`owner/repo#N` => SHA) for {@see ReviewCommitHook}
      */
-    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = []): ?string
+    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = [], ?string $model = null): ?string
     {
+        $model = (new ModelChoice($this->config, $this->db))->checkPinned($model);
         // Compact summarize runs in arch regardless of the topic mode: the summary must
         // stay detailed, otherwise after compression in review/pm we would lose the key
         // decisions (see prompts/compact_summarize_prompt.md.dist). Reseed creates the
@@ -225,6 +226,7 @@ final class JobRunner implements JobLauncher, RunControl
                 updateOnResume: $kind === RunKind::KIND_CHAT,
                 savedPromptHash: $kind === RunKind::KIND_CHAT && $sessionId !== null ? $this->savedPromptHash($chatId, $threadId) : null,
                 forge: $this->config->forge,
+                model: $model,
             );
             $runner->start($prompt, $sessionId);
         } catch (\RuntimeException $e) {
@@ -320,6 +322,7 @@ final class JobRunner implements JobLauncher, RunControl
             : '';
         $compactOld = $this->runState->jobContext['compact_old_session_id'] ?? null;
         $promptHash = $this->runState->jobContext['prompt_hash'];
+        $actualModel = $this->runState->activeJob->actualModel();
         // Capture BEFORE finishJobState(), which resets jobContext.
         $inboxFiles = $this->runState->jobContext['inbox_files'];
 
@@ -375,6 +378,10 @@ final class JobRunner implements JobLauncher, RunControl
         // Drop the job BEFORE delivery to Telegram: a delivery failure then cannot
         // leave a dangling activeJob or make poll() loop on a closed process.
         $this->finishJobState($chatId, $threadId);
+        // An epic run uses the topic's row but never touches its session state.
+        if ($actualModel !== null && $kind !== RunKind::KIND_EPIC) {
+            $this->db->setLastModel($chatId, $threadId, $actualModel);
+        }
         $this->inbox->deleteInboxFiles($inboxFiles);
         if ($gateSkip !== '' && !$gateInReply) {
             $this->reportPmGateSkip($chatId, $threadId, $kind, $epicSlug, $epicRun, $gateSkip);

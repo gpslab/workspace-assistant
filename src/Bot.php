@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\Callback\EpicHandler;
 use GpsLab\WorkspaceAssistant\Callback\Handler;
 use GpsLab\WorkspaceAssistant\Callback\LangHandler;
 use GpsLab\WorkspaceAssistant\Callback\ModeHandler;
+use GpsLab\WorkspaceAssistant\Callback\ModelHandler;
 use GpsLab\WorkspaceAssistant\Command\CancelCommand;
 use GpsLab\WorkspaceAssistant\Command\CompactCommand;
 use GpsLab\WorkspaceAssistant\Command\EpicCommand;
@@ -18,6 +19,7 @@ use GpsLab\WorkspaceAssistant\Command\Locales;
 use GpsLab\WorkspaceAssistant\Command\LoopControl;
 use GpsLab\WorkspaceAssistant\Command\Menu;
 use GpsLab\WorkspaceAssistant\Command\ModeCommand;
+use GpsLab\WorkspaceAssistant\Command\ModelCommand;
 use GpsLab\WorkspaceAssistant\Command\NewCommand;
 use GpsLab\WorkspaceAssistant\Command\QueueCommand;
 use GpsLab\WorkspaceAssistant\Command\RestartCommand;
@@ -71,6 +73,7 @@ final class Bot implements LoopControl
     private readonly Inbox $inbox;
     private readonly ChatSurface $epicChat;
     private readonly ModeAndLang $modeAndLang;
+    private readonly ModelSwitcher $modelSwitcher;
     private readonly Router $commandRouter;
     private readonly Menu $commandMenu;
     private readonly QueueTexts $queueTexts;
@@ -85,7 +88,7 @@ final class Bot implements LoopControl
     private readonly CompactFlow $compactFlow;
 
     /**
-     * Callback handlers in the order they are tried: the stateless `mode:`, `lang:`, `epic:` first,
+     * Callback handlers in the order they are tried: the stateless `mode:`, `model:`, `lang:`, `epic:` first,
      * the decision handler (it takes everything left) last.
      *
      * @var list<Handler>
@@ -115,9 +118,11 @@ final class Bot implements LoopControl
         $this->queueTexts = new QueueTexts($this->locale);
         $this->jobRunner = new JobRunner($config, $db, $tg, $git, $this->delivery, $this->locale, $this->inbox, $this->subRepoSync, $this->queueTexts, $this->epicCard, $this->runState);
         $this->modeAndLang = new ModeAndLang($db, $tg, $this->locale, $this->jobRunner, $this->locales);
+        $this->modelSwitcher = new ModelSwitcher($config, $db, $tg, $this->locale, $this->jobRunner);
         $this->dirtyTree = new DirtyTreeDecision($config, $db, $tg, $git, $this->delivery, $this->locale, $this->queueTexts, $this->runResult);
         $this->callbackHandlers = [
             new ModeHandler($this->modeAndLang),
+            new ModelHandler($this->modelSwitcher),
             new LangHandler($this->modeAndLang),
             new EpicHandler($this->epicChat),
             $this->dirtyTree,
@@ -155,9 +160,10 @@ final class Bot implements LoopControl
         $router->register(new CompactCommand($this->queueScheduler, $this->locales));
         $router->register(new CancelCommand($this->db, $this->tg, $this->delivery, $this->locale, $this->jobRunner, $this->queueTexts, $this->dirtyTree));
         $router->register(new QueueCommand($this->tg, $this->locale, $this->queueScheduler, $this->jobRunner, $this->queueTexts));
-        $router->register(new StatsCommand($this->db, $this->tg, $this->locale, $this->queueScheduler, $this->jobRunner));
+        $router->register(new StatsCommand($this->db, $this->tg, $this->locale, $this->queueScheduler, $this->jobRunner, new ModelChoice($this->config, $this->db)));
         $router->register(new VerboseCommand($this->db, $this->tg, $this->locale));
         $router->register(new ModeCommand($this->modeAndLang));
+        $router->register(new ModelCommand($this->modelSwitcher));
         $router->register(new LangCommand($this->modeAndLang));
         $router->register(new EpicCommand($this->epicChat));
         $router->register(new RestartCommand($this->config, $this->tg, $this->locale, $this, $this->selfRepoPath ?? dirname(__DIR__)));

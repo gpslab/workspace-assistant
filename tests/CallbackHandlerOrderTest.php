@@ -10,6 +10,7 @@ use GpsLab\WorkspaceAssistant\Callback\EpicHandler;
 use GpsLab\WorkspaceAssistant\Callback\Handler;
 use GpsLab\WorkspaceAssistant\Callback\LangHandler;
 use GpsLab\WorkspaceAssistant\Callback\ModeHandler;
+use GpsLab\WorkspaceAssistant\Callback\ModelHandler;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
@@ -29,7 +30,7 @@ final class CallbackHandlerOrderTest extends TestCase
     public function testStatelessHandlersPrecedeTheDecisionHandler(): void
     {
         self::assertSame(
-            [ModeHandler::class, LangHandler::class, EpicHandler::class, DirtyTreeDecision::class],
+            [ModeHandler::class, ModelHandler::class, LangHandler::class, EpicHandler::class, DirtyTreeDecision::class],
             array_map(static fn (Handler $handler): string => $handler::class, $this->handlers()),
         );
     }
@@ -48,6 +49,7 @@ final class CallbackHandlerOrderTest extends TestCase
         $handlers = $this->handlers();
 
         self::assertSame(ModeHandler::class, $firstSupporting($handlers, 'mode:pm:0'));
+        self::assertSame(ModelHandler::class, $firstSupporting($handlers, 'model:pick:0:opus[1m]'));
         self::assertSame(LangHandler::class, $firstSupporting($handlers, 'lang:en'));
         self::assertSame(EpicHandler::class, $firstSupporting($handlers, 'epic:resume:0'));
         self::assertSame(DirtyTreeDecision::class, $firstSupporting($handlers, 'commit'));

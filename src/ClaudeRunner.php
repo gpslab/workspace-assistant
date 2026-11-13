@@ -68,6 +68,9 @@ final class ClaudeRunner
     /** session_id from the event stream (init/result); known already while the run is in progress. */
     private ?string $sessionId = null;
 
+    /** `model` of the system/init event: the model the run actually uses. */
+    private ?string $actualModel = null;
+
     /** Incomplete stream-json line carried over between pipe reads. */
     private string $lineBuf = '';
 
@@ -95,6 +98,7 @@ final class ClaudeRunner
      * @param string                $homeDir         home of the user the bot runs as, for ~/.claude/agents; empty skips it
      * @param bool                  $updateOnResume  on --resume, prepend the instructions-update block when the prompt hash differs from $savedPromptHash
      * @param string|null           $savedPromptHash hash of the system prompt the session was last run with; null = unknown
+     * @param string|null           $model           passed as --model; null passes none (also when CLAUDE_EXTRA_ARGS has its own --model)
      */
     public function __construct(
         private readonly string $claudeBin,
@@ -115,6 +119,7 @@ final class ClaudeRunner
         private readonly bool $updateOnResume = false,
         private readonly ?string $savedPromptHash = null,
         private readonly string $forge = Config::FORGE_GITHUB,
+        private readonly ?string $model = null,
     ) {
     }
 
@@ -165,6 +170,10 @@ final class ClaudeRunner
         }
         foreach ($this->extraArgs as $arg) {
             $argv[] = $arg;
+        }
+        if ($this->model !== null && self::modelFromArgs($this->extraArgs) === null) {
+            $argv[] = '--model';
+            $argv[] = $this->model;
         }
         // The system prompt comes from files (SystemPrompt, prompts/*.md.dist under git): these are the rules
         // for Claude's work in the project; forMode() assembles the common part plus the role block
@@ -287,6 +296,12 @@ final class ClaudeRunner
     public function diagnosticsPath(): ?string
     {
         return $this->diagnosticsPath;
+    }
+
+    /** The model reported by the run's system/init event; null until it is seen. */
+    public function actualModel(): ?string
+    {
+        return $this->actualModel;
     }
 
     public function pid(): int
@@ -468,6 +483,27 @@ final class ClaudeRunner
         return [$handles[1], $handles[2]];
     }
 
+    /**
+     * The model a `--model X` / `--model=X` in the extra arguments sets: '' when the flag has no value,
+     * null when there is no such flag (the bot then passes its own model).
+     *
+     * @param list<string>|string[] $args
+     */
+    public static function modelFromArgs(array $args): ?string
+    {
+        $args = array_values($args);
+        foreach ($args as $i => $arg) {
+            if ($arg === '--model') {
+                return $args[$i + 1] ?? '';
+            }
+            if (str_starts_with($arg, '--model=')) {
+                return substr($arg, strlen('--model='));
+            }
+        }
+
+        return null;
+    }
+
     private function hasAgentsArg(): bool
     {
         foreach ($this->extraArgs as $arg) {
@@ -624,6 +660,13 @@ final class ClaudeRunner
         $sid = self::sessionIdFromEvent($event);
         if ($sid !== null) {
             $this->sessionId = $sid;
+        }
+
+        if (($event['type'] ?? null) === 'system' && ($event['subtype'] ?? null) === 'init') {
+            $model = $event['model'] ?? null;
+            if (is_string($model) && $model !== '') {
+                $this->actualModel = $model;
+            }
         }
 
         // The result event is put into stdout as a line for ClaudeResult::fromJson.

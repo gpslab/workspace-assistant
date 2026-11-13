@@ -45,7 +45,7 @@ final readonly class QueueCommand implements Command
 
         $waiting = $this->queue->waiting();
         foreach ($waiting as $i => $item) {
-            $lines[] = sprintf('%d. %s — %s [%s]', $i + 1, $this->texts->topicLabel($item['chat_id'], $item['thread_id']), $this->texts->describeItem($item), $item['mode']);
+            $lines[] = sprintf('%d. %s — %s [%s]', $i + 1, $this->texts->topicLabel($item['chat_id'], $item['thread_id']), $this->texts->describeItem($item), $item['model'] !== null ? $item['mode'].', '.$item['model'] : $item['mode']);
         }
 
         if ($lines === []) {

@@ -91,7 +91,7 @@ final class CompactFlow
 
             return;
         }
-        $error = $this->launcher->launchJob($chatId, $threadId, RunKind::KIND_COMPACT_RESEED, $prompt, null, $thinkingId, $compactOldSessionId, $this->db->getMode($chatId, $threadId), $queueId, localeCode: $localeCode);
+        $error = $this->launcher->launchJob($chatId, $threadId, RunKind::KIND_COMPACT_RESEED, $prompt, null, $thinkingId, $compactOldSessionId, $this->db->getMode($chatId, $threadId), $queueId, localeCode: $localeCode, model: (new ModelChoice($this->config, $this->db))->resolve($chatId, $threadId));
         if ($error !== null) {
             $this->tg->deleteMessage($chatId, $thinkingId);
             $this->delivery->deliver($chatId, $threadId, $this->t('queue.claude_start_failed', ['error' => $error]));

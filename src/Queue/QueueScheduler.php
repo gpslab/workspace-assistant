@@ -20,6 +20,7 @@ use GpsLab\WorkspaceAssistant\Inbox;
 use GpsLab\WorkspaceAssistant\JobLauncher;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
+use GpsLab\WorkspaceAssistant\ModelChoice;
 use GpsLab\WorkspaceAssistant\PmRunbook;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\RunKind;
@@ -163,9 +164,14 @@ final class QueueScheduler implements QueueControl
         }
     }
 
+    private function models(): ModelChoice
+    {
+        return new ModelChoice($this->config, $this->db);
+    }
+
     /**
      * Enqueues a message (text or files). Merging: consecutive pending
-     * messages of the SAME topic with the same pinned mode and language are
+     * messages of the SAME topic with the same pinned mode, model and language are
      * appended to the topic's last pending item (until the group is closed by
      * /mode, /new or /compact). A message to a topic whose job is already running
      * is not merged with it - it becomes a new item at the end of the shared queue.
@@ -186,9 +192,11 @@ final class QueueScheduler implements QueueControl
         }
 
         $mode = $this->db->getMode($chatId, $threadId);
+        $model = $this->models()->resolve($chatId, $threadId);
         $localeCode = $this->locales->userLocale($userId);
         $last = $this->db->queueLastWaiting($chatId, $threadId);
         if ($last !== null && $last['kind'] === self::ITEM_CHAT && !$last['closed'] && $last['mode'] === $mode
+            && ($last['model'] ?? null) === $model
             && ($last['locale'] ?? $this->locale->code()) === $localeCode) {
             $added = false;
             foreach ($parts as $part) {
@@ -201,7 +209,7 @@ final class QueueScheduler implements QueueControl
             return;
         }
 
-        $this->enqueueItem($chatId, $threadId, $messageId, self::ITEM_CHAT, $mode, $parts, $localeCode);
+        $this->enqueueItem($chatId, $threadId, $messageId, self::ITEM_CHAT, $mode, $parts, $localeCode, $model);
     }
 
     /**
@@ -212,7 +220,7 @@ final class QueueScheduler implements QueueControl
      *
      * @param list<array<string, mixed>> $parts
      */
-    private function enqueueItem(int $chatId, int $threadId, int $messageId, string $kind, string $mode, array $parts, ?string $localeCode = null): void
+    private function enqueueItem(int $chatId, int $threadId, int $messageId, string $kind, string $mode, array $parts, ?string $localeCode = null, ?string $model = null): void
     {
         if ($messageId <= 0) {
             // Command without a message_id (tests/synthetic): the key must be unique.
@@ -227,7 +235,7 @@ final class QueueScheduler implements QueueControl
         $text = $idle ? $this->startText($kind, $mode) : $this->t('queue.waiting', ['position' => $this->t('queue.position', ['position' => $position])]);
 
         $placeholderId = $this->tg->sendText($chatId, $text, null, $threadId);
-        if ($this->db->queueAdd($chatId, $threadId, $messageId, $kind, $mode, $parts, $placeholderId, $localeCode) === null) {
+        if ($this->db->queueAdd($chatId, $threadId, $messageId, $kind, $mode, $parts, $placeholderId, $localeCode, $model) === null) {
             $this->tg->deleteMessage($chatId, $placeholderId);
         }
     }
@@ -262,6 +270,7 @@ final class QueueScheduler implements QueueControl
             Run::modeFor($run),
             [$part],
             locale: $this->locale->code(),
+            model: $this->models()->resolveForAll(),
         ) !== null;
     }
 
@@ -321,7 +330,7 @@ final class QueueScheduler implements QueueControl
 
     public function enqueueCompact(int $chatId, int $threadId, int $messageId, string $localeCode): void
     {
-        $this->enqueueItem($chatId, $threadId, $messageId, self::ITEM_COMPACT, SystemPrompt::MODE_ARCH, [], $localeCode);
+        $this->enqueueItem($chatId, $threadId, $messageId, self::ITEM_COMPACT, SystemPrompt::MODE_ARCH, [], $localeCode, $this->models()->resolve($chatId, $threadId));
     }
 
     /** The topic has an active or pending item. */
@@ -417,7 +426,7 @@ final class QueueScheduler implements QueueControl
     }
 
     /**
-     * @param array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool} $head
+     * @param array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool} $head
      */
     private function tryStartQueueHead(array $head): void
     {
@@ -575,7 +584,7 @@ final class QueueScheduler implements QueueControl
     }
 
     /**
-     * @param array{id:int, chat_id:int, thread_id:int, mode:string, locale:?string, placeholder_id:int, parts:list<array<string, mixed>>} $head
+     * @param array{id:int, chat_id:int, thread_id:int, mode:string, locale:?string, model?:?string, placeholder_id:int, parts:list<array<string, mixed>>} $head
      */
     private function startEpicItem(array $head): void
     {
@@ -599,10 +608,10 @@ final class QueueScheduler implements QueueControl
     /**
      * Launch of an item's run. A launch failure is temporary: the item stays the head.
      *
-     * @param array{id:int, chat_id:int, thread_id:int, mode:string, locale:?string, placeholder_id:int} $head
-     * @param list<string>                                                                               $inboxFiles
-     * @param array{run:string, pr:?string}|null                                                         $epicRun
-     * @param array<string, string>                                                                      $reviewShas
+     * @param array{id:int, chat_id:int, thread_id:int, mode:string, locale:?string, model?:?string, placeholder_id:int} $head
+     * @param list<string>                                                                                               $inboxFiles
+     * @param array{run:string, pr:?string}|null                                                                         $epicRun
+     * @param array<string, string>                                                                                      $reviewShas
      */
     private function startJobOfItem(array $head, string $kind, string $prompt, ?string $sessionId, array $inboxFiles, ?string $compactOld = null, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, array $reviewShas = []): void
     {
@@ -649,7 +658,7 @@ final class QueueScheduler implements QueueControl
 
         $this->db->queueMarkRunning($head['id']);
         try {
-            $error = $this->launcher->launchJob($chatId, $threadId, $kind, $prompt, $sessionId, $thinkingId, $compactOld, $head['mode'], $head['id'], $epicSlug, $epicRun, $idsPath, $head['locale'] ?? null, $reviewShas);
+            $error = $this->launcher->launchJob($chatId, $threadId, $kind, $prompt, $sessionId, $thinkingId, $compactOld, $head['mode'], $head['id'], $epicSlug, $epicRun, $idsPath, $head['locale'] ?? null, $reviewShas, $head['model'] ?? null);
         } catch (\Throwable $e) {
             // The process is already started and tracked (activeJob is assigned right after
             // start()) - the job goes on as usual, pollJob() will clean up inbox files.

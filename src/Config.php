@@ -12,6 +12,9 @@ final class Config
     public const string FORGE_GITHUB = 'github';
     public const string FORGE_GITLAB = 'gitlab';
 
+    /** @var list<string> */
+    public const array DEFAULT_CLAUDE_MODELS = ['fable', 'opus[1m]', 'opus', 'sonnet', 'haiku'];
+
     public const array DEFAULT_HOSTS = [
         self::FORGE_GITHUB => 'github.com',
         self::FORGE_GITLAB => 'gitlab.com',
@@ -56,6 +59,8 @@ final class Config
         public readonly string $forge = self::FORGE_GITHUB,
         public readonly string $forgeHost = 'github.com',
         public readonly array $configWarnings = [],
+        /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
+        public readonly array $claudeModels = self::DEFAULT_CLAUDE_MODELS,
     ) {
     }
 
@@ -178,6 +183,7 @@ final class Config
             forge: $forge,
             forgeHost: $forgeHost,
             configWarnings: $configWarnings,
+            claudeModels: array_values(array_unique($env->list('CLAUDE_MODELS', implode(',', self::DEFAULT_CLAUDE_MODELS)))),
         );
     }
 

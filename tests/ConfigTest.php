@@ -375,4 +375,13 @@ final class ConfigTest extends TestCase
         self::assertSame('ru', $config->botLocale);
         self::assertSame('instance/locales', $config->localesDir);
     }
+
+    public function testClaudeModelsDefaultAndOverride(): void
+    {
+        $this->writeEnv();
+        self::assertSame(['fable', 'opus[1m]', 'opus', 'sonnet', 'haiku'], Config::load($this->envFile)->claudeModels);
+
+        $this->writeEnv('CLAUDE_MODELS=sonnet, claude-haiku-4-5-20251001');
+        self::assertSame(['sonnet', 'claude-haiku-4-5-20251001'], Config::load($this->envFile)->claudeModels);
+    }
 }

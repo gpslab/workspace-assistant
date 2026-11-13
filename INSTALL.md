@@ -151,6 +151,7 @@ GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab
 | `CLAUDE_TIMEOUT` | `0` | Overall limit of one Claude call, seconds (0 = off) |
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |
 | `CLAUDE_EXTRA_ARGS` | `--dangerously-skip-permissions` | Extra `claude` arguments, comma-separated |
+| `CLAUDE_MODELS` | `fable,opus[1m],opus,sonnet,haiku` | Models selectable with `/model`, comma-separated; values are passed to `claude --model` as they are. A `--model` in `CLAUDE_EXTRA_ARGS` pins the model and `/model` becomes read-only |
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | empty | Text appended to the system prompt |
 | `PROMPTS_DIR` | empty | Persona files, relative to `REPO_PATH`; the texts in `prompts/` apply without it |
 | `STATE_DIR` | `./state` | State directory (SQLite, inbox, outbox, epic signals) |
