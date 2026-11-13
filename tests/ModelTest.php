@@ -415,6 +415,12 @@ final class ModelTest extends TestCase
         $this->tap('model:topic:1:sonnet');
         self::assertNull($this->db->getTopicModel(100, 1));
         self::assertStringContainsString('pinned by --model', (string) end($this->tg->answers));
+
+        $this->command(1, '/model');
+        $sent = end($this->tg->sent);
+        self::assertIsArray($sent);
+        self::assertNull($sent['markup'], 'no keyboard while --model pins the instance');
+        self::assertStringContainsString('pinned by --model', $sent['text']);
     }
 
     public function testStatsShowsTheModelLineWithAndWithoutASession(): void
@@ -552,6 +558,34 @@ final class ModelTest extends TestCase
         self::assertSame('Model for all topics: haiku.', $this->lastText());
 
         $this->db->setTopicModel(100, 1, null);
+        $this->command(1, '/model sonnet all');
+        self::assertStringContainsString('drops the prompt cache', $this->lastText());
+    }
+
+    public function testNoWarningWhenTheEffectiveModelStaysTheSame(): void
+    {
+        $this->db->recordRun(100, 1, 's-1', null);
+
+        $this->db->setTopicModel(100, 1, 'sonnet');
+        $this->command(1, '/model sonnet');
+        self::assertStringNotContainsString('drops the prompt cache', $this->lastText());
+
+        $this->db->setTopicModel(100, 1, null);
+        $this->db->setDefaultModel('sonnet');
+        $this->command(1, '/model sonnet');
+        self::assertStringNotContainsString('drops the prompt cache', $this->lastText());
+
+        $this->db->setTopicModel(100, 1, null);
+        $this->db->setDefaultModel(null);
+        $this->command(1, '/model default');
+        self::assertStringNotContainsString('drops the prompt cache', $this->lastText());
+    }
+
+    public function testChangeForAllTopicsWarnsWhenTheTopicModelIsOutsideTheList(): void
+    {
+        $this->db->recordRun(100, 1, 's-1', null);
+        $this->db->setTopicModel(100, 1, 'gone-model');
+
         $this->command(1, '/model sonnet all');
         self::assertStringContainsString('drops the prompt cache', $this->lastText());
     }
