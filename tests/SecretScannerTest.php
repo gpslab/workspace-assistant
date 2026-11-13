@@ -163,6 +163,16 @@ final class SecretScannerTest extends TestCase
         self::assertSame('x [REDACTED]END y', $scanner->mask($text));
     }
 
+    public function testKnownValueContainedInAnEarlierPatternMatchLeavesNoTail(): void
+    {
+        $scanner = $this->scanner('MY_TOKEN='.self::VALUE);
+
+        // The known value starts later and ends before the openai match: the merged range must keep the later end.
+        $text = 'x sk-'.str_repeat('A', 20).self::VALUE.str_repeat('B', 8).'TAILSECRET y';
+
+        self::assertSame('x [REDACTED] y', $scanner->mask($text));
+    }
+
     public function testFindingHasTypeAndLocationOnly(): void
     {
         $scanner = $this->scanner('GH_PASSWORD='.self::VALUE);
