@@ -1362,6 +1362,42 @@ final class Database
         $this->kvDelete('decision');
     }
 
+    /**
+     * The commit gate blocked the bot's commit: the findings (types and places, no values) stay until
+     * the next successful commit or a discard.
+     *
+     * @param non-empty-list<OutgoingSecret> $findings
+     */
+    public function setSecretBlock(array $findings): void
+    {
+        $this->kvSet('secret_block', json_encode(array_map(static fn (OutgoingSecret $f): array => $f->toArray(), $findings), JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * @return non-empty-list<OutgoingSecret>|null null: the commit is not blocked by a secret
+     */
+    public function getSecretBlock(): ?array
+    {
+        $raw = $this->kvGet('secret_block');
+        $decoded = $raw === null ? null : json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+        $findings = [];
+        foreach ($decoded as $item) {
+            if (is_array($item)) {
+                $findings[] = OutgoingSecret::fromArray($item);
+            }
+        }
+
+        return $findings === [] ? null : $findings;
+    }
+
+    public function clearSecretBlock(): void
+    {
+        $this->kvDelete('secret_block');
+    }
+
     /** Queue pause due to the Claude limit: unix time of the end. */
     public function setLimitPauseUntil(int $timestamp): void
     {

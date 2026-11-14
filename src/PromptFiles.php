@@ -35,6 +35,7 @@ final class PromptFiles
         'contract_review',
         'language_line',
         'session_update',
+        'secret_blocked',
         'review_status_reason',
         'review_status_reason_no_verdict',
         'review_status_reason_ids',

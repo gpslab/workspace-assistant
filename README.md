@@ -346,6 +346,24 @@ the shapes above reaches the chat as it is: list the files that hold your secret
 
 To report a vulnerability privately, see [SECURITY.md](SECURITY.md).
 
+### Commit gate
+
+With `AUTO_COMMIT=1` the bot commits and pushes at the end of a run by itself. Before that it scans the added
+lines of the staged diff **and** of every commit no remote has yet (`git log -p HEAD --not --remotes`: without a
+matching remote branch that is the whole history) with the same detector as the masking above. Binary files are
+not scanned. On a finding the gate **blocks, never masks**: the index is reset (the working tree is not touched),
+nothing is committed or pushed, and the chat gets the places as `file:line` (or `commit:file:line`) and the type,
+never a value, with the "Discard" button.
+
+The bot then stays in a "blocked by secret" state. A dirty tree does not pause the queue in it: reply with what to
+do, and that run's prompt carries the findings and the instruction to remove the secret and, if it sits in an
+unpushed commit, to rewrite that commit. The gate runs again at the end of the run. The state ends with the next
+successful commit or with "Discard".
+
+`SECRET_SCAN_EXCLUDE` lists path globs where shape patterns do not fire (fixtures); known values always do. Not
+covered: history that is already pushed, token revocation (manual work for the owner), and pushes Claude makes
+itself during a run.
+
 ### Isolation recipe
 
 1. **Dedicated user without sudo.** Run the bot as its own account that is not in `sudo`/`wheel` and owns

@@ -9,10 +9,12 @@ use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Delivery;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
+use GpsLab\WorkspaceAssistant\Exception\SecretFoundException;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
 use GpsLab\WorkspaceAssistant\RunResult;
+use GpsLab\WorkspaceAssistant\SecretBlocker;
 
 /**
  * What happens when an epic run finishes or fails: the signal is applied, leftovers are committed,
@@ -31,6 +33,7 @@ final class RunLifecycle
         private readonly RunResult $runResult,
         private readonly DirtyTreeDecision $dirtyTree,
         private readonly ?Orchestrator $orchestrator,
+        private readonly SecretBlocker $secretBlocker,
     ) {
     }
 
@@ -121,10 +124,16 @@ final class RunLifecycle
 
                 return;
             }
+            // An epic run never starts while a secret block is active (QueueScheduler holds it back), so the
+            // block state is not touched here: a finding below is a new one of this run.
             if ($dirty) {
                 $this->runResult->deliverPromptFilesWarning($chatId, $threadId);
                 try {
                     $this->git->commitAndPush($this->runResult->commitMessage("epic {$slug}"));
+                } catch (SecretFoundException $e) {
+                    // The finding goes to the epic like a `blocked` of the run signal: the epic stops.
+                    $this->secretBlocker->block($chatId, $threadId, $e);
+                    $this->notifier->blockEpic($slug, $this->locale->t('epicrun.secret_blocked', ['slug' => $slug, 'findings' => SecretBlocker::lines($e->findings, $this->locale)]));
                 } catch (\RuntimeException $e) {
                     $this->delivery->deliver($chatId, $threadId, $this->locale->t('epicrun.git_failed', ['slug' => $slug, 'error' => $e->getMessage()]));
                     $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
@@ -251,6 +260,7 @@ final class RunLifecycle
             $this->git->discardChanges();
         }
         $this->db->clearDirtyOwner();
+        $this->db->clearSecretBlock();
         $this->failLog($dir, $reason, $patchName);
         Log::line("epic {$slug}: run failed: {$reason}".($patchName !== null ? " (patch {$patchName})" : ''));
     }

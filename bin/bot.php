@@ -24,7 +24,7 @@ try {
     $db = new Database($config->stateDir);
     $locale = Locale::fromConfig($config);
     $tg = new TelegramClient($config->botToken, $locale);
-    $git = new GitManager($config->repoPath, $config->gitTimeout, $locale, $config->forge, $config->forgeHost);
+    $git = new GitManager($config->repoPath, $config->gitTimeout, $locale, $config->forge, $config->forgeHost, $config->secretScanExclude);
     $sessionFiles = new SessionFiles();
 
     $bot = new Bot($config, $db, $tg, $git, $sessionFiles, $config->epicsAvailable() ? new GhClient($config->forgeOwners, openroninLogins: $config->openroninLogins) : null, $locale);

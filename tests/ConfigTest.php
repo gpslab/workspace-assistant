@@ -53,6 +53,15 @@ final class ConfigTest extends TestCase
         self::assertTrue(Config::load($this->envFile)->autoCommit);
     }
 
+    public function testSecretScanExcludeIsAListOfGlobsEmptyByDefault(): void
+    {
+        $this->writeEnv();
+        self::assertSame([], Config::load($this->envFile)->secretScanExclude);
+
+        $this->writeEnv('SECRET_SCAN_EXCLUDE=tests/fixtures/*, docs/*.md');
+        self::assertSame(['tests/fixtures/*', 'docs/*.md'], Config::load($this->envFile)->secretScanExclude);
+    }
+
     public function testAutoCommitZeroTurnsItOff(): void
     {
         $this->writeEnv('AUTO_COMMIT=0');

@@ -29,6 +29,7 @@ final class PromptFilesTest extends TestCase
         'contract_review' => true,
         'language_line' => true,
         'session_update' => true,
+        'secret_blocked' => true,
         'review_status_reason' => true,
         'review_status_reason_no_verdict' => true,
         'review_status_reason_ids' => true,
@@ -196,6 +197,7 @@ final class PromptFilesTest extends TestCase
         $values = [
             'language_line' => ['language' => 'English'],
             'session_update' => ['prompt' => 'text'],
+            'secret_blocked' => ['findings' => '- a:1 (t)'],
             'review_status_reason' => ['verdict' => '🟢', 'state' => 'Approve', 'problem' => 'p'],
             'review_status_reason_ids' => ['ids' => 'C1'],
             'review_status_reason_ids_gitlab' => ['ids' => 'C1'],

@@ -25,6 +25,7 @@ use GpsLab\WorkspaceAssistant\PmRunbook;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\RunKind;
 use GpsLab\WorkspaceAssistant\RunState;
+use GpsLab\WorkspaceAssistant\SecretBlocker;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\SubRepoSync;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
@@ -137,12 +138,49 @@ final class QueueScheduler implements QueueControl
                 : $this->t('pause.dirty_tree');
         }
 
+        $startable = $this->startableHead();
         $retry = $this->db->getRetry();
-        if ($retry !== null && $retry['item'] === $head['id'] && $retry['at'] > time()) {
+        if ($retry !== null && $startable !== null && $retry['item'] === $startable['id'] && $retry['at'] > time()) {
             return $this->t('pause.start_retry', ['seconds' => $retry['at'] - time()]);
         }
 
+        if ($this->epicHeldBySecretBlock($head)) {
+            return $this->t('pause.epic_secret_blocked');
+        }
+
         return null;
+    }
+
+    /**
+     * The queue item that starts next: the head, or, while a secret block holds an epic at the head,
+     * the first non-epic item. One place for the start, the retry timer and the pause reason.
+     *
+     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}|null
+     */
+    private function startableHead(): ?array
+    {
+        $head = $this->db->queueHead();
+        if ($head === null || !$this->epicHeldBySecretBlock($head)) {
+            return $head;
+        }
+        // An epic run must not start on top of a chat run's blocked change: its gate would block the
+        // epic for a secret it did not write, and its failure path would discard that change. The
+        // rest of the queue goes on, so the author's reply that fixes the block can start.
+        foreach ($this->db->queueWaiting() as $item) {
+            if ($item['kind'] !== self::ITEM_EPIC) {
+                return $item;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array{kind:string} $item
+     */
+    private function epicHeldBySecretBlock(array $item): bool
+    {
+        return $item['kind'] === self::ITEM_EPIC && $this->config->autoCommit && $this->db->getSecretBlock() !== null;
     }
 
     /**
@@ -156,7 +194,8 @@ final class QueueScheduler implements QueueControl
         }
 
         try {
-            return $this->config->autoCommit && $this->git->hasChanges();
+            // Blocked by a secret, the dirty tree waits for the author's reply and must not stop it.
+            return $this->config->autoCommit && $this->db->getSecretBlock() === null && $this->git->hasChanges();
         } catch (GitStatusException $e) {
             $statusError = $e->getMessage();
 
@@ -346,7 +385,7 @@ final class QueueScheduler implements QueueControl
     public function queueBlockedUntil(): int
     {
         $until = $this->db->getLimitPauseUntil();
-        $head = $this->db->queueHead();
+        $head = $this->startableHead();
         $retry = $this->db->getRetry();
         if ($retry !== null && $head !== null && $retry['item'] === $head['id']) {
             $until = max($until, $retry['at']);
@@ -371,7 +410,7 @@ final class QueueScheduler implements QueueControl
             return;
         }
         $this->releaseStaleDirtyState();
-        $head = $this->db->queueHead();
+        $head = $this->startableHead();
         if ($head === null) {
             $this->treePaused = false;
 
@@ -467,14 +506,16 @@ final class QueueScheduler implements QueueControl
 
                 return;
             }
-            if ($dirty) {
+            if ($dirty && $this->db->getSecretBlock() === null) {
                 $this->treePaused = true;
                 $this->dirtyTree->ensureDecision($chatId, $threadId);
 
                 return;
             }
-            $this->db->clearDecision();
-            $this->db->clearDirtyOwner();
+            if (!$dirty) {
+                $this->db->clearDecision();
+                $this->db->clearDirtyOwner();
+            }
         }
 
         if ($head['kind'] === self::ITEM_NEW) {
@@ -565,6 +606,10 @@ final class QueueScheduler implements QueueControl
             $prompt = Inbox::buildQueuePrompt($head['parts'], $pathsByPart);
             if ($head['mode'] === SystemPrompt::MODE_PM) {
                 $prompt = PmRunbook::line($this->config->absolutePromptsDir())."\n\n".$prompt;
+            }
+            // Blocked by a secret: this run is the way out, its prompt carries the findings (no values).
+            if (($secrets = $this->db->getSecretBlock()) !== null) {
+                $prompt = PromptFiles::render('secret_blocked', ['findings' => SecretBlocker::lines($secrets, $this->locale)])."\n\n".$prompt;
             }
         } catch (\RuntimeException $e) {
             $this->inbox->deleteInboxFiles($paths);
@@ -798,7 +843,7 @@ final class QueueScheduler implements QueueControl
         $managedStart = microtime(true);
         $pullError = '';
         // AUTO_COMMIT=0: the managed repository is not touched; the sub-repositories below still are.
-        if ($this->config->autoCommit && !$this->git->pullRebase($pullError)) {
+        if ($this->config->autoCommit && !$this->git->pullRebase($pullError, $this->db->getSecretBlock() !== null)) {
             return $pullError;
         }
         $managedSec = microtime(true) - $managedStart;

@@ -63,6 +63,8 @@ final class Config
         public readonly array $claudeModels = self::DEFAULT_CLAUDE_MODELS,
         /** @var list<string> files whose values are all masked in outgoing messages, `~` not yet expanded */
         public readonly array $secretEnvFiles = [],
+        /** @var list<string> path globs where the commit gate does not apply shape patterns (known values still apply) */
+        public readonly array $secretScanExclude = [],
     ) {
     }
 
@@ -187,6 +189,7 @@ final class Config
             configWarnings: $configWarnings,
             claudeModels: array_values(array_unique($env->list('CLAUDE_MODELS', implode(',', self::DEFAULT_CLAUDE_MODELS)))),
             secretEnvFiles: array_values($env->list('SECRET_ENV_FILES')),
+            secretScanExclude: array_values($env->list('SECRET_SCAN_EXCLUDE')),
         );
     }
 

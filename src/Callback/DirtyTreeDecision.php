@@ -8,11 +8,14 @@ use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Delivery;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
+use GpsLab\WorkspaceAssistant\Exception\SecretFoundException;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Keyboards;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
+use GpsLab\WorkspaceAssistant\OutgoingSecret;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
+use GpsLab\WorkspaceAssistant\SecretBlocker;
 use GpsLab\WorkspaceAssistant\TelegramClient;
 use GpsLab\WorkspaceAssistant\TelegramMessage;
 
@@ -32,6 +35,7 @@ final readonly class DirtyTreeDecision implements Handler
         private Locale $locale,
         private QueueTexts $queueTexts,
         private DecisionHost $host,
+        private SecretBlocker $secretBlocker,
     ) {
     }
 
@@ -94,8 +98,12 @@ final readonly class DirtyTreeDecision implements Handler
                     ? $this->t('commit.external')
                     : $this->t('commit.interrupted'));
                 $this->db->clearDirtyOwner();
+                $this->db->clearSecretBlock();
                 $this->tg->answerCallback($callbackId, $this->t('decision.committed_toast'));
                 $this->delivery->deliver($chatId, $threadId, $this->t('decision.saved', ['url' => $this->host->commitUrl($hash)]));
+            } catch (SecretFoundException $e) {
+                $this->tg->answerCallback($callbackId, $this->t('decision.secret_blocked_toast'));
+                $this->secretBlocker->block($chatId, $threadId, $e);
             } catch (\RuntimeException $e) {
                 $this->tg->answerCallback($callbackId, $this->t('decision.git_error_toast'));
                 $this->delivery->deliver($chatId, $threadId, $this->t('decision.git_failed', ['error' => $e->getMessage()]));
@@ -109,8 +117,21 @@ final readonly class DirtyTreeDecision implements Handler
         if ($data === 'discard') {
             $this->git->discardChanges();
             $this->db->clearDirtyOwner();
+            // An unpushed commit that holds a secret survives `reset --hard`: drop it too. Without an
+            // upstream to reset to the state stays, and the next run is told to rewrite that commit.
+            $block = $this->db->getSecretBlock();
+            $unpushed = $block !== null && array_filter($block, static fn (OutgoingSecret $f): bool => $f->commit !== null) !== [];
+            $message = $this->t('decision.discarded');
+            if (!$unpushed) {
+                $this->db->clearSecretBlock();
+            } elseif ($this->git->resetToUpstream()) {
+                $this->db->clearSecretBlock();
+                $message = $this->t('decision.discarded_dropped_commits');
+            } else {
+                $message = $this->t('decision.discarded_secret_kept');
+            }
             $this->tg->answerCallback($callbackId, $this->t('decision.discarded_toast'));
-            $this->delivery->deliver($chatId, $threadId, $this->t('decision.discarded'));
+            $this->delivery->deliver($chatId, $threadId, $message);
 
             return;
         }

@@ -1,6 +1,6 @@
 # Prompts
 
-The bot's prompts are files in `prompts/`: 22 texts (`prompts/*.md.dist`) and 6 built-in agents
+The bot's prompts are files in `prompts/`: 23 texts (`prompts/*.md.dist`) and 6 built-in agents
 (`prompts/agents/*.md.dist`). This page says which file is used in which run, how the prompt of a run is
 assembled from the files, the settings in `.env` and the texts built in code, and how to override each
 file. The settings are in [INSTALL.md](INSTALL.md), the built-in agents in
@@ -23,6 +23,7 @@ There are three kinds of file:
 | `contract_review`                   | contract | System prompt of the `review` mode (`SystemPrompt`)                 |                                 |
 | `language_line`                     | contract | End of the system prompt of every run (`SystemPrompt`)              | `{language}`                    |
 | `session_update`                    | contract | Resumed session whose system prompt changed (`ClaudeRunner`)        | `{prompt}`                      |
+| `secret_blocked`                    | contract | Chat run started while the commit is blocked by a secret (`QueueScheduler`) | `{findings}`                    |
 | `review_status_reason`              | contract | Stop hook of the `review` mode (`ReviewStatusHook`)                 | `{verdict}`, `{state}`, `{problem}` |
 | `review_status_reason_no_verdict`   | contract | Stop hook of the `review` mode, no verdict in the reply             |                                 |
 | `review_status_reason_steps`        | contract | Stop hook of the `review` mode, after the reason                    |                                 |
@@ -74,6 +75,9 @@ In the `pm` mode the message is prefixed by the PM runbook line. It is built in 
 the path of `pm_runbook` plus `PROMPTS_DIR/pm_runbook.md` if it exists. No file overrides the line itself.
 A resumed session whose system prompt changed gets `session_update` (the whole new prompt is `{prompt}`) in
 front of the message.
+While the bot's commit is blocked by a secret (see [README](README.md#commit-gate)), the next chat run gets
+`secret_blocked` in front of the message: the findings as `- file:line (type)` lines, without values (`{findings}`,
+built in code), and the instruction to remove the secret and rewrite an unpushed commit that holds it.
 
 ### Files without text
 
@@ -133,16 +137,16 @@ no longer become an extra task.
 
 - **Local file.** `prompts/<name>.md` (gitignored, like `.env` next to `.env.dist`) replaces
   `prompts/<name>.md.dist` as a whole. A missing `.dist` is a broken installation.
-- **Contract names.** The 16 names of `PromptFiles::CONTRACT` can be overridden. After an update, diff your
+- **Contract names.** The 17 names of `PromptFiles::CONTRACT` can be overridden. After an update, diff your
   overrides against the `.dist`.
 - **Checks and warnings.** Two separate things happen:
-  - *Override warning.* A local override of any of the 16 contract names is reported in the reply of every
+  - *Override warning.* A local override of any of the 17 contract names is reported in the reply of every
     run, whatever the mode or kind of run. `default_file_prompt` is a setting and gets no warning.
   - *Content checks.* Only the files of the system prompt (`common`, `common_limits`, `contract_review`,
     `language_line`, the persona files), `session_update` and `pm_runbook` are checked, and a run that
     uses them adds a warning for: an empty or unreadable local file (the `.dist` is used instead), a
     placeholder that differs from the `.dist` and a placeholder the code does not fill. For
-    `review_status_reason*`, `compact_*` and `epic_runbook` a placeholder mistake passes silently (only the
+    `review_status_reason*`, `compact_*`, `secret_blocked` and `epic_runbook` a placeholder mistake passes silently (only the
     override warning appears), and `default_file_prompt` gets no checks, so keep the placeholders of the
     `.dist` exactly.
   - *Agent files.* Agent bodies are loaded, not rendered, so there are no placeholder warnings; only an
