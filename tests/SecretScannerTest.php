@@ -97,6 +97,8 @@ final class SecretScannerTest extends TestCase
             'braces mixed' => [implode('', ['{', self::VALUE, '}'])],
             'angle mixed' => [implode('', ['<', self::VALUE, '>'])],
             'percent mixed' => [implode('', ['%', self::VALUE, '%'])],
+            'dollar mixed case letters' => [implode('', ['$', 'uperSecretPw'])],
+            'percent mixed case letters' => [implode('', ['%', 'SuperSecret', '%'])],
             'dollar name digit' => [implode('', ['$', 'PASSWORD1'])],
         ];
     }
