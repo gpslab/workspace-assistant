@@ -60,7 +60,8 @@ bot's hooks and not the repository's. Hence:
   (`git config --show-scope --get-all`: system, global and local, includes honoured; `command` is the bot's
   own value), else `$(git rev-parse --git-common-dir)/hooks`. **Never** `git rev-parse --git-path hooks`: it answers with the
   bot's directory and the dispatcher would call itself;
-- the env also reaches `git receive-pack` of a local remote, hence the server-side dispatchers;
+- server-side hooks (`pre-receive`, `update`, `post-receive` and similar) are not dispatched: the env does not
+  reach `receive-pack` (git unsets `GIT_CONFIG_COUNT` for a local transport, and ssh/https never carry it);
 - `pre-push` is a safety net: `--no-verify` bypasses it.
 
 ---

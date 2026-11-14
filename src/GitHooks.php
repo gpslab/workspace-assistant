@@ -18,9 +18,8 @@ final class GitHooks
     public const array DISPATCHED = [
         'applypatch-msg', 'pre-applypatch', 'post-applypatch', 'pre-commit', 'pre-merge-commit',
         'prepare-commit-msg', 'commit-msg', 'post-commit', 'pre-rebase', 'post-checkout', 'post-merge',
-        'post-rewrite', 'pre-auto-gc', 'reference-transaction', 'push-to-checkout', 'fsmonitor-watchman',
-        'post-index-change', 'sendemail-validate', 'pre-receive', 'update', 'proc-receive', 'post-receive',
-        'post-update',
+        'post-rewrite', 'pre-auto-gc', 'reference-transaction', 'fsmonitor-watchman',
+        'post-index-change', 'sendemail-validate',
     ];
 
     /** The PHP binary that runs `bin/pre-push-scan.php`. */

@@ -217,6 +217,24 @@ final class PrePushHookTest extends TestCase
         self::assertSame("global\n", (string) file_get_contents($this->root.'/log'));
     }
 
+    public function testLocalHooksPathWinsOverGlobal(): void
+    {
+        $home = $this->root.'/home';
+        mkdir($home.'/.githooks', 0777, true);
+        mkdir($this->work.'/myhooks');
+        file_put_contents($home.'/.githooks/pre-push', "#!/bin/sh\necho global >> \"\$(git rev-parse --show-toplevel)/../log\"\n");
+        file_put_contents($this->work.'/myhooks/pre-push', "#!/bin/sh\necho local >> \"\$(git rev-parse --show-toplevel)/../log\"\n");
+        chmod($home.'/.githooks/pre-push', 0755);
+        chmod($this->work.'/myhooks/pre-push', 0755);
+        file_put_contents($home.'/.gitconfig', "[core]\n\thooksPath = ~/.githooks\n");
+        $this->git(['config', 'core.hooksPath', 'myhooks']);
+        $extra = ['HOME' => $home, 'XDG_CONFIG_HOME' => $home.'/.config', 'GIT_CONFIG_GLOBAL' => $home.'/.gitconfig'];
+
+        $this->commit('b.txt', "ok\n");
+        self::assertSame(0, $this->push(['git', 'push', 'origin', 'main'], null, $extra)['exit']);
+        self::assertSame("local\n", (string) file_get_contents($this->root.'/log'));
+    }
+
     public function testRepositoryHookIsNotCalledInALoop(): void
     {
         // The repository points at the bot's own directory: nothing may call itself.

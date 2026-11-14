@@ -1,6 +1,0 @@
-#!/bin/sh
-# Dispatcher: runs the repository's own proc-receive hook, see lib.sh.
-. "$(dirname "$0")/lib.sh"
-
-wa_run_repo_hook proc-receive "$@"
-exit $?
