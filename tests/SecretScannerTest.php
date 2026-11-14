@@ -56,6 +56,68 @@ final class SecretScannerTest extends TestCase
     /**
      * @return array<string, array{string}>
      */
+    public static function urlPlaceholders(): array
+    {
+        return [
+            'angle' => [implode('', ['<', 'pass', 'word>'])],
+            'braced variable' => [implode('', ['$', '{token}'])],
+            'braces' => [implode('', ['{', 'token}'])],
+            'dollar name' => [implode('', ['$', 'GH_TOKEN'])],
+            'percent name' => [implode('', ['%', 'TOKEN', '%'])],
+            'asterisks' => [str_repeat('*', 8)],
+            'word' => ['password'],
+            'word case' => ['PassWD'],
+            'pwd' => ['pwd'],
+        ];
+    }
+
+    #[DataProvider('urlPlaceholders')]
+    public function testUrlPlaceholderPasswordIsNotReported(string $placeholder): void
+    {
+        $text = implode('', ['see https', '://', 'user:', $placeholder, '@host:8080/x']);
+        $result = (new SecretScanner())->scan($text);
+
+        self::assertSame([], $result['findings']);
+        self::assertSame($text, $result['text']);
+        self::assertSame($text, (new SecretScanner())->mask($text));
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function urlNonPlaceholders(): array
+    {
+        return [
+            'angle tail' => [implode('', ['<x>', 'tail'])],
+            'braced tail' => [implode('', ['$', '{A}', 'tail'])],
+            'name tail' => [implode('', ['$', 'NAME', '-tail'])],
+            'empty angle' => ['<>x'],
+            'real' => [self::fake('', 14)],
+        ];
+    }
+
+    #[DataProvider('urlNonPlaceholders')]
+    public function testUrlPasswordWithExtraCharactersIsStillReported(string $password): void
+    {
+        $text = implode('', ['https', '://', 'user:', $password, '@host/x']);
+        $result = (new SecretScanner())->scan($text);
+
+        self::assertSame(['url_password'], array_map(static fn (SecretFinding $f): string => $f->type, $result['findings']));
+        self::assertStringNotContainsString($password, (new SecretScanner())->mask($text));
+    }
+
+    public function testKnownValueInUrlPasswordPlaceholderPositionIsStillReported(): void
+    {
+        $text = implode('', ['https', '://', 'user:', self::VALUE, '@host/x']);
+        $result = $this->scanner('TOKEN='.self::VALUE."\n")->scan($text);
+
+        self::assertNotSame([], $result['findings']);
+        self::assertStringNotContainsString(self::VALUE, $result['text']);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
     public static function forms(): array
     {
         $v = 'p@ss/w+rd=Zq7Xm2 "x"';
