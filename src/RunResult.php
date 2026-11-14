@@ -76,9 +76,13 @@ final class RunResult implements DecisionHost
             // In the blocked-by-secret state the gate also runs on a clean tree: the run may have rewritten the unpushed commit.
             if ($dirty || $this->db->getSecretBlock() !== null) {
                 try {
+                    $before = $this->git->headHashOrNull();
                     $hash = $this->git->commitAndPush($this->commitMessage($prompt));
                     $this->db->clearSecretBlock();
-                    $commitLinks[] = $this->commitUrl($hash);
+                    // A clean tree with nothing to push returns the existing HEAD: not this run's commit.
+                    if ($hash !== $before) {
+                        $commitLinks[] = $this->commitUrl($hash);
+                    }
                 } catch (SecretFoundException $e) {
                     $blocked = $e;
                 } catch (\RuntimeException $e) {

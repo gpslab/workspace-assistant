@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Keyboards;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
+use GpsLab\WorkspaceAssistant\OutgoingSecret;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 use GpsLab\WorkspaceAssistant\SecretBlocker;
 use GpsLab\WorkspaceAssistant\TelegramClient;
@@ -116,7 +117,13 @@ final readonly class DirtyTreeDecision implements Handler
         if ($data === 'discard') {
             $this->git->discardChanges();
             $this->db->clearDirtyOwner();
-            $this->db->clearSecretBlock();
+            // An unpushed commit that holds a secret survives `reset --hard`: drop it too. Without an
+            // upstream to reset to the state stays, and the next run is told to rewrite that commit.
+            $block = $this->db->getSecretBlock();
+            $unpushed = $block !== null && array_filter($block, static fn (OutgoingSecret $f): bool => $f->commit !== null) !== [];
+            if (!$unpushed || $this->git->resetToUpstream()) {
+                $this->db->clearSecretBlock();
+            }
             $this->tg->answerCallback($callbackId, $this->t('decision.discarded_toast'));
             $this->delivery->deliver($chatId, $threadId, $this->t('decision.discarded'));
 

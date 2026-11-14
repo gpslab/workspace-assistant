@@ -427,6 +427,61 @@ final class SecretGateTest extends TestCase
         self::assertStringContainsString('The changes were discarded.', $this->allText());
     }
 
+    public function testBlockedTrackedFileDoesNotStopTheSyncOfTheNextRun(): void
+    {
+        $this->hook('printf "key='.self::shapeToken().'\n" > '.$this->work.'/a.txt');
+        $this->say('go');
+        $this->call('startQueueHead');
+        $this->finishJob();
+        self::assertNotNull($this->db->getSecretBlock());
+
+        $this->hook('printf "key=from-env\n" > '.$this->work.'/a.txt');
+        $this->say('please fix', 11);
+        $this->call('startQueueHead');
+        self::assertNotNull($this->runState()->activeJob, 'the pull must not fail over the unstaged change');
+        $this->finishJob();
+
+        self::assertNull($this->db->getSecretBlock());
+        self::assertSame($this->head(), $this->originHead());
+        self::assertSame("key=from-env\n", $this->git('show HEAD:a.txt'));
+    }
+
+    public function testDiscardDropsAnUnpushedCommitWithTheSecret(): void
+    {
+        $dir = escapeshellarg($this->work);
+        $this->hook('cd '.$dir.' && printf "key='.self::shapeToken().'\n" > old.txt && git add -A && git commit -q -m local && echo fine > extra.txt');
+        $this->say('go');
+        $this->call('startQueueHead');
+        $this->finishJob();
+        $decision = $this->db->getDecision();
+        self::assertNotNull($decision);
+        self::assertNotSame($this->head(), $this->originHead());
+
+        $this->call('handleCallback', [['id' => 'cb', 'from' => ['id' => self::USER], 'data' => 'discard', 'message' => ['chat' => ['id' => 100], 'message_id' => $decision['message_id'], 'is_topic_message' => true, 'message_thread_id' => 1]]]);
+
+        self::assertNull($this->db->getSecretBlock());
+        self::assertSame($this->originHead(), $this->head());
+        self::assertFileDoesNotExist($this->work.'/old.txt');
+    }
+
+    public function testCleanRunInBlockedStateDoesNotReportAnOldCommit(): void
+    {
+        $this->hook('printf "key='.self::shapeToken().'\n" > '.$this->work.'/conf.txt');
+        $this->say('go');
+        $this->call('startQueueHead');
+        $this->finishJob();
+        $before = count($this->tg->sent);
+
+        $this->hook('rm -f '.$this->work.'/conf.txt');
+        $this->say('revert it', 11);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertNull($this->db->getSecretBlock());
+        $texts = implode("\n", array_column(array_slice($this->tg->sent, $before), 'text'));
+        self::assertStringNotContainsString('— committed:', $texts);
+    }
+
     public function testCommitButtonHandlesTheBlockLikeARun(): void
     {
         file_put_contents($this->work.'/conf.txt', 'key='.self::shapeToken()."\n");

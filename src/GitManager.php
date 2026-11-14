@@ -371,11 +371,12 @@ final class GitManager
 
     /**
      * git pull --rebase. Returns true on success. On conflict/error
-     * aborts the rebase and returns false.
+     * aborts the rebase and returns false. With `$autostash` the uncommitted changes are set aside
+     * for the pull and put back after it (a pull refuses to rebase over unstaged changes).
      */
-    public function pullRebase(string &$error): bool
+    public function pullRebase(string &$error, bool $autostash = false): bool
     {
-        $res = $this->git(['pull', '--rebase'], $this->netTimeout);
+        $res = $this->git(['pull', '--rebase', ...($autostash ? ['--autostash'] : [])], $this->netTimeout);
         if ($res['exit'] === 0) {
             return true;
         }
@@ -798,5 +799,14 @@ final class GitManager
     {
         $this->git(['reset', '--hard']);
         $this->git(['clean', '-fd']);
+    }
+
+    /**
+     * Drop the commits no remote has: reset the branch to its upstream. False when the branch has
+     * no upstream (nothing to reset to) or the reset failed; the history is then left as it is.
+     */
+    public function resetToUpstream(): bool
+    {
+        return $this->git(['reset', '--hard', '@{u}'])['exit'] === 0;
     }
 }

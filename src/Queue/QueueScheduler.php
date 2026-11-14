@@ -462,6 +462,13 @@ final class QueueScheduler implements QueueControl
         //    buttons are issued on entering the pause; manual cleanup lifts it.
         //    With AUTO_COMMIT=0 the tree is the operator's: no check and no pause.
         if ($this->config->autoCommit) {
+            // An epic run must not start on top of a chat run's blocked change: its gate would block the
+            // epic for a secret it did not write, and its failure path would discard that change.
+            if ($head['kind'] === self::ITEM_EPIC && $this->db->getSecretBlock() !== null) {
+                $this->treePaused = true;
+
+                return;
+            }
             try {
                 $dirty = $this->git->hasChanges();
             } catch (GitStatusException $e) {
@@ -806,7 +813,7 @@ final class QueueScheduler implements QueueControl
         $managedStart = microtime(true);
         $pullError = '';
         // AUTO_COMMIT=0: the managed repository is not touched; the sub-repositories below still are.
-        if ($this->config->autoCommit && !$this->git->pullRebase($pullError)) {
+        if ($this->config->autoCommit && !$this->git->pullRebase($pullError, $this->db->getSecretBlock() !== null)) {
             return $pullError;
         }
         $managedSec = microtime(true) - $managedStart;
