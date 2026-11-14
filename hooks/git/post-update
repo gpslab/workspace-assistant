@@ -1,0 +1,6 @@
+#!/bin/sh
+# Dispatcher: runs the repository's own post-update hook, see lib.sh.
+. "$(dirname "$0")/lib.sh"
+
+wa_run_repo_hook post-update "$@"
+exit $?

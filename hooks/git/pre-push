@@ -1,0 +1,13 @@
+#!/bin/sh
+# Safety net for the pushes Claude makes during a run: scans the commits about to be pushed for secrets
+# (bin/pre-push-scan.php), then runs the repository's own pre-push. `git push --no-verify` skips it.
+. "$(dirname "$0")/lib.sh"
+
+wa_stdin=$(mktemp) || exit 1
+trap 'rm -f "$wa_stdin"' EXIT
+cat > "$wa_stdin"
+
+"${WORKSPACE_ASSISTANT_PHP:-php}" "$WA_ROOT/bin/pre-push-scan.php" < "$wa_stdin" || exit 1
+
+wa_run_repo_hook pre-push "$@" < "$wa_stdin"
+exit $?

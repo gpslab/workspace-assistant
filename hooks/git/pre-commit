@@ -1,0 +1,6 @@
+#!/bin/sh
+# Dispatcher: runs the repository's own pre-commit hook, see lib.sh.
+. "$(dirname "$0")/lib.sh"
+
+wa_run_repo_hook pre-commit "$@"
+exit $?

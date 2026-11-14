@@ -361,8 +361,14 @@ unpushed commit, to rewrite that commit. The gate runs again at the end of the r
 successful commit or with "Discard".
 
 `SECRET_SCAN_EXCLUDE` lists path globs where shape patterns do not fire (fixtures); known values always do. Not
-covered: history that is already pushed, token revocation (manual work for the owner), and pushes Claude makes
-itself during a run.
+covered: history that is already pushed and token revocation (manual work for the owner).
+
+Pushes Claude makes itself during a run get a second check: the bot starts Claude with `core.hooksPath` pointing
+at its own `hooks/git/` directory (through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_*`/`GIT_CONFIG_VALUE_*`), in every
+run mode and in epic runs. Its `pre-push` hook scans the commits about to be pushed with the same detector and
+`SECRET_SCAN_EXCLUDE`, fails the push on a finding (the places and types on stderr, never a value) and then runs the
+repository's own `pre-push`; every other hook name there hands over to the repository's own hook. This is a safety
+net, not a guarantee: `git push --no-verify` and pushes not made through git bypass it.
 
 ### Isolation recipe
 
