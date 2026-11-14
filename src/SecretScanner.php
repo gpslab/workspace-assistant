@@ -99,6 +99,9 @@ final class SecretScanner
         }
         foreach ($shapes ? self::PATTERNS : [] as $type => $regex) {
             foreach ($this->matches($regex, $text) as [$match, $offset]) {
+                if ($type === 'url_password' && self::isPlaceholderPassword($match)) {
+                    continue;
+                }
                 $ranges[] = [$offset, $offset + strlen($match), $type];
             }
         }
@@ -144,6 +147,12 @@ final class SecretScanner
         $matches = $m[0];
 
         return array_values(array_filter($matches, static fn (array $x): bool => $x[0] !== ''));
+    }
+
+    /** The whole password part of a URL is an obvious documentation placeholder, not a secret. */
+    private static function isPlaceholderPassword(string $password): bool
+    {
+        return preg_match('~^(?:<[A-Za-z][A-Za-z_ -]*>|\$?\{[A-Za-z][A-Za-z_ -]*\}|\$[A-Z_]+|%[A-Z_]+%|\*+|(?i:password|pass|passwd|pwd|secret|token))$~D', $password) === 1;
     }
 
     private function refreshKnown(): void

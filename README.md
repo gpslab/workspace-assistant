@@ -336,7 +336,9 @@ part of the value.
   one repeated character is not masked. The set is rebuilt when one of these files changes.
 - **Shapes**: GitHub (`ghp_`, `github_pat_`), GitLab (`glpat-`), Anthropic and OpenAI-style (`sk-ant-`, `sk-`),
   Slack, AWS access key, Google API key, Telegram bot token, JWT, PEM private key, and the password in
-  `scheme://user:password@host`.
+  `scheme://user:password@host`. Obvious placeholders in the password part are not reported: `<word>`, `${word}`,
+  `{word}` (letters, spaces, `_`, `-`; no digits), `$NAME`, `%NAME%` (uppercase letters and `_`), only asterisks, and the words `password`, `pass`, `passwd`, `pwd`, `secret`, `token`
+  (any case); a placeholder with other characters around it is still reported.
 - **Where**: replies, `/verbose` progress lines, captions, `.md` replies and text outbox files (any non-image file
   without a NUL byte in its first 8 KB, whatever its extension); a masked copy is sent, the original file is not changed.
 
