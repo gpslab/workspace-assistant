@@ -320,6 +320,46 @@ queues an isolated `claude -p` run (`kind = epic`, no `--resume`, a signal file 
 (labels, merges, releases) itself under `Epic\Gates`/`Epic\MergeGate`. Judgement calls follow
 `prompts/epic_runbook.md.dist`. Everything else is in [../EPICS.md](../EPICS.md).
 
+## OpenCode (verified facts)
+
+Verified on OpenCode **2.3.0** (`@opencode/cli`); the fixtures are in `tests/fixtures/opencode/`. Nothing in the Bot
+uses OpenCode yet; these facts are the contract for the OpenCode engine.
+
+- **`opencode run` flags:** `--format json`, `--session <id>` (creates the session when it does not exist),
+  `--model provider/model[#variant]`, `--auto`, `--agent`, `--title`, `--archived`. `--standalone` is a global flag
+  (a private server per run instead of the user's background service).
+- **NDJSON events:** `step_start`, `tool_use`, `text`, `step_finish`, `background_wait`, `error`; every event carries
+  `sessionID`. `tool_use` is emitted only when the tool has finished (`part.tool`, `part.state.status` =
+  `completed`/`error`, `part.state.input`). `step_finish` carries `part.tokens` (`input`, `output`, `reasoning`,
+  `cache.read`, `cache.write`), `part.cost` (USD) and `part.reason` (`tool-calls`, `stop`).
+- **Errors:** an `error` event with `error.type` — `provider.auth` (HTTP 401) or `provider.quota` (HTTP 402) —
+  and exit code 1. Classify by `error.type`, not by the message text. No rate-limit sample was obtained.
+- **Background sub-agents:** a `subagent` tool call reports `completed` immediately — that is the launch, not the
+  result. `opencode run` waits for the sub-agent and only then exits. While it waits, stdout can stay silent for the
+  whole duration of the sub-agent (78 s in the fixture). `background_wait` is **not** emitted for every wait (the
+  sequential history run waited 10 s for the second sub-agent without one). A stall timer must therefore not rely on
+  `background_wait` alone: after the first `subagent` call of a run, treat silence as expected.
+- **Instructions on resume:** with `--session`, a changed `instructions` file is applied by OpenCode itself; the Bot
+  must not re-send its system prompt in the message.
+- **Config precedence:** the project `opencode.json` of the working directory outranks the explicit file given in
+  `OPENCODE_CONFIG` (last match wins): a project `allow` overrode an explicit `deny`. With
+  `OPENCODE_DISABLE_PROJECT_CONFIG=1` the explicit `deny` holds and the model sees `Permission denied: shell`.
+  `OPENCODE_CONFIG_DIR` replaces `~/.config/opencode`. `.claude` directories are read only for skills and are
+  disabled by `OPENCODE_DISABLE_CLAUDE_CODE=1`; `~/.agents` is read and has no switch.
+- **Plugins:** a plugin is a directory (`package.json` + `index.js`, ES module, no build step) listed in `plugins` of the
+  explicit config; it loads under `OPENCODE_DISABLE_PROJECT_CONFIG=1`. `import { Plugin } from "@opencode/plugin"` is
+  resolved by OpenCode. `ctx.permission.hook("evaluate", e => …)` receives `action` (`shell`), `resources` (the
+  command), `sessionID`, `agent`; setting `e.effect = "deny"` with `e.message` blocks the call and the model sees the
+  message. A hook that throws makes the tool call fail with the thrown message (fail-closed). Hooks do not run for a
+  configured `deny`.
+- **Session history** (`ctx.session.context`): messages of `type` `user`, `assistant`, `idle`, `synthetic`. A sub-agent
+  call is an assistant `content[]` item `{type: "tool", name: "subagent", state: {input: {agent}, metadata:
+  {sessionID: <child>}}}`. Its report is a later `synthetic` message with `metadata: {source: "subagent", childID:
+  <child>, agent, state: "completed"}`. Match a call to its report by child session id; the order of messages is the
+  order of events. A report is not a user message.
+- **Agents:** markdown files in `$OPENCODE_CONFIG_DIR/agents/<name>.md` with `mode: subagent` and `description` are
+  callable through the `subagent` tool.
+
 ## Tests and CI
 
 `composer test` (phpunit), `composer stan`, `composer cs:check`. CI (`.github/workflows/ci.yml`) runs

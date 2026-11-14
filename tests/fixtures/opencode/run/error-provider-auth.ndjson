@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1794636056415,"sessionID":"ses_e275afd40ffeVW6ni2tttbi60Z","part":{"id":"prt_1d8a5075f001Tpnhm9sWu7u2cu","sessionID":"ses_e275afd40ffeVW6ni2tttbi60Z","messageID":"msg_1d8a50450001Cu6zA5FdFdBYZI","type":"step-start","snapshot":"04930e70803db95544a0222bf44cc6826407f5c0"}}
+{"type":"error","timestamp":1794636056460,"sessionID":"ses_e275afd40ffeVW6ni2tttbi60Z","error":{"type":"provider.auth","message":"User not found.","status":401,"response":{"body":"{\"error\":{\"message\":\"User not found.\",\"code\":401}}"}}}
