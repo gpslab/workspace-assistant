@@ -49,6 +49,21 @@ phase 1 with `git status failed: <error>` (also when `changesSummary()` fails in
 Giving claude a trimmed env stops it from starting; leaving git on `env = null` loses the forced
 non-interactivity and git can hang on a passphrase or host key.
 
+## `core.hooksPath` of the Claude process is the bot's `hooks/git/`
+
+`ClaudeRunner::processEnv()` appends `core.hooksPath` to `GIT_CONFIG_*`, so every git Claude starts uses the
+bot's hooks and not the repository's. Hence:
+
+- every hook name in `hooks/git/` must exist as a dispatcher and be committed `100755` (git silently skips a
+  hook without the executable bit; a test checks it);
+- the dispatcher finds the repository's hook from the last `core.hooksPath` outside the `command` scope
+  (`git config --show-scope --get-all`: system, global and local, includes honoured; `command` is the bot's
+  own value), else `$(git rev-parse --git-common-dir)/hooks`. **Never** `git rev-parse --git-path hooks`: it answers with the
+  bot's directory and the dispatcher would call itself;
+- server-side hooks (`pre-receive`, `update`, `post-receive` and similar) are not dispatched: the env does not
+  reach `receive-pack` (git unsets `GIT_CONFIG_COUNT` for a local transport, and ssh/https never carry it);
+- `pre-push` is a safety net: `--no-verify` bypasses it.
+
 ---
 
 ## Markdown → HTML

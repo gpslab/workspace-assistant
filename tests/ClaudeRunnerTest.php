@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
+use GpsLab\WorkspaceAssistant\GitHooks;
 use GpsLab\WorkspaceAssistant\RunnerState;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -238,6 +239,34 @@ final class ClaudeRunnerTest extends TestCase
             array_map('unlink', glob($dir.'/*.log') ?: []);
             @rmdir($dir.'/runs');
             @rmdir($dir);
+        }
+    }
+
+    public function testRunsGetTheBotGitHooksPathInEveryModeWithoutExtraEnv(): void
+    {
+        foreach (['arch', 'epic'] as $mode) {
+            $out = tempnam(sys_get_temp_dir(), 'hooks-out-');
+            $bin = tempnam(sys_get_temp_dir(), 'fake-claude-');
+            self::assertIsString($out);
+            self::assertIsString($bin);
+            file_put_contents($bin, "#!/bin/sh\n{ echo \"\$GIT_CONFIG_COUNT\"; git config core.hooksPath; } > ".escapeshellarg($out)."\n");
+            chmod($bin, 0o755);
+
+            try {
+                $runner = new ClaudeRunner($bin, sys_get_temp_dir(), 0, [], mode: $mode);
+                $runner->start('prompt', null);
+                while ($runner->poll() === RunnerState::Running) {
+                    usleep(50000);
+                }
+                self::assertSame(
+                    [(string) ((int) getenv('GIT_CONFIG_COUNT') + 1), GitHooks::dir()],
+                    explode("\n", trim((string) file_get_contents($out))),
+                    $mode,
+                );
+            } finally {
+                unlink($bin);
+                unlink($out);
+            }
         }
     }
 

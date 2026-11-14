@@ -232,9 +232,7 @@ final class ClaudeRunner
             2 => $errFile,
         ];
 
-        // env = null: inherit the bot's environment (HOME, PATH, etc. that claude needs).
-        // With extra variables env must be complete, so they are appended to the bot's environment.
-        $env = $this->extraEnv === [] ? null : array_merge(getenv(), $this->extraEnv);
+        $env = $this->processEnv();
         $proc = proc_open($argv, $descriptors, $pipes, $this->repoPath, $env);
         // The child has its own copies of the descriptors.
         fclose($outFile);
@@ -444,6 +442,18 @@ final class ClaudeRunner
         $this->offsets[$fd] += strlen($chunk);
 
         return $chunk;
+    }
+
+    /**
+     * The complete environment of the process in every mode: the bot's, the run variables, and the
+     * `core.hooksPath` of the bot's git hooks ({@see GitHooks}). It must be complete: with extra
+     * variables `proc_open` does not inherit the rest.
+     *
+     * @return array<string, string>
+     */
+    public function processEnv(): array
+    {
+        return GitHooks::apply(array_merge(getenv(), $this->extraEnv));
     }
 
     /**
