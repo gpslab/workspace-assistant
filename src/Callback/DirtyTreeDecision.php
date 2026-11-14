@@ -121,11 +121,17 @@ final readonly class DirtyTreeDecision implements Handler
             // upstream to reset to the state stays, and the next run is told to rewrite that commit.
             $block = $this->db->getSecretBlock();
             $unpushed = $block !== null && array_filter($block, static fn (OutgoingSecret $f): bool => $f->commit !== null) !== [];
-            if (!$unpushed || $this->git->resetToUpstream()) {
+            $message = $this->t('decision.discarded');
+            if (!$unpushed) {
                 $this->db->clearSecretBlock();
+            } elseif ($this->git->resetToUpstream()) {
+                $this->db->clearSecretBlock();
+                $message = $this->t('decision.discarded_dropped_commits');
+            } else {
+                $message = $this->t('decision.discarded_secret_kept');
             }
             $this->tg->answerCallback($callbackId, $this->t('decision.discarded_toast'));
-            $this->delivery->deliver($chatId, $threadId, $this->t('decision.discarded'));
+            $this->delivery->deliver($chatId, $threadId, $message);
 
             return;
         }

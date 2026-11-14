@@ -138,12 +138,24 @@ final class QueueScheduler implements QueueControl
                 : $this->t('pause.dirty_tree');
         }
 
+        if ($this->epicHeldBySecretBlock($head)) {
+            return $this->t('pause.epic_secret_blocked');
+        }
+
         $retry = $this->db->getRetry();
         if ($retry !== null && $retry['item'] === $head['id'] && $retry['at'] > time()) {
             return $this->t('pause.start_retry', ['seconds' => $retry['at'] - time()]);
         }
 
         return null;
+    }
+
+    /**
+     * @param array{kind:string} $item
+     */
+    private function epicHeldBySecretBlock(array $item): bool
+    {
+        return $item['kind'] === self::ITEM_EPIC && $this->config->autoCommit && $this->db->getSecretBlock() !== null;
     }
 
     /**
@@ -374,6 +386,18 @@ final class QueueScheduler implements QueueControl
         }
         $this->releaseStaleDirtyState();
         $head = $this->db->queueHead();
+        if ($head !== null && $this->epicHeldBySecretBlock($head)) {
+            // An epic run must not start on top of a chat run's blocked change: its gate would block the
+            // epic for a secret it did not write, and its failure path would discard that change. The
+            // rest of the queue goes on, so the author's reply that fixes the block can start.
+            $head = null;
+            foreach ($this->db->queueWaiting() as $item) {
+                if ($item['kind'] !== self::ITEM_EPIC) {
+                    $head = $item;
+                    break;
+                }
+            }
+        }
         if ($head === null) {
             $this->treePaused = false;
 
@@ -462,13 +486,6 @@ final class QueueScheduler implements QueueControl
         //    buttons are issued on entering the pause; manual cleanup lifts it.
         //    With AUTO_COMMIT=0 the tree is the operator's: no check and no pause.
         if ($this->config->autoCommit) {
-            // An epic run must not start on top of a chat run's blocked change: its gate would block the
-            // epic for a secret it did not write, and its failure path would discard that change.
-            if ($head['kind'] === self::ITEM_EPIC && $this->db->getSecretBlock() !== null) {
-                $this->treePaused = true;
-
-                return;
-            }
             try {
                 $dirty = $this->git->hasChanges();
             } catch (GitStatusException $e) {

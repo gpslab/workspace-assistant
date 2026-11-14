@@ -124,12 +124,12 @@ final class RunLifecycle
 
                 return;
             }
-            // In the blocked-by-secret state the gate also runs on a clean tree: the run may have rewritten the unpushed commit.
-            if ($dirty || $this->db->getSecretBlock() !== null) {
+            // An epic run never starts while a secret block is active (QueueScheduler holds it back), so the
+            // block state is not touched here: a finding below is a new one of this run.
+            if ($dirty) {
                 $this->runResult->deliverPromptFilesWarning($chatId, $threadId);
                 try {
                     $this->git->commitAndPush($this->runResult->commitMessage("epic {$slug}"));
-                    $this->db->clearSecretBlock();
                 } catch (SecretFoundException $e) {
                     // The finding goes to the epic like a `blocked` of the run signal: the epic stops.
                     $this->secretBlocker->block($chatId, $threadId, $e);

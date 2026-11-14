@@ -425,6 +425,7 @@ final class SecretGateTest extends TestCase
         self::assertNull($this->db->getSecretBlock());
         self::assertFileDoesNotExist($this->work.'/conf.txt');
         self::assertStringContainsString('The changes were discarded.', $this->allText());
+        self::assertStringNotContainsString('unpushed', $this->allText());
     }
 
     public function testBlockedTrackedFileDoesNotStopTheSyncOfTheNextRun(): void
@@ -462,6 +463,74 @@ final class SecretGateTest extends TestCase
         self::assertNull($this->db->getSecretBlock());
         self::assertSame($this->originHead(), $this->head());
         self::assertFileDoesNotExist($this->work.'/old.txt');
+        self::assertStringContainsString('Unpushed commits were dropped together with the changes.', $this->allText());
+    }
+
+    public function testDiscardWithoutUpstreamKeepsTheStateAndSaysSo(): void
+    {
+        $dir = escapeshellarg($this->work);
+        $this->hook('cd '.$dir.' && printf "key='.self::shapeToken().'\n" > old.txt && git add -A && git commit -q -m local && echo fine > extra.txt');
+        $this->say('go');
+        $this->call('startQueueHead');
+        $this->finishJob();
+        $decision = $this->db->getDecision();
+        self::assertNotNull($decision);
+        $this->git('branch --unset-upstream');
+
+        $this->call('handleCallback', [['id' => 'cb', 'from' => ['id' => self::USER], 'data' => 'discard', 'message' => ['chat' => ['id' => 100], 'message_id' => $decision['message_id'], 'is_topic_message' => true, 'message_thread_id' => 1]]]);
+
+        self::assertNotNull($this->db->getSecretBlock());
+        self::assertStringContainsString('the secret is still in an unpushed commit', $this->allText());
+        self::assertStringNotContainsString('The changes were discarded.', $this->allText());
+    }
+
+    public function testCommitButtonWithCleanContentClearsTheState(): void
+    {
+        $this->hook('printf "key='.self::shapeToken().'\n" > '.$this->work.'/conf.txt');
+        $this->say('go');
+        $this->call('startQueueHead');
+        $this->finishJob();
+        $decision = $this->db->getDecision();
+        self::assertNotNull($decision);
+        self::assertNotNull($this->db->getSecretBlock());
+
+        file_put_contents($this->work.'/conf.txt', "key=from-env\n");
+        $this->call('handleCallback', [['id' => 'cb', 'from' => ['id' => self::USER], 'data' => 'commit', 'message' => ['chat' => ['id' => 100], 'message_id' => $decision['message_id'], 'is_topic_message' => true, 'message_thread_id' => 1]]]);
+
+        self::assertNull($this->db->getSecretBlock());
+        self::assertSame($this->head(), $this->originHead());
+        self::assertSame("key=from-env\n", $this->git('show HEAD:conf.txt'));
+    }
+
+    public function testEpicAtTheHeadDoesNotHoldBackTheAuthorsReplyWhileBlocked(): void
+    {
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
+        $this->hook('printf "key='.self::shapeToken().'\n" > '.$this->work.'/conf.txt');
+        $this->say('go');
+        $this->call('startQueueHead');
+        $this->finishJob();
+        $block = $this->db->getSecretBlock();
+        self::assertNotNull($block);
+        $launches = $this->launches();
+
+        // Only the epic waits: it does not start, the block stays, and /queue says why.
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::TICK));
+        $this->call('startQueueHead');
+        self::assertNull($this->runState()->activeJob);
+        self::assertSame($launches, $this->launches());
+        self::assertEquals($block, $this->db->getSecretBlock());
+        self::assertNotNull($this->queueScheduler()->pauseReason());
+
+        // The author's reply is behind the epic in the queue and starts anyway.
+        $this->hook('printf "key=from-env\n" > '.$this->work.'/conf.txt');
+        $this->say('please fix', 11);
+        $this->call('startQueueHead');
+        self::assertNotNull($this->runState()->activeJob, 'the epic at the head must not stop the reply');
+        $this->finishJob();
+
+        self::assertSame($launches + 1, $this->launches());
+        self::assertNull($this->db->getSecretBlock());
+        self::assertCount(1, $this->db->queueWaiting(), 'the epic item is still waiting');
     }
 
     public function testCleanRunInBlockedStateDoesNotReportAnOldCommit(): void
