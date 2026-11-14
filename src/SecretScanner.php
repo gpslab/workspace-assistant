@@ -152,7 +152,7 @@ final class SecretScanner
     /** The whole password part of a URL is an obvious documentation placeholder, not a secret. */
     private static function isPlaceholderPassword(string $password): bool
     {
-        return preg_match('~^(?:<[^<>{}$]+>|\$?\{[^<>{}$]+\}|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|\*+|(?i:password|pass|passwd|pwd|secret|token))$~D', $password) === 1;
+        return preg_match('~^(?:<[A-Za-z][A-Za-z_ -]*>|\$?\{[A-Za-z][A-Za-z_ -]*\}|\$[A-Z_]+|%[A-Z_]+%|\*+|(?i:password|pass|passwd|pwd|secret|token))$~D', $password) === 1;
     }
 
     private function refreshKnown(): void

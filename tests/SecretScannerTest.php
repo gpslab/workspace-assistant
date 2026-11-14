@@ -93,6 +93,11 @@ final class SecretScannerTest extends TestCase
             'name tail' => [implode('', ['$', 'NAME', '-tail'])],
             'empty angle' => ['<>x'],
             'real' => [self::fake('', 14)],
+            'dollar prefix' => [implode('', ['$', 'uperS3cretPw9'])],
+            'braces mixed' => [implode('', ['{', self::VALUE, '}'])],
+            'angle mixed' => [implode('', ['<', self::VALUE, '>'])],
+            'percent mixed' => [implode('', ['%', self::VALUE, '%'])],
+            'dollar name digit' => [implode('', ['$', 'PASSWORD1'])],
         ];
     }
 
@@ -108,11 +113,13 @@ final class SecretScannerTest extends TestCase
 
     public function testKnownValueInUrlPasswordPlaceholderPositionIsStillReported(): void
     {
-        $text = implode('', ['https', '://', 'user:', self::VALUE, '@host/x']);
-        $result = $this->scanner('TOKEN='.self::VALUE."\n")->scan($text);
+        $value = implode('', ['<', 'db-password', '>']);
+        $text = implode('', ['https', '://', 'user:', $value, '@host/x']);
+        $result = $this->scanner('TOKEN='.$value."\n")->scan($text);
 
         self::assertNotSame([], $result['findings']);
-        self::assertStringNotContainsString(self::VALUE, $result['text']);
+        self::assertStringStartsWith('known:', $result['findings'][0]->type);
+        self::assertStringNotContainsString($value, $result['text']);
     }
 
     /**
