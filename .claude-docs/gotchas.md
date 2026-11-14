@@ -56,8 +56,9 @@ bot's hooks and not the repository's. Hence:
 
 - every hook name in `hooks/git/` must exist as a dispatcher and be committed `100755` (git silently skips a
   hook without the executable bit; a test checks it);
-- the dispatcher finds the repository's hook with `git config --local --get core.hooksPath`, else
-  `$(git rev-parse --git-common-dir)/hooks`. **Never** `git rev-parse --git-path hooks`: it answers with the
+- the dispatcher finds the repository's hook from the last `core.hooksPath` outside the `command` scope
+  (`git config --show-scope --get-all`: system, global and local, includes honoured; `command` is the bot's
+  own value), else `$(git rev-parse --git-common-dir)/hooks`. **Never** `git rev-parse --git-path hooks`: it answers with the
   bot's directory and the dispatcher would call itself;
 - the env also reaches `git receive-pack` of a local remote, hence the server-side dispatchers;
 - `pre-push` is a safety net: `--no-verify` bypasses it.

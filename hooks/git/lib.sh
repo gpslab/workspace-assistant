@@ -6,11 +6,12 @@
 WA_HOOKS_DIR=$(cd "$(dirname "$0")" && pwd -P)
 WA_ROOT=$(cd "$WA_HOOKS_DIR/../.." && pwd -P)
 
-# Directory of the repository's own hooks: core.hooksPath of the LOCAL config (a relative one is taken
-# from the directory the hook runs in), otherwise <common git dir>/hooks. Not `git rev-parse --git-path
+# Directory of the repository's own hooks: core.hooksPath from the system, global or local config
+# (includes honoured; the last value wins, a relative one is taken from the directory the hook runs in),
+# otherwise <common git dir>/hooks. The `command` scope is skipped: it is the value the bot injected. Not `git rev-parse --git-path
 # hooks`: with core.hooksPath set by the environment it answers with this very directory.
 wa_repo_hooks_dir() {
-    wa_path=$(git config --local --get core.hooksPath 2>/dev/null)
+    wa_path=$(git config --show-scope --get-all core.hooksPath 2>/dev/null | grep -v '^command' | tail -n 1 | cut -f 2-)
     if [ -n "$wa_path" ]; then
         case $wa_path in
             "~/"*) wa_path="$HOME/${wa_path#"~/"}" ;;

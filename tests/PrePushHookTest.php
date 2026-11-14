@@ -8,7 +8,6 @@ use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\GitHooks;
 use GpsLab\WorkspaceAssistant\PatchSecrets;
 use GpsLab\WorkspaceAssistant\PrePushScan;
-use GpsLab\WorkspaceAssistant\SystemPrompt;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -61,15 +60,15 @@ final class PrePushHookTest extends TestCase
         }
     }
 
-    public function testEveryRunModeSetsHooksPath(): void
+    public function testProcessEnvAppendsHooksPathAfterInheritedEntries(): void
     {
-        foreach ([...SystemPrompt::MODES, 'epic', 'unknown'] as $mode) {
-            $env = (new ClaudeRunner('claude', $this->root, 0, [], mode: $mode, extraEnv: ['X' => 'y']))->processEnv();
-            self::assertSame('core.hooksPath', $env['GIT_CONFIG_KEY_0'], $mode);
-            self::assertSame(GitHooks::dir(), $env['GIT_CONFIG_VALUE_0'], $mode);
-            self::assertSame('1', $env['GIT_CONFIG_COUNT'], $mode);
-            self::assertSame('y', $env['X']);
-        }
+        $env = (new ClaudeRunner('claude', $this->root, 0, [], extraEnv: ['X' => 'y']))->processEnv();
+        $n = (int) getenv('GIT_CONFIG_COUNT');
+
+        self::assertSame((string) ($n + 1), $env['GIT_CONFIG_COUNT']);
+        self::assertSame('core.hooksPath', $env['GIT_CONFIG_KEY_'.$n]);
+        self::assertSame(GitHooks::dir(), $env['GIT_CONFIG_VALUE_'.$n]);
+        self::assertSame('y', $env['X']);
     }
 
     public function testExistingGitConfigEntriesAreKept(): void
@@ -197,6 +196,25 @@ final class PrePushHookTest extends TestCase
         self::assertSame(0, $this->push(['git', 'push', 'origin', 'main'])['exit']);
 
         self::assertSame("custom-commit\ncustom\n", (string) file_get_contents($this->root.'/log'));
+    }
+
+    public function testGlobalHooksPathIsKept(): void
+    {
+        $home = $this->root.'/home';
+        mkdir($home.'/.githooks', 0777, true);
+        file_put_contents($home.'/.githooks/pre-push', "#!/bin/sh\necho global >> \"\$(git rev-parse --show-toplevel)/../log\"\n");
+        chmod($home.'/.githooks/pre-push', 0755);
+        file_put_contents($home.'/.gitconfig', "[core]\n\thooksPath = ~/.githooks\n");
+        // Without the bot's hooks the global one is what git runs.
+        $extra = ['HOME' => $home, 'XDG_CONFIG_HOME' => $home.'/.config', 'GIT_CONFIG_GLOBAL' => $home.'/.gitconfig'];
+
+        $this->commit('b.txt', "ok\n");
+        self::assertSame(0, $this->push(['git', 'push', 'origin', 'main'], null, $extra)['exit']);
+        self::assertSame("global\n", (string) file_get_contents($this->root.'/log'));
+
+        $this->commit('c.txt', self::shapeToken()."\n");
+        self::assertSame(1, $this->push(['git', 'push', 'origin', 'main'], null, $extra)['exit']);
+        self::assertSame("global\n", (string) file_get_contents($this->root.'/log'));
     }
 
     public function testRepositoryHookIsNotCalledInALoop(): void
