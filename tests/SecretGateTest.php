@@ -533,6 +533,35 @@ final class SecretGateTest extends TestCase
         self::assertCount(1, $this->db->queueWaiting(), 'the epic item is still waiting');
     }
 
+    public function testRetryOfTheItemStartedInPlaceOfAHeldEpicIsHonoured(): void
+    {
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
+        $this->hook('printf "key='.self::shapeToken().'\n" > '.$this->work.'/conf.txt');
+        $this->say('go');
+        $this->call('startQueueHead');
+        $this->finishJob();
+        self::assertNotNull($this->db->getSecretBlock());
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::TICK));
+
+        // The sync of the reply's start fails temporarily.
+        $this->hook('printf "key=from-env\n" > '.$this->work.'/conf.txt');
+        $this->git('remote set-url origin /nonexistent/repo');
+        $this->say('please fix', 11);
+        $this->call('startQueueHead');
+        self::assertNull($this->runState()->activeJob);
+
+        $retry = $this->db->getRetry();
+        self::assertNotNull($retry);
+        self::assertGreaterThan(time(), $retry['at']);
+        self::assertGreaterThan(0, $this->queueScheduler()->queueBlockedUntil());
+        self::assertStringContainsString((string) 60, (string) $this->queueScheduler()->pauseReason());
+
+        $launches = $this->launches();
+        $this->call('startQueueHead');
+        self::assertNull($this->runState()->activeJob, 'the retry delay applies to the item that starts');
+        self::assertSame($launches, $this->launches());
+    }
+
     public function testCleanRunInBlockedStateDoesNotReportAnOldCommit(): void
     {
         $this->hook('printf "key='.self::shapeToken().'\n" > '.$this->work.'/conf.txt');

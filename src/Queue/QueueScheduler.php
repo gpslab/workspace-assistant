@@ -138,13 +138,38 @@ final class QueueScheduler implements QueueControl
                 : $this->t('pause.dirty_tree');
         }
 
+        $startable = $this->startableHead();
+        $retry = $this->db->getRetry();
+        if ($retry !== null && $startable !== null && $retry['item'] === $startable['id'] && $retry['at'] > time()) {
+            return $this->t('pause.start_retry', ['seconds' => $retry['at'] - time()]);
+        }
+
         if ($this->epicHeldBySecretBlock($head)) {
             return $this->t('pause.epic_secret_blocked');
         }
 
-        $retry = $this->db->getRetry();
-        if ($retry !== null && $retry['item'] === $head['id'] && $retry['at'] > time()) {
-            return $this->t('pause.start_retry', ['seconds' => $retry['at'] - time()]);
+        return null;
+    }
+
+    /**
+     * The queue item that starts next: the head, or, while a secret block holds an epic at the head,
+     * the first non-epic item. One place for the start, the retry timer and the pause reason.
+     *
+     * @return array{id:int, chat_id:int, thread_id:int, message_id:int, kind:string, mode:string, locale:?string, model:?string, parts:list<array<string, mixed>>, placeholder_id:int, closed:bool, running:bool}|null
+     */
+    private function startableHead(): ?array
+    {
+        $head = $this->db->queueHead();
+        if ($head === null || !$this->epicHeldBySecretBlock($head)) {
+            return $head;
+        }
+        // An epic run must not start on top of a chat run's blocked change: its gate would block the
+        // epic for a secret it did not write, and its failure path would discard that change. The
+        // rest of the queue goes on, so the author's reply that fixes the block can start.
+        foreach ($this->db->queueWaiting() as $item) {
+            if ($item['kind'] !== self::ITEM_EPIC) {
+                return $item;
+            }
         }
 
         return null;
@@ -360,7 +385,7 @@ final class QueueScheduler implements QueueControl
     public function queueBlockedUntil(): int
     {
         $until = $this->db->getLimitPauseUntil();
-        $head = $this->db->queueHead();
+        $head = $this->startableHead();
         $retry = $this->db->getRetry();
         if ($retry !== null && $head !== null && $retry['item'] === $head['id']) {
             $until = max($until, $retry['at']);
@@ -385,19 +410,7 @@ final class QueueScheduler implements QueueControl
             return;
         }
         $this->releaseStaleDirtyState();
-        $head = $this->db->queueHead();
-        if ($head !== null && $this->epicHeldBySecretBlock($head)) {
-            // An epic run must not start on top of a chat run's blocked change: its gate would block the
-            // epic for a secret it did not write, and its failure path would discard that change. The
-            // rest of the queue goes on, so the author's reply that fixes the block can start.
-            $head = null;
-            foreach ($this->db->queueWaiting() as $item) {
-                if ($item['kind'] !== self::ITEM_EPIC) {
-                    $head = $item;
-                    break;
-                }
-            }
-        }
+        $head = $this->startableHead();
         if ($head === null) {
             $this->treePaused = false;
 
