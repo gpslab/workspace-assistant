@@ -1,0 +1,217 @@
+{
+ "sessionID": "ses_e25c57fe4ffeyT89Dl3kSWOuI7",
+ "command": "echo GATE",
+ "messages": [
+  {
+   "id": "msg_1da3a8039001Nygh3dOV7B5M5q",
+   "time": {
+    "created": 1794662630248
+   },
+   "text": "Call the stage_a subagent, wait until its report arrives, then run exactly this shell command: echo GATE",
+   "files": [],
+   "type": "user"
+  },
+  {
+   "id": "msg_1da3a837b0010aCtizasASxxBf",
+   "time": {
+    "created": 1794662630273,
+    "firstToken": 1794662631170,
+    "streamed": 1794662631886,
+    "completed": 1794662631930
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The user wants me to call the stage_a subagent, wait for its report, then run `echo GATE`. Let me call the subagent.\n\nNote: subagent runs in background and I'm notified. I should call it, then wait. But I can't sleep/poll. The instruction says end my response and wait for notification. But the user wants me to then run the command after report arrives.\n\nLet me call the subagent with a simple prompt.",
+     "native": {
+      "reasoningField": "reasoning",
+      "reasoningDetails": [
+       {
+        "type": "reasoning.text",
+        "text": "The user wants me to call the stage_a subagent, wait for its report, then run `echo GATE`. Let me call the subagent.\n\nNote: subagent runs in background and I'm notified. I should call it, then wait. But I can't sleep/poll. The instruction says end my response and wait for notification. But the user wants me to then run the command after report arrives.\n\nLet me call the subagent with a simple prompt.",
+        "format": "unknown",
+        "index": 0
+       }
+      ]
+     },
+     "time": {
+      "created": 1794662631173,
+      "completed": 1794662631874
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_0_f594e25b27f1a76e",
+     "name": "subagent",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "agent": "stage_a",
+       "description": "Run stage_a test agent",
+       "prompt": "Report your status. This is a test invocation."
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "The subagent is working in the background (sessionID: ses_e25c5762cffee6z7dScQ8UVHRg). You will receive a <subagent> message when it goes idle, and again after each later round of work.\nDO NOT sleep, poll, proactively check on its progress, or duplicate this subagent's work.\nWork on non-overlapping tasks, or briefly tell the user what you launched and end your response.\nTo send it follow-ups or change its instructions while it runs, call subagent again with this sessionID."
+       }
+      ],
+      "metadata": {
+       "sessionID": "ses_e25c5762cffee6z7dScQ8UVHRg",
+       "status": "running",
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1794662631865,
+      "ran": 1794662631883,
+      "completed": 1794662631899
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0.0010646544,
+   "tokens": {
+    "input": 8147,
+    "output": 85,
+    "reasoning": 95,
+    "cache": {
+     "read": 256,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3a8a04001E2D0U7RkVI081B",
+   "time": {
+    "created": 1794662631945,
+    "firstToken": 1794662632718,
+    "streamed": 1794662632910,
+    "completed": 1794662632925
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "I've launched the stage_a subagent (session `ses_e25c5762cffee6z7dScQ8UVHRg`) and will run `echo GATE` once its report arrives."
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0.0001031808,
+   "tokens": {
+    "input": 516,
+    "output": 45,
+    "reasoning": 0,
+    "cache": {
+     "read": 8192,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3a8de5001LBJRI2VeG80PxY",
+   "time": {
+    "created": 1794662632933
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_1da3a89da001IFyoaoSoyk6Os0",
+   "metadata": {
+    "source": "subagent",
+    "childID": "ses_e25c5762cffee6z7dScQ8UVHRg",
+    "agent": "stage_a",
+    "state": "completed"
+   },
+   "time": {
+    "created": 1794662642730
+   },
+   "text": "<subagent sessionID=\"ses_e25c5762cffee6z7dScQ8UVHRg\" state=\"completed\" description=\"Run stage_a test agent\">\nStatus: subagent invoked successfully. Command `sleep 8 && echo stage_a-done` completed with output: `stage_a-done`\n</subagent>",
+   "description": "Run stage_a test agent",
+   "type": "synthetic"
+  },
+  {
+   "id": "msg_1da3ab4310016amIepaMfuRQqm",
+   "time": {
+    "created": 1794662642742,
+    "firstToken": 1794662643624,
+    "streamed": 1794662643635
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The report arrived. Now run the shell command.",
+     "native": {
+      "reasoningField": "reasoning",
+      "reasoningDetails": [
+       {
+        "type": "reasoning.text",
+        "text": "The report arrived. Now run the shell command.",
+        "format": "unknown",
+        "index": 0
+       }
+      ]
+     },
+     "time": {
+      "created": 1794662643625,
+      "completed": 1794662643631
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_0_b24b900f62278317",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "running",
+      "input": {
+       "command": "echo GATE"
+      },
+      "metadata": {}
+     },
+     "time": {
+      "created": 1794662643628,
+      "ran": 1794662643633
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608"
+   }
+  }
+ ]
+}

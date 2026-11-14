@@ -1,0 +1,344 @@
+{
+ "sessionID": "ses_e25c4e471ffe4NTivklmJuYm8p",
+ "command": "echo GATE",
+ "messages": [
+  {
+   "id": "msg_1da3b1dd60017Q4DP1y5Xki5ZA",
+   "time": {
+    "created": 1794662670101
+   },
+   "text": "Call the stage_a subagent and wait until its report arrives. Only then call the stage_b subagent and wait until its report arrives. Then run exactly this shell command: echo GATE",
+   "files": [],
+   "type": "user"
+  },
+  {
+   "id": "msg_1da3b1f2a001J3KdDVVEkAeaD4",
+   "time": {
+    "created": 1794662670128,
+    "firstToken": 1794662671360,
+    "streamed": 1794662672262,
+    "completed": 1794662672312
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The user wants me to call stage_a subagent, wait for report, then stage_b, wait, then run echo GATE.\n\nSubagents run in background; I get notified when they go idle. So I should call stage_a, then end my turn saying I launched it. But the instruction says wait. I can't poll. Let me just start stage_a.",
+     "native": {
+      "reasoningField": "reasoning",
+      "reasoningDetails": [
+       {
+        "type": "reasoning.text",
+        "text": "The user wants me to call stage_a subagent, wait for report, then stage_b, wait, then run echo GATE.\n\nSubagents run in background; I get notified when they go idle. So I should call stage_a, then end my turn saying I launched it. But the instruction says wait. I can't poll. Let me just start stage_a.",
+        "format": "unknown",
+        "index": 0
+       }
+      ]
+     },
+     "time": {
+      "created": 1794662671362,
+      "completed": 1794662672249
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_fc0085302fd54ee6a8a8f0b7",
+     "name": "subagent",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "agent": "stage_a",
+       "description": "Run stage_a agent",
+       "prompt": "Run your stage_a task and report your result."
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "The subagent is working in the background (sessionID: ses_e25c4d874ffedntt3nql1smt5y). You will receive a <subagent> message when it goes idle, and again after each later round of work.\nDO NOT sleep, poll, proactively check on its progress, or duplicate this subagent's work.\nWork on non-overlapping tasks, or briefly tell the user what you launched and end your response.\nTo send it follow-ups or change its instructions while it runs, call subagent again with this sessionID."
+       }
+      ],
+      "metadata": {
+       "sessionID": "ses_e25c4d874ffedntt3nql1smt5y",
+       "status": "running",
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1794662672051,
+      "ran": 1794662672258,
+      "completed": 1794662672276
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0.0016769508,
+   "tokens": {
+    "input": 7329,
+    "output": 84,
+    "reasoning": 75,
+    "cache": {
+     "read": 1024,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3b27c3001HOrs5SlxUyl1GQ",
+   "time": {
+    "created": 1794662672328,
+    "firstToken": 1794662673283,
+    "streamed": 1794662673437,
+    "completed": 1794662673447
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "I launched the **stage_a** subagent (session `ses_e25c4d874ffedntt3nql1smt5y`). Waiting for its report before starting stage_b."
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0.0001650264,
+   "tokens": {
+    "input": 446,
+    "output": 44,
+    "reasoning": 0,
+    "cache": {
+     "read": 8192,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3b2c2d001c3lkKNaIh0yCUN",
+   "time": {
+    "created": 1794662673453
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_1da3b27930013Yq4aozrNzmOMj",
+   "metadata": {
+    "source": "subagent",
+    "childID": "ses_e25c4d874ffedntt3nql1smt5y",
+    "agent": "stage_a",
+    "state": "completed"
+   },
+   "time": {
+    "created": 1794662683973
+   },
+   "text": "<subagent sessionID=\"ses_e25c4d874ffedntt3nql1smt5y\" state=\"completed\" description=\"Run stage_a agent\">\nstage_a-done\n</subagent>",
+   "description": "Run stage_a agent",
+   "type": "synthetic"
+  },
+  {
+   "id": "msg_1da3b554b0010hLobU3Ic1K3Ns",
+   "time": {
+    "created": 1794662683983,
+    "firstToken": 1794662684908,
+    "streamed": 1794662685359,
+    "completed": 1794662685394
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "stage_a report arrived: \"stage_a-done\". Now call stage_b.",
+     "native": {
+      "reasoningField": "reasoning",
+      "reasoningDetails": [
+       {
+        "type": "reasoning.text",
+        "text": "stage_a report arrived: \"stage_a-done\". Now call stage_b.",
+        "format": "unknown",
+        "index": 0
+       }
+      ]
+     },
+     "time": {
+      "created": 1794662684932,
+      "completed": 1794662685353
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_5a383fca90174940ae2ad0f4",
+     "name": "subagent",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "agent": "stage_b",
+       "description": "Run stage_b agent",
+       "prompt": "Run your stage_b task and report your result. Context: stage_a has completed."
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "The subagent is working in the background (sessionID: ses_e25c4a54cffe69VQuSLwAklc7l). You will receive a <subagent> message when it goes idle, and again after each later round of work.\nDO NOT sleep, poll, proactively check on its progress, or duplicate this subagent's work.\nWork on non-overlapping tasks, or briefly tell the user what you launched and end your response.\nTo send it follow-ups or change its instructions while it runs, call subagent again with this sessionID."
+       }
+      ],
+      "metadata": {
+       "sessionID": "ses_e25c4a54cffe69VQuSLwAklc7l",
+       "status": "running",
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1794662685091,
+      "ran": 1794662685357,
+      "completed": 1794662685369
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0.0001847916,
+   "tokens": {
+    "input": 283,
+    "output": 91,
+    "reasoning": 16,
+    "cache": {
+     "read": 8448,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3b5adb001krTP5AnLZxwjQW",
+   "time": {
+    "created": 1794662685408,
+    "firstToken": 1794662686446,
+    "streamed": 1794662686725,
+    "completed": 1794662686733
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "stage_a reported **stage_a-done**. Now launched **stage_b** (session `ses_e25c4a54cffe69VQuSLwAklc7l`) and waiting for its report."
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0.0002351664,
+   "tokens": {
+    "input": 772,
+    "output": 46,
+    "reasoning": 0,
+    "cache": {
+     "read": 8192,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3b6010001ymbkSkDmcLpKXA",
+   "time": {
+    "created": 1794662686736
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_1da3b5ab9001F483ixcXBrXXko",
+   "metadata": {
+    "source": "subagent",
+    "childID": "ses_e25c4a54cffe69VQuSLwAklc7l",
+    "agent": "stage_b",
+    "state": "completed"
+   },
+   "time": {
+    "created": 1794662695580
+   },
+   "text": "<subagent sessionID=\"ses_e25c4a54cffe69VQuSLwAklc7l\" state=\"completed\" description=\"Run stage_b agent\">\nstage_b-done\n</subagent>",
+   "description": "Run stage_b agent",
+   "type": "synthetic"
+  },
+  {
+   "id": "msg_1da3b82a40011ziVRFUNU6Vwuk",
+   "time": {
+    "created": 1794662695593,
+    "firstToken": 1794662696774,
+    "streamed": 1794662696864
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_1e577a6bdbe345ec938d6fc6",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "running",
+      "input": {
+       "command": "echo GATE"
+      },
+      "metadata": {}
+     },
+     "time": {
+      "created": 1794662696776,
+      "ran": 1794662696862
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608"
+   }
+  }
+ ]
+}

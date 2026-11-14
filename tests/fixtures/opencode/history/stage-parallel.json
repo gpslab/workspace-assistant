@@ -1,0 +1,328 @@
+{
+ "sessionID": "ses_e25c53e17ffeW18X3gR7SyQ1VI",
+ "command": "echo GATE",
+ "messages": [
+  {
+   "id": "msg_1da3ac405001MzbmCeOGqbzmLQ",
+   "time": {
+    "created": 1794662647079
+   },
+   "text": "In ONE message call both the stage_a and stage_b subagents at the same time, without waiting between them. After both reports arrive, run exactly this shell command: echo GATE",
+   "files": [],
+   "type": "user"
+  },
+  {
+   "id": "msg_1da3ac53b001rFCpqyER4zR7hk",
+   "time": {
+    "created": 1794662647105,
+    "firstToken": 1794662648450,
+    "streamed": 1794662649126,
+    "completed": 1794662649197
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The user wants me to call both subagents in one message, in parallel. Then after both reports arrive, run `echo GATE`.\n\nLet me do that.\n\nSubagents always run in the background, so I'll call both in one message.",
+     "native": {
+      "reasoningField": "reasoning",
+      "reasoningDetails": [
+       {
+        "type": "reasoning.text",
+        "text": "The user wants me to call both subagents in one message, in parallel. Then after both reports arrive, run `echo GATE`.\n\nLet me do that.\n\nSubagents always run in the background, so I'll call both in one message.",
+        "format": "unknown",
+        "index": 0
+       }
+      ]
+     },
+     "time": {
+      "created": 1794662648453,
+      "completed": 1794662649115
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_0_b5cb29d42b9528fb",
+     "name": "subagent",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "agent": "stage_a",
+       "description": "Run stage_a",
+       "prompt": "Run your stage_a task and report your result."
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "The subagent is working in the background (sessionID: ses_e25c532d3ffeWr47C32QapGUaW). You will receive a <subagent> message when it goes idle, and again after each later round of work.\nDO NOT sleep, poll, proactively check on its progress, or duplicate this subagent's work.\nWork on non-overlapping tasks, or briefly tell the user what you launched and end your response.\nTo send it follow-ups or change its instructions while it runs, call subagent again with this sessionID."
+       }
+      ],
+      "metadata": {
+       "sessionID": "ses_e25c532d3ffeWr47C32QapGUaW",
+       "status": "running",
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1794662649107,
+      "ran": 1794662649119,
+      "completed": 1794662649140
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_1_9fc957d510568c70",
+     "name": "subagent",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "agent": "stage_b",
+       "description": "Run stage_b",
+       "prompt": "Run your stage_b task and report your result."
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "The subagent is working in the background (sessionID: ses_e25c532d2ffeCST8WwT4EHEuEz). You will receive a <subagent> message when it goes idle, and again after each later round of work.\nDO NOT sleep, poll, proactively check on its progress, or duplicate this subagent's work.\nWork on non-overlapping tasks, or briefly tell the user what you launched and end your response.\nTo send it follow-ups or change its instructions while it runs, call subagent again with this sessionID."
+       }
+      ],
+      "metadata": {
+       "sessionID": "ses_e25c532d2ffeCST8WwT4EHEuEz",
+       "status": "running",
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1794662649111,
+      "ran": 1794662649123,
+      "completed": 1794662649147
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0.0001450608,
+   "tokens": {
+    "input": 225,
+    "output": 155,
+    "reasoning": 50,
+    "cache": {
+     "read": 8192,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3acd79001hG46yWRw374HoZ",
+   "time": {
+    "created": 1794662649216,
+    "firstToken": 1794662650495,
+    "streamed": 1794662650596,
+    "completed": 1794662650606
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Both subagents are running in the background (stage_a and stage_b). I'll run the gate command once both report back."
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0.0001143408,
+   "tokens": {
+    "input": 677,
+    "output": 28,
+    "reasoning": 0,
+    "cache": {
+     "read": 8192,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3ad2f3001ieO7nq1V3GcYcR",
+   "time": {
+    "created": 1794662650611
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_1da3acd3b00135ruNJv5T1P4S5",
+   "metadata": {
+    "source": "subagent",
+    "childID": "ses_e25c532d2ffeCST8WwT4EHEuEz",
+    "agent": "stage_b",
+    "state": "completed"
+   },
+   "time": {
+    "created": 1794662660436
+   },
+   "text": "<subagent sessionID=\"ses_e25c532d2ffeCST8WwT4EHEuEz\" state=\"completed\" description=\"Run stage_b\">\nstage_b-done\n</subagent>",
+   "description": "Run stage_b",
+   "type": "synthetic"
+  },
+  {
+   "id": "msg_1da3af959001XoUVuBmAHdZw5Z",
+   "time": {
+    "created": 1794662660446,
+    "firstToken": 1794662661293,
+    "streamed": 1794662661511,
+    "completed": 1794662661520
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "stage_b completed. stage_a still running. Wait for stage_a.",
+     "native": {
+      "reasoningField": "reasoning",
+      "reasoningDetails": [
+       {
+        "type": "reasoning.text",
+        "text": "stage_b completed. stage_a still running. Wait for stage_a.",
+        "format": "unknown",
+        "index": 0
+       }
+      ]
+     },
+     "time": {
+      "created": 1794662661295,
+      "completed": 1794662661508
+     }
+    },
+    {
+     "type": "text",
+     "text": "stage_b is done. Waiting on stage_a before running the gate command."
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "end": "c37c3d7045380e3e38d37e769f5f559e21704608",
+    "files": []
+   },
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 6.46896e-05,
+   "tokens": {
+    "input": 241,
+    "output": 17,
+    "reasoning": 14,
+    "cache": {
+     "read": 8704,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_1da3afd94001CAKmDMuWuVjW5N",
+   "time": {
+    "created": 1794662661524
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_1da3acd34001vQi06tclDkrUzD",
+   "metadata": {
+    "source": "subagent",
+    "childID": "ses_e25c532d3ffeWr47C32QapGUaW",
+    "agent": "stage_a",
+    "state": "completed"
+   },
+   "time": {
+    "created": 1794662663827
+   },
+   "text": "<subagent sessionID=\"ses_e25c532d3ffeWr47C32QapGUaW\" state=\"completed\" description=\"Run stage_a\">\nstage_a result: `stage_a-done`\n</subagent>",
+   "description": "Run stage_a",
+   "type": "synthetic"
+  },
+  {
+   "id": "msg_1da3b069a001NXgUrZKRvQFCNG",
+   "time": {
+    "created": 1794662663839,
+    "firstToken": 1794662665846,
+    "streamed": 1794662666037
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "providerID": "openrouter",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "Both done. Now run exactly: echo GATE.",
+     "native": {
+      "reasoningField": "reasoning",
+      "reasoningDetails": [
+       {
+        "type": "reasoning.text",
+        "text": "Both done. Now run exactly: echo GATE.",
+        "format": "unknown",
+        "index": 0
+       }
+      ]
+     },
+     "time": {
+      "created": 1794662665848,
+      "completed": 1794662666031
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_0_b24b900f62278317",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "running",
+      "input": {
+       "command": "echo GATE"
+      },
+      "metadata": {}
+     },
+     "time": {
+      "created": 1794662666024,
+      "ran": 1794662666035
+     }
+    }
+   ],
+   "snapshot": {
+    "start": "c37c3d7045380e3e38d37e769f5f559e21704608"
+   }
+  }
+ ]
+}
