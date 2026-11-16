@@ -73,10 +73,11 @@ final class ModelTest extends TestCase
     }
 
     /**
-     * @param list<string>      $extraArgs
-     * @param list<string>|null $models
+     * @param list<string>                                                                     $extraArgs
+     * @param list<string>|null                                                                $models
+     * @param array{modelEpicTick?: string, modelEpicFinal?: string, modelEpicReview?: string} $epicModels MODEL_EPIC_* values by their Config property name
      */
-    private function makeBot(array $extraArgs = [], ?array $models = null): Bot
+    private function makeBot(array $extraArgs = [], ?array $models = null, array $epicModels = []): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -94,7 +95,8 @@ final class ModelTest extends TestCase
             'pollTimeout' => 30,
             'gitTimeout' => 30,
             'forgeOwners' => new ForgeOwners(['gpslab']),
-        ] + ($models === null ? [] : ['claudeModels' => $models]));
+        ] + ($models === null ? [] : ['claudeModels' => $models])
+          + $epicModels);
 
         return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root));
     }
@@ -146,6 +148,29 @@ final class ModelTest extends TestCase
         $this->say($thread, $text, $messageId);
         $this->call('startQueueHead');
         $this->finishJob();
+    }
+
+    private function makeEpic(): void
+    {
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
+    }
+
+    private function scheduler(): QueueScheduler
+    {
+        $scheduler = (new \ReflectionProperty(Bot::class, 'queueScheduler'))->getValue($this->bot);
+        self::assertInstanceOf(QueueScheduler::class, $scheduler);
+
+        return $scheduler;
+    }
+
+    /** Enqueues an epic run, starts it and returns the model that reached argv. */
+    private function runEpic(string $run, int $launch): ?string
+    {
+        self::assertTrue($this->scheduler()->enqueueEpicRun('demo', $run));
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        return $this->modelOf($launch);
     }
 
     /** @return list<string> */
@@ -535,6 +560,61 @@ final class ModelTest extends TestCase
 
         self::assertSame('opus', $this->modelOf(0));
         self::assertNull($this->db->getLastModel(100, 1), 'an epic run does not touch the topic session state');
+    }
+
+    public function testEpicTickModelResolution(): void
+    {
+        $this->makeEpic();
+
+        $this->bot = $this->makeBot([], null, ['modelEpicTick' => 'haiku']);
+        $this->db->setDefaultModel('sonnet');
+        self::assertSame('haiku', $this->runEpic(Run::TICK, 0), 'the run-kind key wins over the model for all topics');
+
+        $this->bot = $this->makeBot([], null, ['modelEpicTick' => '']);
+        self::assertSame('sonnet', $this->runEpic(Run::TICK, 1));
+
+        $this->db->setDefaultModel(null);
+        self::assertNull($this->runEpic(Run::TICK, 2));
+    }
+
+    public function testEpicFinalModelResolution(): void
+    {
+        $this->makeEpic();
+
+        $this->bot = $this->makeBot([], null, ['modelEpicFinal' => 'opus']);
+        $this->db->setDefaultModel('sonnet');
+        self::assertSame('opus', $this->runEpic(Run::FINAL, 0), 'the run-kind key wins over the model for all topics');
+
+        $this->bot = $this->makeBot([], null, ['modelEpicFinal' => '']);
+        self::assertSame('sonnet', $this->runEpic(Run::FINAL, 1));
+
+        $this->db->setDefaultModel(null);
+        self::assertNull($this->runEpic(Run::FINAL, 2));
+    }
+
+    public function testEpicReviewModelResolution(): void
+    {
+        $this->makeEpic();
+
+        $this->bot = $this->makeBot([], null, ['modelEpicReview' => 'opus[1m]']);
+        $this->db->setDefaultModel('sonnet');
+        self::assertSame('opus[1m]', $this->runEpic(Run::REVIEW, 0), 'the run-kind key wins over the model for all topics');
+
+        $this->bot = $this->makeBot([], null, ['modelEpicReview' => '']);
+        self::assertSame('sonnet', $this->runEpic(Run::REVIEW, 1));
+
+        $this->db->setDefaultModel(null);
+        self::assertNull($this->runEpic(Run::REVIEW, 2));
+    }
+
+    public function testEpicPinnedValueOutsideTheListIsDroppedAtRunStart(): void
+    {
+        $this->makeEpic();
+        $this->db->queueAdd(100, 1, 10, 'epic', 'pm', [['slug' => 'demo', 'run' => Run::TICK]], 0, 'en', 'removed-from-list');
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertNull($this->modelOf(0));
     }
 
     public function testRunnerNeverAddsItsOwnModelNextToOneFromTheExtraArguments(): void

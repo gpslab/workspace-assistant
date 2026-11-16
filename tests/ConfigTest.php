@@ -394,6 +394,64 @@ final class ConfigTest extends TestCase
         self::assertSame(['sonnet', 'claude-haiku-4-5-20251001'], Config::load($this->envFile)->claudeModels);
     }
 
+    public function testEpicModelKeysDefaultEmpty(): void
+    {
+        $this->writeEnv();
+        $config = Config::load($this->envFile);
+
+        self::assertSame('', $config->modelEpicTick);
+        self::assertSame('', $config->modelEpicFinal);
+        self::assertSame('', $config->modelEpicReview);
+    }
+
+    public function testEpicModelKeysAreRead(): void
+    {
+        $this->writeEnv("MODEL_EPIC_TICK= sonnet \nMODEL_EPIC_FINAL=opus\nMODEL_EPIC_REVIEW=opus[1m]\n");
+        $config = Config::load($this->envFile);
+
+        self::assertSame('sonnet', $config->modelEpicTick);
+        self::assertSame('opus', $config->modelEpicFinal);
+        self::assertSame('opus[1m]', $config->modelEpicReview);
+    }
+
+    public function testEpicModelKeyOutsideClaudeModelsFailsTheStart(): void
+    {
+        $this->writeEnv('MODEL_EPIC_TICK=nosuchmodel');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('MODEL_EPIC_TICK=nosuchmodel in .env is not in CLAUDE_MODELS.');
+        Config::load($this->envFile);
+    }
+
+    public function testEpicModelKeyOutsideClaudeModelsFailsForEveryKey(): void
+    {
+        foreach (['MODEL_EPIC_TICK', 'MODEL_EPIC_FINAL', 'MODEL_EPIC_REVIEW'] as $key) {
+            $this->writeEnv($key.'=nosuchmodel');
+            try {
+                Config::load($this->envFile);
+                self::fail($key.' outside CLAUDE_MODELS must fail the start');
+            } catch (\RuntimeException $e) {
+                self::assertStringContainsString($key.'=nosuchmodel', $e->getMessage());
+            }
+        }
+    }
+
+    public function testEpicModelKeysAreIgnoredWhenExtraArgsModelPinsTheInstance(): void
+    {
+        foreach (["MODEL_EPIC_TICK=sonnet\nCLAUDE_EXTRA_ARGS=--model,haiku", "MODEL_EPIC_TICK=sonnet\nCLAUDE_EXTRA_ARGS=--model=haiku"] as $env) {
+            $this->writeEnv("OPENRONIN_LOGINS=bot\n".$env);
+            self::assertSame(['MODEL_EPIC_TICK, MODEL_EPIC_FINAL and MODEL_EPIC_REVIEW are ignored: a --model in CLAUDE_EXTRA_ARGS pins the model for every run.'], Config::load($this->envFile)->startupWarnings());
+        }
+    }
+
+    public function testNoEpicWarningWhenNoEpicKeyIsSetOrNoExtraArgsModel(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\n");
+        self::assertSame([], Config::load($this->envFile)->startupWarnings());
+
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nCLAUDE_EXTRA_ARGS=--model,haiku");
+        self::assertSame([], Config::load($this->envFile)->startupWarnings());
+    }
+
     public function testSecretEnvFilesAreAList(): void
     {
         $this->writeEnv();

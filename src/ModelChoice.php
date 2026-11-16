@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Epic\Run;
+
 /**
  * Which Claude model a run gets (`claude -p --model`). Two stored levels, topic then all topics;
  * "nothing" means no flag and the CLI uses its own setting. Only values of CLAUDE_MODELS apply;
@@ -74,6 +76,29 @@ final readonly class ModelChoice
         }
 
         return $this->applicable($this->db->getDefaultModel(), 'all topics');
+    }
+
+    /**
+     * Epic runs: the run-kind key (MODEL_EPIC_<RUN>), else the model for all topics, else null.
+     * The key value is validated at startup against CLAUDE_MODELS, so it is passed as it is.
+     */
+    public function resolveEpic(string $run): ?string
+    {
+        if ($this->pinnedByExtraArgs() !== null) {
+            return null;
+        }
+
+        $keyValue = match ($run) {
+            Run::TICK => $this->config->modelEpicTick,
+            Run::FINAL => $this->config->modelEpicFinal,
+            Run::REVIEW => $this->config->modelEpicReview,
+            default => '',
+        };
+        if ($keyValue !== '') {
+            return $keyValue;
+        }
+
+        return $this->resolveForAll();
     }
 
     /**
