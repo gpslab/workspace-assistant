@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "Fetch по репозиторіях (затримка, за спаданням):",
     "sync.profile_fetch_line": "  {name} — {sec} с",
     "sync.profile_header": "⏱ Профіль синхронізації (до «Думаю»):",
-    "sync.profile_subrepos": "• docs/* усього: {sec} с (репо: {count}, fetch паралельно)",
+    "sync.profile_subrepos": "• {dir}/* усього: {sec} с (репо: {count}, fetch паралельно)",
     "sync.profile_total": "• усього: {sec} с",
     "sync.profile_managed": "• pull керованого репозиторію: {sec} с",
     "tg.full_caption": "Відповідь повністю",

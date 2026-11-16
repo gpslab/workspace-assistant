@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "저장소별 fetch (지연 시간, 내림차순):",
     "sync.profile_fetch_line": "  {name} — {sec}초",
     "sync.profile_header": "⏱ 동기화 프로필 (\"생각 중\" 이전):",
-    "sync.profile_subrepos": "• docs/* 합계: {sec}초 (저장소 {count}개, fetch 병렬)",
+    "sync.profile_subrepos": "• {dir}/* 합계: {sec}초 (저장소 {count}개, fetch 병렬)",
     "sync.profile_total": "• 합계: {sec}초",
     "sync.profile_managed": "• 관리 대상 저장소 pull: {sec}초",
     "tg.full_caption": "전체 답변",

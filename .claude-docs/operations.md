@@ -145,8 +145,11 @@ set, every clone under it (`SubRepoSync::pullSubRepos`), so Claude does not work
   with squash merges it fails closed and the manual path remains.
 - **The loop is blocked** while clones are fetched. Each fails fast without network
   (`ConnectTimeout=10`); the per-repository ceiling is `GIT_TIMEOUT`.
-- **Latency profile:** the log always gets a `sync-profile: total Xs = managed repository Ys + docs/* Zs
+- **Latency profile:** the log always gets a `sync-profile: total Xs = managed repository Ys + <SUBREPOS_DIR>/* Zs
   (N repos); …` line (`grep sync-profile state/bot.log`); the chat gets the breakdown only with `/verbose`.
+  The managed-repository part is omitted when `AUTO_COMMIT=0`, and the `<SUBREPOS_DIR>/*` part when
+  `SUBREPOS_DIR` is empty. When both are absent the log line is `sync-profile: skipped (nothing to sync)`
+  and nothing is sent to the chat.
 - **Mitigations in place:** SSH multiplexing (`ControlMaster=auto`, `ControlPersist=60s`, one connection to
   the git host reused by all fetches and the push); a parallel fetch of all clean clones over that one
   connection (`GitManager::fetchPruneParallel`, one shared `GIT_TIMEOUT` deadline); an early

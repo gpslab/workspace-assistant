@@ -19,7 +19,7 @@ final class SubRepoSync
     }
 
     /**
-     * Best-effort `git pull --rebase` in all docs/* repositories before running
+     * Best-effort `git pull --rebase` in all sub-repositories before running
      * Claude. Component development happens on the forge, local clones lag behind —
      * refresh them so Claude does not work on stale code.
      *
@@ -144,29 +144,55 @@ final class SubRepoSync
      */
     public function formatSyncProfile(float $managedSec, float $subReposSec, array $timings): array
     {
-        arsort($timings);
-        $totalSec = $managedSec + $subReposSec;
+        // Each part is reported only when it was actually performed: the managed
+        // repository pull is skipped with AUTO_COMMIT=0, the sub-repositories with an
+        // empty SUBREPOS_DIR. Otherwise the profile would claim a sync that did not happen.
+        $managedOn = $this->config->autoCommit;
+        $subReposOn = $this->config->subreposDir !== '';
 
+        arsort($timings);
         $top = [];
         foreach ($timings as $name => $sec) {
             $top[] = sprintf('%s %.1fs', $name, $sec);
         }
 
+        // Nothing was synced: no message for the chat, the log records the skip.
+        if (!$managedOn && !$subReposOn) {
+            return ['log' => 'sync-profile: skipped (nothing to sync)', 'message' => ''];
+        }
+
+        $totalSec = 0.0;
+        $logParts = [];
+        if ($managedOn) {
+            $totalSec += $managedSec;
+            $logParts[] = sprintf('managed repository %.1fs', $managedSec);
+        }
+        if ($subReposOn) {
+            $totalSec += $subReposSec;
+            $logParts[] = sprintf('%s/* %.1fs (%d repos)', $this->config->subreposDir, $subReposSec, count($timings));
+        }
+
         $log = sprintf(
-            'sync-profile: total %.1fs = managed repository %.1fs + docs/* %.1fs (%d repos)%s',
+            'sync-profile: total %.1fs = %s%s',
             $totalSec,
-            $managedSec,
-            $subReposSec,
-            count($timings),
+            implode(' + ', $logParts),
             $top === [] ? '' : '; descending: '.implode(', ', $top),
         );
 
         $lines = [
             $this->locale->t('sync.profile_header'),
             $this->locale->t('sync.profile_total', ['sec' => sprintf('%.1f', $totalSec)]),
-            $this->locale->t('sync.profile_managed', ['sec' => sprintf('%.1f', $managedSec)]),
-            $this->locale->t('sync.profile_subrepos', ['sec' => sprintf('%.1f', $subReposSec), 'count' => count($timings)]),
         ];
+        if ($managedOn) {
+            $lines[] = $this->locale->t('sync.profile_managed', ['sec' => sprintf('%.1f', $managedSec)]);
+        }
+        if ($subReposOn) {
+            $lines[] = $this->locale->t('sync.profile_subrepos', [
+                'dir' => $this->config->subreposDir,
+                'sec' => sprintf('%.1f', $subReposSec),
+                'count' => count($timings),
+            ]);
+        }
         if ($top !== []) {
             // fetches run in parallel, so per-repo time is the latency of each
             // fetch separately; their sum exceeds the total wall time.
@@ -206,7 +232,7 @@ final class SubRepoSync
     }
 
     /**
-     * Snapshots the HEAD hashes of all git repositories in docs/*.
+     * Snapshots the HEAD hashes of all git repositories in the sub-repositories directory.
      *
      * @return array<string, string|null> repoPath => headHash|null
      */

@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "Fetch pro Repository (Latenz, absteigend):",
     "sync.profile_fetch_line": "  {name} — {sec} s",
     "sync.profile_header": "⏱ Sync-Profil (vor „Denke nach“):",
-    "sync.profile_subrepos": "• docs/* gesamt: {sec} s ({count} Repos, fetch parallel)",
+    "sync.profile_subrepos": "• {dir}/* gesamt: {sec} s ({count} Repos, fetch parallel)",
     "sync.profile_total": "• gesamt: {sec} s",
     "sync.profile_managed": "• Pull des managed repository: {sec} s",
     "tg.full_caption": "Vollständige Antwort",

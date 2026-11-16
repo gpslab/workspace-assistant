@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "Fetch par dépôt (latence, décroissante) :",
     "sync.profile_fetch_line": "  {name} — {sec} s",
     "sync.profile_header": "⏱ Profil de synchronisation (avant « Réflexion ») :",
-    "sync.profile_subrepos": "• docs/* au total : {sec} s ({count} dépôts, fetch en parallèle)",
+    "sync.profile_subrepos": "• {dir}/* au total : {sec} s ({count} dépôts, fetch en parallèle)",
     "sync.profile_total": "• total : {sec} s",
     "sync.profile_managed": "• pull du dépôt géré : {sec} s",
     "tg.full_caption": "Réponse complète",

@@ -133,11 +133,11 @@ final class GitManager
         $ssh = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10';
 
         // SSH multiplexing: keep one connection to the forge host and
-        // reuse it for subsequent git operations (fetch for all docs/*,
+        // reuse it for subsequent git operations (fetch for all sub-repositories,
         // push). Without it each fetch pays ~3s for the SSH handshake. ControlMaster
         // =auto brings up the master on the first connect, ControlPersist=60s keeps
         // it for 60s after last use. Key for parallel
-        // fetch: the managed repository pull before docs/* already brings up this master (same
+        // fetch: the managed repository pull before the sub-repositories already brings up this master (same
         // user@host -> same %C socket), so all parallel fetches
         // are multiplexed over one connection, with no thundering herd on
         // handshakes. ControlPath=.../%C is a short hash of the parameters (avoids problems with

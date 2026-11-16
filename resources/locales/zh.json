@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "各仓库的 fetch（延迟，降序）：",
     "sync.profile_fetch_line": "  {name} — {sec} 秒",
     "sync.profile_header": "⏱ 同步耗时（“思考中”之前）：",
-    "sync.profile_subrepos": "• docs/* 合计：{sec} 秒（{count} 个仓库，fetch 并行）",
+    "sync.profile_subrepos": "• {dir}/* 合计：{sec} 秒（{count} 个仓库，fetch 并行）",
     "sync.profile_total": "• 总计：{sec} 秒",
     "sync.profile_managed": "• 被管理仓库的 pull：{sec} 秒",
     "tg.full_caption": "完整回答",

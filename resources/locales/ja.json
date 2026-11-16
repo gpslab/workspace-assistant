@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "リポジトリごとの fetch（レイテンシ、降順）：",
     "sync.profile_fetch_line": "  {name} — {sec} 秒",
     "sync.profile_header": "⏱ 同期プロファイル（「考え中」の前）：",
-    "sync.profile_subrepos": "• docs/* 合計：{sec} 秒（{count} リポジトリ、並列 fetch）",
+    "sync.profile_subrepos": "• {dir}/* 合計：{sec} 秒（{count} リポジトリ、並列 fetch）",
     "sync.profile_total": "• 合計：{sec} 秒",
     "sync.profile_managed": "• 管理対象リポジトリの pull：{sec} 秒",
     "tg.full_caption": "完全な回答",

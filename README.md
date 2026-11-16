@@ -210,7 +210,7 @@ the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.
 | `/cancel` | Abort the topic's process and drop its queued requests |
 | `/queue` | Show the request queue |
 | `/stats` | Session statistics: messages and Claude's totals for the whole session (input, cache read, cache write, output tokens, estimated cost) |
-| `/verbose` | Show the token usage and cost of this run under every reply |
+| `/verbose` | Show the token usage and cost of this run under every reply, plus the sync profile sent before "Thinking…" |
 | `/mode` | Switch the mode: `arch`, `review` or `pm` |
 | `/model` | Choose the Claude model (`--model`) from `CLAUDE_MODELS`: `/model <name>` for this topic, `/model <name> all` for all topics, `default` clears a level; without an argument — buttons. The topic choice is sticky like `/mode`; `/stats` shows the model. A `--model` in `CLAUDE_EXTRA_ARGS` pins it and `/model` becomes read-only |
 | `/lang` | Language of Claude's replies in the chat |
