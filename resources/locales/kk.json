@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "Репозиторийлер бойынша fetch (кідіріс, кему бойынша):",
     "sync.profile_fetch_line": "  {name} — {sec} с",
     "sync.profile_header": "⏱ Синхрондау профилі («Ойланып жатырмын» дейін):",
-    "sync.profile_subrepos": "• docs/* барлығы: {sec} с ({count} репо, fetch параллель)",
+    "sync.profile_subrepos": "• {dir}/* барлығы: {sec} с ({count} репо, fetch параллель)",
     "sync.profile_total": "• барлығы: {sec} с",
     "sync.profile_managed": "• managed repository pull: {sec} с",
     "tg.full_caption": "Толық жауап",

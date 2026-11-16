@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "Repozitoriylar bo'yicha fetch (kechikish, kamayish tartibida):",
     "sync.profile_fetch_line": "  {name} — {sec} s",
     "sync.profile_header": "⏱ Sinxronlash profili (\"O'ylayapman\" gacha):",
-    "sync.profile_subrepos": "• docs/* jami: {sec} s ({count} repo, fetch parallel)",
+    "sync.profile_subrepos": "• {dir}/* jami: {sec} s ({count} repo, fetch parallel)",
     "sync.profile_total": "• jami: {sec} s",
     "sync.profile_managed": "• boshqariladigan repozitoriy pull: {sec} s",
     "tg.full_caption": "To'liq javob",

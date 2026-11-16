@@ -23,7 +23,7 @@ final class RunState
     public ?array $jobContext = null;
 
     /**
-     * Snapshot of HEAD of all docs/* repositories before Claude is launched.
+     * Snapshot of HEAD of all sub-repositories before Claude is launched.
      * Afterwards we compare — new commits get links in the reply. It outlives finishJobState(), is read
      * and cleared by RunResult::sendResult() and, if that never ran, dropped when the run's outcome has
      * been handled (Bot::afterRun()) or the run is cancelled (JobRunner::cancelTopic()).

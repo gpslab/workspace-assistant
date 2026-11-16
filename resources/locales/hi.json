@@ -288,7 +288,7 @@
     "sync.profile_fetch_header": "प्रति रिपॉज़िटरी fetch (विलंब, घटते क्रम में):",
     "sync.profile_fetch_line": "  {name} — {sec} सेकंड",
     "sync.profile_header": "⏱ सिंक प्रोफ़ाइल (\"सोच रहा हूँ\" से पहले):",
-    "sync.profile_subrepos": "• docs/* कुल: {sec} सेकंड ({count} रिपॉज़िटरी, fetch समानांतर)",
+    "sync.profile_subrepos": "• {dir}/* कुल: {sec} सेकंड ({count} रिपॉज़िटरी, fetch समानांतर)",
     "sync.profile_total": "• कुल: {sec} सेकंड",
     "sync.profile_managed": "• managed repository का pull: {sec} सेकंड",
     "tg.full_caption": "पूरा उत्तर",

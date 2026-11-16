@@ -833,7 +833,7 @@ final class QueueScheduler implements QueueControl
 
     /**
      * Common synchronization before starting Claude: `git pull --rebase` of the
-     * managed repository + best-effort pull of the docs/* components + a profile to the
+     * managed repository + best-effort pull of the sub-repositories + a profile to the
      * log/verbose chat. Called when the queue head starts: Claude runs in the
      * same REPO_PATH and must work on fresh code. Returns the error text if the
      * managed repository pull fails (the caller picks the retry policy) or null.
@@ -848,7 +848,7 @@ final class QueueScheduler implements QueueControl
         }
         $managedSec = microtime(true) - $managedStart;
 
-        // Components are developed on GitHub and the local docs/* clones often lag
+        // Components are developed on GitHub and the local sub-repository clones often lag
         // behind, so we pull them to let Claude work on fresh code. A failure in a
         // single clone does not cancel the job (the managed repository above is already
         // pulled), it is only added to the warning. $timings is a per-repository
@@ -873,7 +873,7 @@ final class QueueScheduler implements QueueControl
         // reproduction), to the chat only when verbose.
         $profile = $this->subRepoSync->formatSyncProfile($managedSec, $subReposSec, $timings);
         Log::line($profile['log']);
-        if ($this->db->isVerbose($chatId, $threadId)) {
+        if ($this->db->isVerbose($chatId, $threadId) && $profile['message'] !== '') {
             $this->tg->sendText($chatId, $profile['message'], null, $threadId);
         }
 

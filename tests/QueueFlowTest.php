@@ -93,7 +93,7 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = ''): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -114,6 +114,8 @@ final class QueueFlowTest extends TestCase
             'localesDir' => $localesDir,
             'forgeOwners' => new ForgeOwners(['anime-db', 'gpslab']),
             'forge' => $forge,
+            'autoCommit' => $autoCommit,
+            'subreposDir' => $subreposDir,
         ] + ($locale === null ? [] : ['botLocale' => $locale]));
 
         return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github);
@@ -1343,6 +1345,26 @@ final class QueueFlowTest extends TestCase
         $failures = array_filter($this->tg->textsTo(100, 1), static fn (string $t): bool => str_contains($t, 'git pull --rebase failed'));
         self::assertCount(1, $failures);
         self::assertSame(0, $this->launches());
+    }
+
+    public function testVerboseWithNothingToSyncSendsNoProfileMessage(): void
+    {
+        $this->bot = $this->makeBot(autoCommit: false, subreposDir: '');
+        $this->db->toggleVerbose(100, 1);
+        self::assertTrue($this->db->isVerbose(100, 1));
+
+        $this->say(100, 1, 'hello', 10);
+        $this->call('startQueueHead');
+        self::assertTrue($this->activeJob());
+        $this->finishJob();
+
+        // Verbose is on but neither the managed repository nor any sub-repository
+        // was pulled, so no sync profile is sent to the chat (and no empty message
+        // is sent at all — the scheduler skips sendText for an empty profile).
+        foreach ($this->tg->sent as $m) {
+            self::assertNotSame('', $m['text']);
+            self::assertStringNotContainsString('Sync profile', $m['text']);
+        }
     }
 
     public function testDeletedTopicDropsItemWithoutLaunchingClaude(): void
