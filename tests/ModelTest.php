@@ -617,6 +617,22 @@ final class ModelTest extends TestCase
         self::assertNull($this->modelOf(0));
     }
 
+    public function testEpicRunKindKeyIsIgnoredWhenExtraArgsModelPinsTheInstance(): void
+    {
+        $this->makeEpic();
+        $this->bot = $this->makeBot(['--model=haiku'], null, ['modelEpicTick' => 'sonnet']);
+
+        self::assertTrue($this->scheduler()->enqueueEpicRun('demo', Run::TICK));
+        self::assertNull(
+            $this->db->queueHead()['model'] ?? null,
+            'the queue item pins no model when --model pins the instance',
+        );
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame('haiku', $this->modelOf(0), 'only the operator model reaches argv');
+    }
+
     public function testRunnerNeverAddsItsOwnModelNextToOneFromTheExtraArguments(): void
     {
         $runner = new \GpsLab\WorkspaceAssistant\ClaudeRunner($this->root.'/claude', $this->work, 0, ['--model=haiku'], model: 'sonnet');

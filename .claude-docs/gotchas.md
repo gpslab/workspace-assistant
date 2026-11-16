@@ -236,7 +236,8 @@ Traps:
   onto a waiting item only when that value matches, which is what makes a change for all topics apply (its
   groups cannot be closed). A stored value outside `CLAUDE_MODELS` is skipped at enqueue (next level) but
   dropped without a fallback at run start (`ModelChoice::checkPinned`), both with a log line. The `/compact`
-  reseed resolves again; epic runs get only the all-topics level and never write `sessions.last_model`.
+  reseed resolves again; epic runs resolve the run-kind key `MODEL_EPIC_<RUN>` (`ModelChoice::resolveEpic`) then
+  the all-topics level, then none, and never write `sessions.last_model`.
   `--model` in `CLAUDE_EXTRA_ARGS` pins the model for the instance (`ClaudeRunner::modelFromArgs`): nothing
   is resolved and `/model` is read-only. The model is the last `callback_data` segment
   (`model:<step>:<thread_id>:<value>`, parsed with a part limit) because a full model ID may contain `:`.

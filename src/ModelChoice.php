@@ -7,10 +7,11 @@ namespace GpsLab\WorkspaceAssistant;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 
 /**
- * Which Claude model a run gets (`claude -p --model`). Two stored levels, topic then all topics;
- * "nothing" means no flag and the CLI uses its own setting. Only values of CLAUDE_MODELS apply;
- * a stored value outside the list is skipped with a log line. A `--model` in CLAUDE_EXTRA_ARGS
- * pins the model for the whole instance: the bot resolves nothing then.
+ * Which Claude model a run gets (`claude -p --model`). Two stored levels, topic then all topics, and an
+ * epic run-kind key (MODEL_EPIC_<RUN>) above them; "nothing" means no flag and the CLI uses its own
+ * setting. Only values of CLAUDE_MODELS apply; a stored value outside the list is skipped with a log
+ * line. A `--model` in CLAUDE_EXTRA_ARGS pins the model for the whole instance: the bot resolves
+ * nothing then.
  */
 final readonly class ModelChoice
 {
