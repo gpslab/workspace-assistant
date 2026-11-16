@@ -69,7 +69,7 @@ final readonly class ModelChoice
             ?? $this->resolveForAll();
     }
 
-    /** Epic runs: only the model for all topics. */
+    /** The model for all topics (or null): the last level of resolve() and the fallback of resolveEpic(). */
     public function resolveForAll(): ?string
     {
         if ($this->pinnedByExtraArgs() !== null) {
