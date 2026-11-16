@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Epic\Run;
+
 /**
- * Which Claude model a run gets (`claude -p --model`). Two stored levels, topic then all topics;
- * "nothing" means no flag and the CLI uses its own setting. Only values of CLAUDE_MODELS apply;
- * a stored value outside the list is skipped with a log line. A `--model` in CLAUDE_EXTRA_ARGS
- * pins the model for the whole instance: the bot resolves nothing then.
+ * Which Claude model a run gets (`claude -p --model`). Two stored levels, topic then all topics, and an
+ * epic run-kind key (MODEL_EPIC_<RUN>) above them; "nothing" means no flag and the CLI uses its own
+ * setting. Only values of CLAUDE_MODELS apply; a stored value outside the list is skipped with a log
+ * line. A `--model` in CLAUDE_EXTRA_ARGS pins the model for the whole instance: the bot resolves
+ * nothing then.
  */
 final readonly class ModelChoice
 {
@@ -66,7 +69,7 @@ final readonly class ModelChoice
             ?? $this->resolveForAll();
     }
 
-    /** Epic runs: only the model for all topics. */
+    /** The model for all topics (or null): the last level of resolve() and the fallback of resolveEpic(). */
     public function resolveForAll(): ?string
     {
         if ($this->pinnedByExtraArgs() !== null) {
@@ -74,6 +77,29 @@ final readonly class ModelChoice
         }
 
         return $this->applicable($this->db->getDefaultModel(), 'all topics');
+    }
+
+    /**
+     * Epic runs: the run-kind key (MODEL_EPIC_<RUN>), else the model for all topics, else null.
+     * The key value is validated at startup against CLAUDE_MODELS, so it is passed as it is.
+     */
+    public function resolveEpic(string $run): ?string
+    {
+        if ($this->pinnedByExtraArgs() !== null) {
+            return null;
+        }
+
+        $keyValue = match ($run) {
+            Run::TICK => $this->config->modelEpicTick,
+            Run::FINAL => $this->config->modelEpicFinal,
+            Run::REVIEW => $this->config->modelEpicReview,
+            default => '',
+        };
+        if ($keyValue !== '') {
+            return $keyValue;
+        }
+
+        return $this->resolveForAll();
     }
 
     /**

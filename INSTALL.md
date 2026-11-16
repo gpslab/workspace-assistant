@@ -152,6 +152,9 @@ GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |
 | `CLAUDE_EXTRA_ARGS` | `--dangerously-skip-permissions` | Extra `claude` arguments, comma-separated |
 | `CLAUDE_MODELS` | `fable,opus[1m],opus,sonnet,haiku` | Models selectable with `/model`, comma-separated; values are passed to `claude --model` as they are. A `--model` in `CLAUDE_EXTRA_ARGS` pins the model and `/model` becomes read-only |
+| `MODEL_EPIC_TICK` | empty | Model of the Orchestrator `tick` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
+| `MODEL_EPIC_FINAL` | empty | Model of the `final` (acceptance) epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
+| `MODEL_EPIC_REVIEW` | empty | Model of the `review` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
 | `SECRET_SCAN_EXCLUDE` | empty | Comma-separated path globs (relative to the repository root, `*` also matches `/`) where the commit gate does not apply **shape patterns**, for example `tests/fixtures/*`. Known values are checked in every path. See [README](README.md#commit-gate) |
 | `SECRET_ENV_FILES` | empty | Comma-separated dotenv files (`~` is expanded, an `export ` prefix is allowed) whose **values** are all masked in what the bot sends to Telegram. Listing a file is the statement that its values are secret. A missing file is a log line, not a failure. Values of `.env` and of the environment are masked by key name without this setting, see [README](README.md#secret-masking) |
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | empty | Text appended to the system prompt |
@@ -171,6 +174,14 @@ GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab
 | `EPIC_QUIET_MINUTES` | `10` | PR quiet period before the hot review; a safety net, since the review is queued earlier once openronin has the last word on a green PR |
 | `EPIC_ANSWER_TIMEOUT_MINUTES` | `120` | Timeout of `openronin:awaiting-answer` |
 | `EPIC_MASTER_RED_HOURS` | `6` | Hours a confirmed red default branch is tolerated |
+
+The three `MODEL_EPIC_*` keys choose the model of an epic run per run kind; each non-empty value must be a
+member of `CLAUDE_MODELS` (otherwise the bot fails at startup). With a key empty the run falls back to the
+model for all topics (`/model <name> all`), and with all three empty only that model applies. A `--model` in
+`CLAUDE_EXTRA_ARGS` overrides them all (one warning is logged at startup). Built-in agents of the bot declare
+`model: inherit`, so an epic key also moves every built-in agent that run calls, unless
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is set. `opus` and `opus[1m]` are different context windows — pick the one
+your endpoint actually resolves.
 
 ### Sub-repositories and time zone
 

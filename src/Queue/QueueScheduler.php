@@ -309,7 +309,7 @@ final class QueueScheduler implements QueueControl
             Run::modeFor($run),
             [$part],
             locale: $this->locale->code(),
-            model: $this->models()->resolveForAll(),
+            model: $this->models()->resolveEpic($run),
         ) !== null;
     }
 

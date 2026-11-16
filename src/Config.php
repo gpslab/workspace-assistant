@@ -61,6 +61,12 @@ final class Config
         public readonly array $configWarnings = [],
         /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
         public readonly array $claudeModels = self::DEFAULT_CLAUDE_MODELS,
+        /** Model of the Orchestrator `tick` epic run; empty = fall back to the model for all topics. */
+        public readonly string $modelEpicTick = '',
+        /** Model of the `final` (acceptance) epic run; empty = fall back to the model for all topics. */
+        public readonly string $modelEpicFinal = '',
+        /** Model of the `review` epic run; empty = fall back to the model for all topics. */
+        public readonly string $modelEpicReview = '',
         /** @var list<string> files whose values are all masked in outgoing messages, `~` not yet expanded */
         public readonly array $secretEnvFiles = [],
         /** @var list<string> path globs where the commit gate does not apply shape patterns (known values still apply) */
@@ -154,6 +160,25 @@ final class Config
 
         $epicsDir = trim((string) $env->get('EPICS_DIR', '.workspace-assistant/epics'), '/') ?: '.workspace-assistant/epics';
 
+        $claudeExtraArgs = $env->list('CLAUDE_EXTRA_ARGS', '--dangerously-skip-permissions');
+        $claudeModels = array_values(array_unique($env->list('CLAUDE_MODELS', implode(',', self::DEFAULT_CLAUDE_MODELS))));
+        $modelEpicTick = trim((string) $env->get('MODEL_EPIC_TICK', ''));
+        $modelEpicFinal = trim((string) $env->get('MODEL_EPIC_FINAL', ''));
+        $modelEpicReview = trim((string) $env->get('MODEL_EPIC_REVIEW', ''));
+        foreach ([
+            'MODEL_EPIC_TICK' => $modelEpicTick,
+            'MODEL_EPIC_FINAL' => $modelEpicFinal,
+            'MODEL_EPIC_REVIEW' => $modelEpicReview,
+        ] as $key => $model) {
+            if ($model !== '' && !in_array($model, $claudeModels, true)) {
+                throw new \RuntimeException("{$key}={$model} in .env is not in CLAUDE_MODELS.");
+            }
+        }
+        if (($modelEpicTick !== '' || $modelEpicFinal !== '' || $modelEpicReview !== '')
+            && ClaudeRunner::modelFromArgs($claudeExtraArgs) !== null) {
+            $configWarnings[] = 'MODEL_EPIC_TICK, MODEL_EPIC_FINAL and MODEL_EPIC_REVIEW are ignored: a --model in CLAUDE_EXTRA_ARGS pins the model for every run.';
+        }
+
         return new self(
             botToken: $token,
             allowedUserIds: $allowed,
@@ -162,7 +187,7 @@ final class Config
             claudeBin: (string) $env->get('CLAUDE_BIN', 'claude'),
             claudeTimeout: (int) $env->get('CLAUDE_TIMEOUT', '0'),
             claudeStallTimeout: (int) $env->get('CLAUDE_STALL_TIMEOUT', '900'),
-            claudeExtraArgs: $env->list('CLAUDE_EXTRA_ARGS', '--dangerously-skip-permissions'),
+            claudeExtraArgs: $claudeExtraArgs,
             claudeAppendSystemPrompt: (string) $env->get('CLAUDE_APPEND_SYSTEM_PROMPT', ''),
             stateDir: rtrim($stateDir, '/'),
             outboxDir: rtrim($outboxDir, '/'),
@@ -187,7 +212,10 @@ final class Config
             forge: $forge,
             forgeHost: $forgeHost,
             configWarnings: $configWarnings,
-            claudeModels: array_values(array_unique($env->list('CLAUDE_MODELS', implode(',', self::DEFAULT_CLAUDE_MODELS)))),
+            claudeModels: $claudeModels,
+            modelEpicTick: $modelEpicTick,
+            modelEpicFinal: $modelEpicFinal,
+            modelEpicReview: $modelEpicReview,
             secretEnvFiles: array_values($env->list('SECRET_ENV_FILES')),
             secretScanExclude: array_values($env->list('SECRET_SCAN_EXCLUDE')),
         );
