@@ -190,6 +190,10 @@ final class Database
         if (!$this->hasColumn('sessions', 'prompt_hash')) {
             $this->pdo->exec('ALTER TABLE sessions ADD COLUMN prompt_hash TEXT');
         }
+        // Engine fingerprint of the stored session; NULL means the default Claude fingerprint (no provider override).
+        if (!$this->hasColumn('sessions', 'engine_fingerprint')) {
+            $this->pdo->exec('ALTER TABLE sessions ADD COLUMN engine_fingerprint TEXT');
+        }
         // Claude's session snapshot: input_tokens is pure input from now on, cache and cost are separate.
         // Rows from before keep their old values; the first run with totals overwrites them.
         if (!$this->hasColumn('sessions', 'cache_creation_tokens')) {
@@ -223,6 +227,7 @@ final class Database
             verbose        INTEGER NOT NULL DEFAULT 0,
             mode           TEXT NOT NULL DEFAULT 'pm',
             prompt_hash    TEXT,
+            engine_fingerprint TEXT,
             cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
             cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
             cost_usd       REAL,
@@ -291,13 +296,26 @@ final class Database
     }
 
     /**
+     * Engine fingerprint of the stored session, or null when it is unknown (rows created before the
+     * column existed). NULL means the default Claude fingerprint; the caller compares it with the
+     * current one (see {@see Config::engineFingerprint()}).
+     */
+    public function getEngineFingerprint(int $chatId, int $threadId = 0): ?string
+    {
+        $fingerprint = $this->getSession($chatId, $threadId)['engine_fingerprint'] ?? null;
+
+        return is_string($fingerprint) && $fingerprint !== '' ? $fingerprint : null;
+    }
+
+    /**
      * Record the result of a Claude call: session_id and the message counter. Claude's totals are a
      * cumulative session snapshot: it overwrites the stored one (not added to it) and the figure of
      * this run is returned as the snapshot minus the stored one. With null $totals the stored snapshot
      * is untouched and null is returned. A non-null $promptHash replaces the stored system prompt
-     * hash; null keeps it.
+     * hash; null keeps it. A non-null $engineFingerprint replaces the stored engine
+     * fingerprint; null keeps it.
      */
-    public function recordRun(int $chatId, int $threadId, string $sessionId, ?UsageTotals $totals, ?string $promptHash = null): ?UsageTotals
+    public function recordRun(int $chatId, int $threadId, string $sessionId, ?UsageTotals $totals, ?string $promptHash = null, ?string $engineFingerprint = null): ?UsageTotals
     {
         $this->ensureRow($chatId, $threadId);
         $previous = $totals !== null ? $this->storedTotals($chatId, $threadId) : null;
@@ -312,7 +330,8 @@ final class Database
                    cache_read_tokens = COALESCE(:cr, cache_read_tokens),
                    output_tokens = COALESCE(:out, output_tokens),
                    cost_usd      = CASE WHEN CAST(:has AS INTEGER) = 1 THEN :cost ELSE cost_usd END,
-                   prompt_hash   = COALESCE(:hash, prompt_hash)
+                   prompt_hash   = COALESCE(:hash, prompt_hash),
+                   engine_fingerprint = COALESCE(:fprint, engine_fingerprint)
              WHERE chat_id = :chat AND thread_id = :thread
             SQL
         );
@@ -325,6 +344,7 @@ final class Database
             'has' => $totals !== null ? 1 : 0,
             'cost' => $totals?->costUsd,
             'hash' => $promptHash,
+            'fprint' => $engineFingerprint,
             'chat' => $chatId,
             'thread' => $threadId,
         ]);
@@ -392,7 +412,8 @@ final class Database
                    cache_read_tokens = 0,
                    output_tokens = 0,
                    cost_usd = NULL,
-                   prompt_hash = NULL
+                   prompt_hash = NULL,
+                   engine_fingerprint = NULL
              WHERE chat_id = :chat AND thread_id = :thread
             SQL
         );

@@ -127,7 +127,7 @@ final class JobRunner implements JobLauncher, RunControl
      * @param array{run:string, pr:?string}|null $epicRun
      * @param array<string, string>              $reviewShas reviewed commit per PR (`owner/repo#N` => SHA) for {@see ReviewCommitHook}
      */
-    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = [], ?string $model = null): ?string
+    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = [], ?string $model = null, bool $resumeSkipped = false): ?string
     {
         $model = (new ModelChoice($this->config, $this->db))->checkPinned($model);
         // Compact summarize runs in arch regardless of the topic mode: the summary must
@@ -252,6 +252,7 @@ final class JobRunner implements JobLauncher, RunControl
             'epic_run' => $epicRun,
             'pm_gate_run_id' => $gateRunId,
             'prompt_hash' => $runner->promptHash(),
+            'resume_skipped' => $resumeSkipped,
         ];
 
         // The topic of the last job that touched the tree owns the commit/discard decision.
@@ -313,6 +314,7 @@ final class JobRunner implements JobLauncher, RunControl
             : '';
         $compactOld = $this->runState->jobContext['compact_old_session_id'] ?? null;
         $promptHash = $this->runState->jobContext['prompt_hash'];
+        $resumeSkipped = $this->runState->jobContext['resume_skipped'] ?? false;
         $actualModel = $this->runState->activeJob->actualModel();
         // Capture BEFORE finishJobState(), which resets jobContext.
         $inboxFiles = $this->runState->jobContext['inbox_files'];
@@ -393,10 +395,14 @@ final class JobRunner implements JobLauncher, RunControl
         if ($claude->sessionId !== null && !in_array($kind, [RunKind::KIND_COMPACT_RESEED, RunKind::KIND_EPIC], true)) {
             // The prompt hash moves only after a successful run (a failed one leaves the update block due) and
             // never after the summarize phase, which runs under another prompt.
-            $runTotals = $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->totals, $claude->isError || $kind === RunKind::KIND_COMPACT_SUMMARIZE ? null : $promptHash);
+            $runTotals = $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->totals, $claude->isError || $kind === RunKind::KIND_COMPACT_SUMMARIZE ? null : $promptHash, $this->config->engineFingerprint());
         }
         // From here on the totals are the figure of this run (the verbose footer), not the snapshot.
         $claude = $claude->withTotals($runTotals);
+        // A new session started because the stored engine fingerprint did not match: say so in the reply.
+        if ($resumeSkipped && $kind === RunKind::KIND_CHAT && !$claude->isError) {
+            $claude = $claude->withText($claude->text === '' ? $this->t('session.engine_changed') : $claude->text."\n\n".$this->t('session.engine_changed'));
+        }
 
         // An epic run is judged by its signal file, not by the reply, so a clean exit
         // without a result event is not a failure there.

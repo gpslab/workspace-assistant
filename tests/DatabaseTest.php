@@ -232,6 +232,57 @@ final class DatabaseTest extends TestCase
         self::assertNull($row['cost_usd']);
     }
 
+    public function testRecordRunWritesEngineFingerprintAndKeepsOnNull(): void
+    {
+        $this->db->recordRun(42, 0, 'sess-x', new UsageTotals(100, 7, 8, 25, 0.5), null, 'claude');
+
+        self::assertSame('claude', $this->db->getEngineFingerprint(42));
+
+        // A null fingerprint keeps the stored value (mirrors prompt_hash).
+        $this->db->recordRun(42, 0, 'sess-x', new UsageTotals(110, 7, 8, 25, 0.5));
+        self::assertSame('claude', $this->db->getEngineFingerprint(42));
+    }
+
+    public function testResetSessionClearsEngineFingerprint(): void
+    {
+        $this->db->recordRun(42, 0, 'sess-x', new UsageTotals(100, 7, 8, 25, 0.5), null, 'claude');
+        self::assertSame('claude', $this->db->getEngineFingerprint(42));
+
+        $this->db->resetSession(42);
+
+        self::assertNull($this->db->getEngineFingerprint(42));
+    }
+
+    public function testLegacySessionHasNullEngineFingerprint(): void
+    {
+        // A row recorded without a fingerprint (like rows created before the column existed) reads as null.
+        $this->db->recordRun(42, 0, 'sess-x', null);
+
+        self::assertNull($this->db->getEngineFingerprint(42));
+    }
+
+    public function testEngineFingerprintMigrationKeepsExistingRows(): void
+    {
+        $dir = sys_get_temp_dir().'/tgdb_fp_'.uniqid('', true);
+        mkdir($dir);
+        $pdo = new \PDO('sqlite:'.$dir.'/state.sqlite');
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $pdo->exec("CREATE TABLE sessions (chat_id INTEGER NOT NULL, thread_id INTEGER NOT NULL DEFAULT 0, session_id TEXT, pid INTEGER, started_at TEXT, message_count INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, verbose INTEGER NOT NULL DEFAULT 0, mode TEXT NOT NULL DEFAULT 'pm', prompt_hash TEXT, PRIMARY KEY (chat_id, thread_id))");
+        $pdo->exec("INSERT INTO sessions (chat_id, thread_id, session_id, message_count) VALUES (9, 0, 'legacy', 3)");
+        $pdo = null;
+
+        $db = new Database($dir);
+
+        $row = $db->getSession(9, 0);
+        self::assertNotNull($row);
+        self::assertSame('legacy', $row['session_id']);
+        self::assertSame(3, $row['message_count']);
+        self::assertNull($db->getEngineFingerprint(9, 0));
+
+        @unlink($dir.'/state.sqlite');
+        @rmdir($dir);
+    }
+
     public function testToggleVerbose(): void
     {
         self::assertFalse($this->db->isVerbose(1));

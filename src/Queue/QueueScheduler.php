@@ -96,6 +96,17 @@ final class QueueScheduler implements QueueControl
         return $this->locale->t($key, $params);
     }
 
+    /**
+     * Whether the stored session can be resumed by the current configuration: its engine fingerprint
+     * (`NULL` = the default Claude fingerprint) equals the current one.
+     */
+    private function fingerprintsMatch(int $chatId, int $threadId): bool
+    {
+        $stored = $this->db->getEngineFingerprint($chatId, $threadId) ?? Config::DEFAULT_ENGINE_FINGERPRINT;
+
+        return $stored === $this->config->engineFingerprint();
+    }
+
     public function resetTopicSession(int $chatId, int $threadId): void
     {
         // The transcript of the session being reset is no longer needed on disk (it could be returned to
@@ -544,11 +555,19 @@ final class QueueScheduler implements QueueControl
         // 4. session_id - only now: while waiting it could have been changed by
         //    a run of the same topic.
         $sessionId = $this->db->getSessionId($chatId, $threadId);
+        // A session id is meaningful only to the engine that created it: another engine (later also
+        // another provider) cannot resume it. A mismatch starts a new session instead.
+        $fingerprintChanged = $sessionId !== null && !$this->fingerprintsMatch($chatId, $threadId);
 
         // 5. "Is there anything to compact".
         if ($head['kind'] === self::ITEM_COMPACT) {
             if ($sessionId === null) {
                 $this->dropItem($head, $this->t('compact.no_session'));
+
+                return;
+            }
+            if ($fingerprintChanged) {
+                $this->dropItem($head, $this->t('compact.fingerprint_mismatch'));
 
                 return;
             }
@@ -625,7 +644,7 @@ final class QueueScheduler implements QueueControl
                 $prompt .= "\n\n".implode("\n", $extra);
             }
         }
-        $this->startJobOfItem($head, RunKind::KIND_CHAT, $prompt, $sessionId, $paths, idsPath: $idsPath, reviewShas: $reviewShas);
+        $this->startJobOfItem($head, RunKind::KIND_CHAT, $prompt, $fingerprintChanged ? null : $sessionId, $paths, idsPath: $idsPath, reviewShas: $reviewShas, resumeSkipped: $fingerprintChanged);
     }
 
     /**
@@ -658,7 +677,7 @@ final class QueueScheduler implements QueueControl
      * @param array{run:string, pr:?string}|null                                                                         $epicRun
      * @param array<string, string>                                                                                      $reviewShas
      */
-    private function startJobOfItem(array $head, string $kind, string $prompt, ?string $sessionId, array $inboxFiles, ?string $compactOld = null, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, array $reviewShas = []): void
+    private function startJobOfItem(array $head, string $kind, string $prompt, ?string $sessionId, array $inboxFiles, ?string $compactOld = null, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, array $reviewShas = [], bool $resumeSkipped = false): void
     {
         $chatId = $head['chat_id'];
         $threadId = $head['thread_id'];
@@ -703,7 +722,7 @@ final class QueueScheduler implements QueueControl
 
         $this->db->queueMarkRunning($head['id']);
         try {
-            $error = $this->launcher->launchJob($chatId, $threadId, $kind, $prompt, $sessionId, $thinkingId, $compactOld, $head['mode'], $head['id'], $epicSlug, $epicRun, $idsPath, $head['locale'] ?? null, $reviewShas, $head['model'] ?? null);
+            $error = $this->launcher->launchJob($chatId, $threadId, $kind, $prompt, $sessionId, $thinkingId, $compactOld, $head['mode'], $head['id'], $epicSlug, $epicRun, $idsPath, $head['locale'] ?? null, $reviewShas, $head['model'] ?? null, $resumeSkipped);
         } catch (\Throwable $e) {
             // The process is already started and tracked (activeJob is assigned right after
             // start()) - the job goes on as usual, pollJob() will clean up inbox files.

@@ -58,6 +58,12 @@ final class RunAnswer
         return new self($this->isError, $this->text, $this->sessionId, $totals, $this->exitedWithoutResult, $this->recovered);
     }
 
+    /** The same result with other text (an extra line appended to the reply). */
+    public function withText(string $text): self
+    {
+        return new self($this->isError, $text, $this->sessionId, $this->totals, $this->exitedWithoutResult, $this->recovered);
+    }
+
     /**
      * With `is_error: true` the engine sometimes returns an empty `result` and puts the reason in
      * the top-level `errors` array (for example on `--resume` of a session whose

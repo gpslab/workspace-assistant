@@ -495,6 +495,58 @@ final class QueueFlowTest extends TestCase
         self::assertTrue($this->updateBlockIn(0));
     }
 
+    public function testNullFingerprintSessionIsResumedUnderDefaultConfig(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null);
+
+        $this->runChat('hello', 10);
+
+        self::assertContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.0')));
+    }
+
+    public function testMismatchedEngineFingerprintStartsNewSessionAndAppendsNotice(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'other-engine');
+
+        $this->runChat('hello', 10);
+
+        self::assertNotContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.0')));
+        self::assertStringContainsString('new session was started', implode("\n", $this->tg->textsTo(100, 1)));
+        self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
+    }
+
+    public function testNextMessageAfterFingerprintMismatchResumes(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'other-engine');
+
+        $this->runChat('hello', 10);
+        $this->runChat('again', 11);
+
+        self::assertNotContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.0')));
+        self::assertContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.1')));
+    }
+
+    public function testCompactRefusesOnMismatchedEngineFingerprint(): void
+    {
+        $this->db->recordRun(100, 1, 's-old', null, 'h1', 'other-engine');
+        $this->command(100, 1, '/compact', 30);
+
+        $this->call('startQueueHead');
+
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertSame(0, $this->launches());
+        self::assertStringContainsString('Compaction stopped', implode("\n", $this->tg->textsTo(100, 1)));
+        // The stored session (id and prompt hash) is left intact.
+        self::assertSame('s-old', $this->db->getSessionId(100, 1));
+        self::assertSame('h1', $this->db->getSession(100, 1)['prompt_hash'] ?? null);
+    }
+
     public function testModeAndLangChangesProduceBlockOnNextMessage(): void
     {
         $this->recordArgv();

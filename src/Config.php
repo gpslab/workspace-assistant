@@ -12,6 +12,12 @@ final class Config
     public const string FORGE_GITHUB = 'github';
     public const string FORGE_GITLAB = 'gitlab';
 
+    /**
+     * Engine fingerprint of the default Claude configuration (no `ANTHROPIC_BASE_URL`). A `NULL`
+     * `sessions.engine_fingerprint` means a session stored by this configuration.
+     */
+    public const string DEFAULT_ENGINE_FINGERPRINT = 'claude';
+
     /** @var list<string> */
     public const array DEFAULT_CLAUDE_MODELS = ['fable', 'opus[1m]', 'opus', 'sonnet', 'haiku'];
 
@@ -59,7 +65,7 @@ final class Config
         public readonly string $forge = self::FORGE_GITHUB,
         public readonly string $forgeHost = 'github.com',
         /** Agent engine the bot runs: `claude` for now; anything else is rejected at startup. */
-        public readonly string $engine = 'claude',
+        public readonly string $engine = self::DEFAULT_ENGINE_FINGERPRINT,
         public readonly array $configWarnings = [],
         /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
         public readonly array $claudeModels = self::DEFAULT_CLAUDE_MODELS,
@@ -252,6 +258,16 @@ final class Config
     public function forgeName(): string
     {
         return $this->forge === self::FORGE_GITLAB ? 'GitLab' : 'GitHub';
+    }
+
+    /**
+     * Engine fingerprint of the current configuration. A stored session is resumed only when its
+     * `sessions.engine_fingerprint` (or `NULL`, meaning {@see self::DEFAULT_ENGINE_FINGERPRINT}) equals
+     * this. For now it is the engine name; provider-specific content comes with model substitution.
+     */
+    public function engineFingerprint(): string
+    {
+        return $this->engine;
     }
 
     /** Command line client of the forge: gh or glab. */
