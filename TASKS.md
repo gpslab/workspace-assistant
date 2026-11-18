@@ -122,7 +122,9 @@ until the required stages ran. The `arch` mode is not covered.
 - Window: stage calls after the last successful issue creation that was followed by a message of the
   author. A series of issues created in one batch passes on one set of stages; the next design is
   checked again.
-- Order: the last call of a stage is not earlier than the last call of the previous required stage.
+- Order: the call of a stage counts only after the returned result of the previous required stage
+  (the result reached the main session before the next stage's call). Several synchronous `Agent`
+  calls in one message therefore do not pass.
 - The config is a snapshot taken when the run starts; editing it inside the run does not affect the gate.
 - Skipping: where `skip_allowed` is true for the kind of run, Claude writes the reason into the file named
   by the `WORKSPACE_ASSISTANT_PM_SKIP` environment variable and repeats the command; the bot shows the skip

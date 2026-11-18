@@ -168,6 +168,22 @@ final class PmGateHookTest extends TestCase
         ]]]);
     }
 
+    /**
+     * One assistant message holding several synchronous `Agent` tool_use blocks: the model started
+     * the agents of several stages in one message, before any result returned.
+     *
+     * @param list<array{string, string}> $agents id => agent
+     */
+    private static function agentCallBatch(array $agents): string
+    {
+        $blocks = [];
+        foreach ($agents as [$id, $agent]) {
+            $blocks[] = ['type' => 'tool_use', 'id' => $id, 'name' => 'Agent', 'input' => ['subagent_type' => $agent]];
+        }
+
+        return (string) json_encode(['type' => 'assistant', 'isSidechain' => false, 'message' => ['content' => $blocks]]);
+    }
+
     private static function bash(string $id, string $command = self::CREATE): string
     {
         return (string) json_encode(['type' => 'assistant', 'isSidechain' => false, 'message' => ['content' => [
@@ -237,6 +253,34 @@ final class PmGateHookTest extends TestCase
         $missing = self::missing($lines);
         self::assertCount(1, $missing);
         self::assertStringStartsWith('verify (agent verifier)', $missing[0]);
+    }
+
+    public function testSeveralSynchronousAgentCallsInOneMessageAreDenied(): void
+    {
+        $lines = [
+            self::user('x'),
+            self::agentCallBatch([['a1', 'critic'], ['a2', 'verifier']]),
+            self::agentResult('a1'),
+            self::agentResult('a2'),
+        ];
+
+        $missing = self::missing($lines);
+        self::assertCount(1, $missing);
+        self::assertStringStartsWith('verify (agent verifier)', $missing[0]);
+    }
+
+    public function testDecideDeniesSeveralSynchronousAgentCallsInOneMessage(): void
+    {
+        $lines = [
+            self::user('x'),
+            self::agentCallBatch([['a1', 'critic'], ['a2', 'verifier']]),
+            self::agentResult('a1'),
+            self::agentResult('a2'),
+        ];
+
+        $decision = PmGateHook::decide($lines, self::config(), 'pm', '');
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('verify (agent verifier)', $decision['reason']);
     }
 
     public function testRerunInOrderFixesTheOrder(): void

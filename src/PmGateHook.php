@@ -22,8 +22,9 @@ namespace GpsLab\WorkspaceAssistant;
  * of the author count. A series of issues created in one batch passes on one set of stages; the next
  * design after the author's reply needs fresh stages.
  *
- * Order: among the required stages the last call of each is not earlier than the last call of the
- * previous one (config order).
+ * Order: among the required stages the call of each comes only after the returned result of the
+ * previous one (config order): the call of stage N counts only after the result of stage N-1 has
+ * returned to the main session, so several synchronous `Agent` calls in one message do not pass.
  *
  * Skip: where `skip_allowed` of the run kind is true and the model wrote a reason into the file
  * of {@see SKIP_ENV}, the command passes. One reason lifts all missing stages of the window.
@@ -395,7 +396,9 @@ final class PmGateHook
      * Required stages that are not satisfied: not run (completed) in the window, or run out of order.
      *
      * A thin wrapper: the transcript is read by {@see ClaudeCodeTranscriptReader} and the neutral
-     * core ({@see lastStagePositions()}) maps the resulting call list to the last call of each stage.
+     * core ({@see lastStagePositions()} for the call, {@see lastStageResults()} for the returned
+     * result) maps the resulting call list to the last call of each stage. The call of a stage counts
+     * only after the returned result of the previous required stage.
      *
      * @param list<string>                                           $transcriptLines
      * @param list<array{id: string, agent: string, required: bool}> $stages
@@ -404,9 +407,11 @@ final class PmGateHook
      */
     public static function missingStages(array $transcriptLines, array $stages): array
     {
-        $last = self::lastStagePositions(ClaudeCodeTranscriptReader::agentCalls($transcriptLines), $stages);
+        $calls = ClaudeCodeTranscriptReader::agentCalls($transcriptLines);
+        $last = self::lastStagePositions($calls, $stages);
+        $lastResult = self::lastStageResults($calls, $stages);
         $missing = [];
-        $previous = null;
+        $previousResult = null;
         $previousId = '';
         foreach ($stages as $stage) {
             if (!$stage['required']) {
@@ -417,11 +422,11 @@ final class PmGateHook
                 $missing[] = "{$stage['id']} (agent {$stage['agent']})";
                 continue;
             }
-            if ($previous !== null && $at < $previous) {
+            if ($previousResult !== null && $at <= $previousResult) {
                 $missing[] = "{$stage['id']} (agent {$stage['agent']}) — ran before {$previousId}, run it again after it";
                 continue;
             }
-            $previous = $at;
+            $previousResult = $lastResult[$stage['id']] ?? null;
             $previousId = $stage['id'];
         }
 
@@ -441,10 +446,8 @@ final class PmGateHook
 
     /**
      * Call position of the last counted call of each stage agent, from a list of agent calls. This is
-     * the neutral core: it sees only the call list the reader produced, never a transcript line.
-     *
-     * The positions are carried but not used for ordering here; stage order by returned result is a
-     * later change that touches only decide().
+     * the neutral core: it sees only the call list the reader produced, never a transcript line. The
+     * result side of the order check is {@see lastStageResults()}.
      *
      * @param list<array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool}> $calls
      * @param list<array{id: string, agent: string, required: bool}>                                                               $stages
@@ -457,6 +460,34 @@ final class PmGateHook
         foreach ($calls as $call) {
             if (self::counts($call)) {
                 $byAgent[$call['agent']] = max($byAgent[$call['agent']] ?? -1, $call['callAt']);
+            }
+        }
+        $last = [];
+        foreach ($stages as $stage) {
+            if (isset($byAgent[$stage['agent']])) {
+                $last[$stage['id']] = $byAgent[$stage['agent']];
+            }
+        }
+
+        return $last;
+    }
+
+    /**
+     * Result position of the last counted call of each stage agent, from a list of agent calls. The
+     * result is the transcript line where the call's result returned to the main session; the call of
+     * a stage counts only after the returned result of the previous one (see {@see missingStages()}).
+     *
+     * @param list<array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool}> $calls
+     * @param list<array{id: string, agent: string, required: bool}>                                                               $stages
+     *
+     * @return array<string, int> stage id => result position
+     */
+    public static function lastStageResults(array $calls, array $stages): array
+    {
+        $byAgent = [];
+        foreach ($calls as $call) {
+            if (self::counts($call) && $call['resultAt'] !== null) {
+                $byAgent[$call['agent']] = max($byAgent[$call['agent']] ?? -1, $call['resultAt']);
             }
         }
         $last = [];
