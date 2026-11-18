@@ -554,7 +554,14 @@ final class SecretGateTest extends TestCase
         self::assertNotNull($retry);
         self::assertGreaterThan(time(), $retry['at']);
         self::assertGreaterThan(0, $this->queueScheduler()->queueBlockedUntil());
-        self::assertStringContainsString((string) 60, (string) $this->queueScheduler()->pauseReason());
+
+        $before = time();
+        $reason = (string) $this->queueScheduler()->pauseReason();
+        $after = time();
+        self::assertSame(1, preg_match('/retry in (\d+) s/', $reason, $matches), $reason);
+        $seconds = (int) $matches[1];
+        self::assertGreaterThanOrEqual($retry['at'] - $after, $seconds);
+        self::assertLessThanOrEqual($retry['at'] - $before, $seconds);
 
         $launches = $this->launches();
         $this->call('startQueueHead');
