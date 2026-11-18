@@ -85,6 +85,28 @@ final class OpencodeConfigRendererTest extends TestCase
 
         self::assertStringContainsString('override body', $files['agents/critic.md']);
         self::assertStringNotContainsString('built-in body', $files['agents/critic.md']);
+
+        // The override's tools, not the built-in's, must drive the permissions: deny-* + allow-edit,
+        // with no read allow from the shadowed built-in.
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'edit', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $this->explicitJson($files)['agents']['critic']['permissions'],
+        );
+    }
+
+    public function testAnOverrideNameWithPathTraversalIsSkipped(): void
+    {
+        $files = $this->render(override: [new OpencodeAgent('../system-prompt', 'd', 'ATTACKER PROMPT', ['Bash'])]);
+
+        // No file is rendered outside agents/, and the base artefacts are untouched.
+        self::assertSame(
+            [OpencodeConfigRenderer::SYSTEM_PROMPT_FILE, 'opencode.json', 'explicit.json'],
+            array_keys($files),
+        );
+        self::assertSame('the system prompt', $files[OpencodeConfigRenderer::SYSTEM_PROMPT_FILE]);
     }
 
     public function testAgentPermissionsAreRenderedIntoExplicitJson(): void
@@ -100,6 +122,16 @@ final class OpencodeConfigRendererTest extends TestCase
             ['action' => 'glob', 'resource' => '*', 'effect' => 'allow'],
             ['action' => 'shell', 'resource' => '*', 'effect' => 'allow'],
         ], $explicit['agents']['critic']['permissions']);
+    }
+
+    public function testANumericNamedOverrideIsSkippedAndAgentsStaysAnObject(): void
+    {
+        $files = $this->render(override: [new OpencodeAgent('0', 'd', 'body', ['Bash'])]);
+
+        // A numeric name is rejected and never rendered, and `agents` encodes as an object (not
+        // a JSON list, which would silently drop the name -> permissions binding).
+        self::assertArrayNotHasKey('agents/0.md', $files);
+        self::assertStringContainsString('"agents":{}', $files['explicit.json']);
     }
 
     public function testPermissionsStayOutOfOpencodeJson(): void

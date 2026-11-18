@@ -70,14 +70,33 @@ final class OpencodeConfigRenderer
     {
         $agents = [];
         foreach ($this->builtinAgents as $agent) {
-            $agents[$agent->name] = $agent;
+            if ($this->isValidName($agent->name)) {
+                $agents[$agent->name] = $agent;
+            }
         }
         foreach ($this->overrides as $agent) {
-            $agents[$agent->name] = $agent;
+            if ($this->isValidName($agent->name)) {
+                $agents[$agent->name] = $agent;
+            }
         }
         ksort($agents);
 
         return $agents;
+    }
+
+    /**
+     * An agent name becomes a path segment (`agents/<name>.md`) and an `agents.<name>` key in
+     * `explicit.json`, so it must be one safe segment: letters, digits, `_` and `-`, starting with
+     * a letter. That rules out `..`, `/`, `.`, an empty name and a purely numeric name — a
+     * numeric-string key would otherwise be cast by PHP to an int, turning the `agents` map in
+     * `explicit.json` into a JSON list and dropping the name -> permissions binding.
+     *
+     * Every built-in name (critic, scope-check, ...) matches; an override name from the managed
+     * repository that does not is skipped rather than rendered outside `agents/`.
+     */
+    private function isValidName(string $name): bool
+    {
+        return preg_match('/^[a-z][a-z0-9_-]*$/i', $name) === 1;
     }
 
     private function opencodeJson(): string
@@ -100,7 +119,10 @@ final class OpencodeConfigRenderer
             $agents[$name] = ['permissions' => ToolPermissions::rules($agent->tools)];
         }
 
-        return $this->json(['agents' => $agents]);
+        // Belt and braces on top of name validation: a stdClass always encodes as a JSON object,
+        // so even a name that slipped through as a numeric string could not turn the agents map
+        // into a JSON list and drop the name -> permissions binding.
+        return $this->json(['agents' => (object) $agents]);
     }
 
     private function agentMarkdown(OpencodeAgent $agent): string
