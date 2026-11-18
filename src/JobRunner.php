@@ -400,8 +400,14 @@ final class JobRunner implements JobLauncher, RunControl
         // From here on the totals are the figure of this run (the verbose footer), not the snapshot.
         $claude = $claude->withTotals($runTotals);
         // A new session started because the stored engine fingerprint did not match: say so in the reply.
-        if ($resumeSkipped && $kind === RunKind::KIND_CHAT && !$claude->isError) {
-            $claude = $claude->withText($claude->text === '' ? $this->t('session.engine_changed') : $claude->text."\n\n".$this->t('session.engine_changed'));
+        // An error reply is built by ClaudeErrorText (limit/session-expired map to fixed texts and would
+        // drop an appended line), so there the notice goes out as its own message.
+        if ($resumeSkipped && $kind === RunKind::KIND_CHAT) {
+            if ($claude->isError) {
+                $this->delivery->deliver($chatId, $threadId, $this->t('session.engine_changed'));
+            } else {
+                $claude = $claude->withText($claude->text === '' ? $this->t('session.engine_changed') : $claude->text."\n\n".$this->t('session.engine_changed'));
+            }
         }
 
         // An epic run is judged by its signal file, not by the reply, so a clean exit
@@ -470,7 +476,7 @@ final class JobRunner implements JobLauncher, RunControl
         if ($sid === null) {
             return;
         }
-        $this->db->setSessionId($this->runState->jobContext['chat_id'], $this->runState->jobContext['thread_id'], $sid);
+        $this->db->setSessionId($this->runState->jobContext['chat_id'], $this->runState->jobContext['thread_id'], $sid, $this->config->engineFingerprint());
         $this->runState->jobContext['session_saved'] = true;
     }
 

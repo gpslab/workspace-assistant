@@ -644,6 +644,13 @@ final class QueueScheduler implements QueueControl
                 $prompt .= "\n\n".implode("\n", $extra);
             }
         }
+        // The stored session belongs to another engine and cannot be resumed: the run starts fresh.
+        // Reset the row's counters and drop the old transcript now (as /new does), so the new session's
+        // first run counts from zero and the stale usage snapshot is not subtracted from its totals.
+        if ($fingerprintChanged) {
+            $this->db->resetSession($chatId, $threadId);
+            $this->sessionFiles->delete($sessionId);
+        }
         $this->startJobOfItem($head, RunKind::KIND_CHAT, $prompt, $fingerprintChanged ? null : $sessionId, $paths, idsPath: $idsPath, reviewShas: $reviewShas, resumeSkipped: $fingerprintChanged);
     }
 

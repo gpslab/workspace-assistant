@@ -519,6 +519,86 @@ final class QueueFlowTest extends TestCase
         self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
     }
 
+    public function testFingerprintMismatchResetsCountersAndTotalsForTheNewSession(): void
+    {
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', new UsageTotals(1000, 100, 50, 200, 1.0), null, 'other-engine');
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"done","session_id":"s-new","modelUsage":{"m":{"inputTokens":7,"cacheCreationInputTokens":1,"cacheReadInputTokens":2,"outputTokens":3}},"total_cost_usd":0.01}');
+
+        $this->runChat('hello', 10);
+
+        $row = $this->db->getSession(100, 1);
+        self::assertNotNull($row);
+        // The mismatch reset the old session's counters: the new run counts from one.
+        self::assertSame(1, (int) $row['message_count']);
+        self::assertSame(7, (int) $row['input_tokens']);
+        self::assertSame(3, (int) $row['output_tokens']);
+        self::assertEqualsWithDelta(0.01, (float) $row['cost_usd'], 1e-9);
+        self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
+    }
+
+    public function testFingerprintMismatchNoticeIsAlsoShownOnErrorRun(): void
+    {
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'other-engine');
+        $this->claudeOutput('{"type":"result","is_error":true,"result":"boom","session_id":"s-new","usage":{}}');
+
+        $this->runChat('hello', 10);
+
+        self::assertStringContainsString('new session was started', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    public function testEarlySessionIdStoresFingerprintSoNextMessageResumes(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'other-engine');
+        // Emit only the init event, then keep the process alive so the job stays Running
+        // while persistSessionEarly() saves the forked session id and its fingerprint.
+        $this->claudeOutput('{"type":"system","subtype":"init","session_id":"s-new","model":"claude-opus"}');
+        file_put_contents($this->root.'/claude', "#!/bin/sh\nd=\"$(dirname \"\$0\")\"\nn=\$(ls \"\$d\"/argv.* 2>/dev/null | wc -l)\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$d/argv.\$n\"\ncat \"\$d/out.json\"\nsleep 60\n");
+        chmod($this->root.'/claude', 0755);
+
+        $this->say(100, 1, 'first', 10);
+        $this->call('startQueueHead');
+        for ($i = 0; $i < 5; ++$i) {
+            $this->call('pollJob');
+            usleep(50000);
+        }
+
+        // The early save must also carry the fingerprint, otherwise the next message
+        // would mismatch again and drop --resume.
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+        self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
+
+        $this->command(100, 1, '/cancel');
+        self::assertFalse($this->activeJob());
+
+        $this->recordArgv();
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"done","session_id":"s-new","usage":{}}');
+        $this->runChat('second', 11);
+
+        self::assertContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.1')));
+    }
+
+    public function testCompactReseedStoresConfiguredEngineFingerprint(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'claude');
+        $this->command(100, 1, '/compact', 30);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $this->finishJob(); // summarize
+        $this->finishJob(); // reseed, launched by the summarize completion
+
+        // finishReseed() resets the row then records the new session, so the fingerprint
+        // must be re-written to the configured engine's value.
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+        self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
+    }
+
     public function testNextMessageAfterFingerprintMismatchResumes(): void
     {
         $this->recordArgv();

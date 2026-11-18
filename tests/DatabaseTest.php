@@ -243,6 +243,28 @@ final class DatabaseTest extends TestCase
         self::assertSame('claude', $this->db->getEngineFingerprint(42));
     }
 
+    public function testSetSessionIdStoresEngineFingerprintTogetherWithId(): void
+    {
+        $this->db->recordRun(42, 0, 'sess-x', null, null, 'other-engine');
+
+        $this->db->setSessionId(42, 0, 'sess-y', 'gemini');
+
+        $row = $this->db->getSession(42);
+        self::assertNotNull($row);
+        self::assertSame('sess-y', $row['session_id']);
+        self::assertSame('gemini', $row['engine_fingerprint']);
+    }
+
+    public function testSetSessionIdWithoutFingerprintKeepsStoredValue(): void
+    {
+        $this->db->recordRun(42, 0, 'sess-x', null, null, 'other-engine');
+
+        $this->db->setSessionId(42, 0, 'sess-y');
+
+        self::assertSame('sess-y', $this->db->getSessionId(42));
+        self::assertSame('other-engine', $this->db->getEngineFingerprint(42));
+    }
+
     public function testResetSessionClearsEngineFingerprint(): void
     {
         $this->db->recordRun(42, 0, 'sess-x', new UsageTotals(100, 7, 8, 25, 0.5), null, 'claude');

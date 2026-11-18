@@ -374,14 +374,18 @@ final class Database
      * session_id (from before the request), and the next "continue" would resume the old session
      * without it. The counters are not touched — recordRun updates them on a successful
      * completion; for a killed run, undercounting one message is acceptable.
+     *
+     * The engine fingerprint is written together with the id: a session id is meaningful only to the
+     * engine that created it, so a timeout/cancel must not leave the new id under the old fingerprint.
+     * A null $engineFingerprint keeps the stored value (mirrors recordRun).
      */
-    public function setSessionId(int $chatId, int $threadId, string $sessionId): void
+    public function setSessionId(int $chatId, int $threadId, string $sessionId, ?string $engineFingerprint = null): void
     {
         $this->ensureRow($chatId, $threadId);
         $stmt = $this->pdo->prepare(
-            'UPDATE sessions SET session_id = :sid WHERE chat_id = :chat AND thread_id = :thread'
+            'UPDATE sessions SET session_id = :sid, engine_fingerprint = COALESCE(:fprint, engine_fingerprint) WHERE chat_id = :chat AND thread_id = :thread'
         );
-        $stmt->execute(['sid' => $sessionId, 'chat' => $chatId, 'thread' => $threadId]);
+        $stmt->execute(['sid' => $sessionId, 'fprint' => $engineFingerprint, 'chat' => $chatId, 'thread' => $threadId]);
     }
 
     public function setPid(int $chatId, int $threadId, ?int $pid): void
