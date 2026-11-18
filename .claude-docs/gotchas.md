@@ -160,7 +160,7 @@ regular run of that mode: the new session keeps its system prompt for life (`--r
 `ClaudeRunner::start` runs `claude -p --output-format stream-json --verbose`. Without `--verbose` the
 mode fails with "requires --verbose". The parser takes `tool_use` blocks from `assistant` events (live
 progress) and stores **the line** of the `result` event in `$this->stdout`, because
-`ClaudeResult::fromJson` expects one JSON object, not JSONL. An unfinished buffer tail is flushed when
+`RunAnswer::fromJson` expects one JSON object, not JSONL. An unfinished buffer tail is flushed when
 the process ends.
 
 ---

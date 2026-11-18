@@ -12,7 +12,7 @@ namespace GpsLab\WorkspaceAssistant;
  *
  * Arguments are passed as an array to proc_open: no shell, no injection.
  */
-final class ClaudeRunner
+final class ClaudeRunner implements AgentRunner
 {
     /** How long (sec) poll() keeps reading the run files for a missing result after the process has exited. */
     private const EOF_WAIT_SEC = 5;
@@ -50,7 +50,7 @@ final class ClaudeRunner
     private int $startedAt;
     private int $lastProgressAt;
     private int $pid = 0;
-    private ?ClaudeResult $result = null;
+    private ?RunAnswer $result = null;
     private string $timeoutReason = '';
 
     /**
@@ -374,7 +374,7 @@ final class ClaudeRunner
         }
         $this->closeProc();
 
-        $result = ClaudeResult::fromJson($this->stdout, $this->stderr, $exit, $this->locale);
+        $result = RunAnswer::fromJson($this->stdout, $this->stderr, $exit, $this->locale);
         if ($this->stdout !== '') {
             // The text is the first non-empty result's; usage and cost are the last result's.
             $result = $result->withTotals($this->totals);
@@ -382,8 +382,8 @@ final class ClaudeRunner
         if ($exit === 0 && $this->stdout === '') {
             $this->diagnosticsPath = $this->writeDiagnostics();
             $result = $this->lastAssistantText !== ''
-                ? new ClaudeResult(false, $this->lastAssistantText, $this->sessionId, null, true, true)
-                : new ClaudeResult(true, $result->text, $result->sessionId ?? $this->sessionId, null, true);
+                ? new RunAnswer(false, $this->lastAssistantText, $this->sessionId, null, true, true)
+                : new RunAnswer(true, $result->text, $result->sessionId ?? $this->sessionId, null, true);
         }
         $this->result = $result;
 
@@ -393,7 +393,7 @@ final class ClaudeRunner
     /**
      * Result of a finished call. Valid only after poll() === RunnerState::Done.
      */
-    public function result(): ClaudeResult
+    public function result(): RunAnswer
     {
         if ($this->result === null) {
             throw new \RuntimeException('result() before the process finished.');
@@ -679,7 +679,7 @@ final class ClaudeRunner
             }
         }
 
-        // The result event is put into stdout as a line for ClaudeResult::fromJson.
+        // The result event is put into stdout as a line for RunAnswer::fromJson.
         // An empty result (a turn from a task-notification without an answer) does not overwrite
         // an already received answer. The service turn after silence does not reach us:
         // the process is finished off in poll() by then.

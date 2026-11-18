@@ -10,7 +10,7 @@ namespace GpsLab\WorkspaceAssistant;
  */
 final class RunState
 {
-    public ?ClaudeRunner $activeJob = null;
+    public ?AgentRunner $activeJob = null;
 
     /**
      * The run mode (`mode`) is fixed when the item is queued and

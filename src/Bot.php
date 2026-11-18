@@ -118,7 +118,7 @@ final class Bot implements LoopControl
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
         $this->epicChat = new ChatSurface($db, $tg, $config, $git, $this->epicCard, $this->locale);
         $this->queueTexts = new QueueTexts($this->locale);
-        $this->jobRunner = new JobRunner($config, $db, $tg, $git, $this->delivery, $this->locale, $this->inbox, $this->subRepoSync, $this->queueTexts, $this->epicCard, $this->runState);
+        $this->jobRunner = new JobRunner($config, $db, $tg, $git, $this->delivery, $this->locale, $this->inbox, $this->subRepoSync, $this->queueTexts, $this->epicCard, $this->runState, new RunnerFactory($config, $this->locale));
         $this->modeAndLang = new ModeAndLang($db, $tg, $this->locale, $this->jobRunner, $this->locales);
         $this->modelSwitcher = new ModelSwitcher($config, $db, $tg, $this->locale, $this->jobRunner);
         $this->dirtyTree = new DirtyTreeDecision($config, $db, $tg, $git, $this->delivery, $this->locale, $this->queueTexts, $this->runResult, $this->secretBlocker);

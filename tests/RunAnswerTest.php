@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests;
 
-use GpsLab\WorkspaceAssistant\ClaudeResult;
+use GpsLab\WorkspaceAssistant\RunAnswer;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
-#[CoversClass(ClaudeResult::class)]
-final class ClaudeResultTest extends TestCase
+#[CoversClass(RunAnswer::class)]
+final class RunAnswerTest extends TestCase
 {
     public function testParsesSuccessfulResult(): void
     {
@@ -22,7 +22,7 @@ final class ClaudeResultTest extends TestCase
             'session_id' => 'sess-1',
         ], JSON_THROW_ON_ERROR);
 
-        $result = ClaudeResult::fromJson($json, '', 0);
+        $result = RunAnswer::fromJson($json, '', 0);
 
         self::assertFalse($result->isError);
         self::assertSame('done', $result->text);
@@ -45,7 +45,7 @@ final class ClaudeResultTest extends TestCase
             'total_cost_usd' => 0.0543,
         ], JSON_THROW_ON_ERROR);
 
-        $totals = ClaudeResult::fromJson($json, '', 0)->totals;
+        $totals = RunAnswer::fromJson($json, '', 0)->totals;
 
         self::assertNotNull($totals);
         self::assertSame(28, $totals->inputTokens);
@@ -63,7 +63,7 @@ final class ClaudeResultTest extends TestCase
             'modelUsage' => ['m' => ['inputTokens' => 1, 'outputTokens' => 2]],
         ], JSON_THROW_ON_ERROR);
 
-        $totals = ClaudeResult::fromJson($json, '', 0)->totals;
+        $totals = RunAnswer::fromJson($json, '', 0)->totals;
 
         self::assertNotNull($totals);
         self::assertNull($totals->costUsd);
@@ -78,7 +78,7 @@ final class ClaudeResultTest extends TestCase
             'total_cost_usd' => 0.01,
         ], JSON_THROW_ON_ERROR);
 
-        self::assertNull(ClaudeResult::fromJson($json, '', 0)->totals);
+        self::assertNull(RunAnswer::fromJson($json, '', 0)->totals);
     }
 
     public function testFlagsErrorFromPayload(): void
@@ -91,7 +91,7 @@ final class ClaudeResultTest extends TestCase
             'session_id' => 's',
         ], JSON_THROW_ON_ERROR);
 
-        $result = ClaudeResult::fromJson($json, '', 0);
+        $result = RunAnswer::fromJson($json, '', 0);
 
         self::assertTrue($result->isError);
         self::assertSame('Failed to authenticate', $result->text);
@@ -99,7 +99,7 @@ final class ClaudeResultTest extends TestCase
 
     public function testInvalidJsonFallsBackToStderr(): void
     {
-        $result = ClaudeResult::fromJson('', 'boom from stderr', 1);
+        $result = RunAnswer::fromJson('', 'boom from stderr', 1);
 
         self::assertTrue($result->isError);
         self::assertSame('boom from stderr', $result->text);
@@ -109,7 +109,7 @@ final class ClaudeResultTest extends TestCase
 
     public function testInvalidJsonWithoutOutputReportsExitCode(): void
     {
-        $result = ClaudeResult::fromJson('', '', 137);
+        $result = RunAnswer::fromJson('', '', 137);
 
         self::assertTrue($result->isError);
         self::assertStringContainsString('137', $result->text);
@@ -122,7 +122,7 @@ final class ClaudeResultTest extends TestCase
             'session_id' => '',
         ], JSON_THROW_ON_ERROR);
 
-        $result = ClaudeResult::fromJson($json, '', 0);
+        $result = RunAnswer::fromJson($json, '', 0);
 
         self::assertNull($result->sessionId);
     }
@@ -138,7 +138,7 @@ final class ClaudeResultTest extends TestCase
             'session_id' => 'abc-123',
         ], JSON_THROW_ON_ERROR);
 
-        $result = ClaudeResult::fromJson($json, '', 0);
+        $result = RunAnswer::fromJson($json, '', 0);
 
         self::assertTrue($result->isError);
         self::assertSame('No conversation found with session ID: abc-123', $result->text);
@@ -152,7 +152,7 @@ final class ClaudeResultTest extends TestCase
             'errors' => ['first error', 'second error'],
         ], JSON_THROW_ON_ERROR);
 
-        $result = ClaudeResult::fromJson($json, '', 0);
+        $result = RunAnswer::fromJson($json, '', 0);
 
         self::assertSame("first error\nsecond error", $result->text);
     }
@@ -165,7 +165,7 @@ final class ClaudeResultTest extends TestCase
             'errors' => [['message' => 'No conversation found with session ID: abc-123']],
         ], JSON_THROW_ON_ERROR);
 
-        $result = ClaudeResult::fromJson($json, '', 0);
+        $result = RunAnswer::fromJson($json, '', 0);
 
         self::assertTrue($result->isError);
         self::assertSame('{"message":"No conversation found with session ID: abc-123"}', $result->text);
@@ -179,7 +179,7 @@ final class ClaudeResultTest extends TestCase
             'errors' => [],
         ], JSON_THROW_ON_ERROR);
 
-        $result = ClaudeResult::fromJson($json, '', 0);
+        $result = RunAnswer::fromJson($json, '', 0);
 
         self::assertTrue($result->isError);
         self::assertSame('', $result->text);

@@ -12,7 +12,7 @@ final class RunOutcome
 {
     /**
      * @param string                             $kind           one of the {@see RunKind} constants
-     * @param ClaudeResult|null                  $result         null when the run failed
+     * @param RunAnswer|null                     $result         null when the run failed
      * @param int                                $queueId        queue item of the run, 0 if it has none
      * @param bool                               $requeued       the item was put back at the head of the queue
      * @param string|null                        $failure        why the run failed (for the failure handling), null on success
@@ -25,7 +25,7 @@ final class RunOutcome
         public readonly int $chatId,
         public readonly int $threadId,
         public readonly int $queueId,
-        public readonly ?ClaudeResult $result,
+        public readonly ?RunAnswer $result,
         public readonly bool $requeued,
         public readonly ?string $failure,
         public readonly ?string $notice,

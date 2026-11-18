@@ -5,15 +5,15 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant;
 
 /**
- * Parsed result of a `claude -p --output-format json` call.
+ * Parsed result of an agent run (`claude -p --output-format json`, engine-neutral shape).
  */
-final class ClaudeResult
+final class RunAnswer
 {
     public function __construct(
         public readonly bool $isError,
         public readonly string $text,
         public readonly ?string $sessionId,
-        /** Claude's totals from the last `result` event (a session snapshot); null when Claude returned none. */
+        /** The engine's totals from the last `result` event (a session snapshot); null when it returned none. */
         public readonly ?UsageTotals $totals = null,
         /** The process exited with code 0 but the stream carried no result event. */
         public readonly bool $exitedWithoutResult = false,
@@ -59,7 +59,7 @@ final class ClaudeResult
     }
 
     /**
-     * With `is_error: true` Claude sometimes returns an empty `result` and puts the reason in
+     * With `is_error: true` the engine sometimes returns an empty `result` and puts the reason in
      * the top-level `errors` array (for example on `--resume` of a session whose
      * transcript was already deleted by the retention policy). Joined line by line
      * so that reason is not lost.
