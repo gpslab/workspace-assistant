@@ -14,7 +14,7 @@ namespace GpsLab\WorkspaceAssistant;
  * reach here because {@see Config::fromEnv()} rejects anything but `claude` at
  * startup, but the default arm still fails loudly rather than falling back.
  */
-final class RunnerFactory
+class RunnerFactory
 {
     public function __construct(
         private readonly Config $config,
@@ -36,27 +36,48 @@ final class RunnerFactory
         ?string $model,
     ): AgentRunner {
         return match ($this->config->engine) {
-            'claude' => new ClaudeRunner(
-                $this->config->claudeBin,
-                $this->config->repoPath,
-                $this->config->claudeTimeout,
-                $this->config->claudeExtraArgs,
-                $this->config->claudeStallTimeout,
-                $this->config->claudeAppendSystemPrompt,
-                $mode,
-                settingsJson: $settingsJson,
-                extraEnv: $extraEnv,
-                promptsDir: $this->config->promptsDir,
-                locale: $this->locale->with($localeCode),
-                stateDir: $this->config->stateDir,
-                withAgents: $withAgents,
-                homeDir: (string) getenv('HOME'),
-                updateOnResume: $updateOnResume,
-                savedPromptHash: $savedPromptHash,
-                forge: $this->config->forge,
-                model: $model,
-            ),
+            'claude' => $this->createClaudeRunner($mode, $settingsJson, $extraEnv, $localeCode, $withAgents, $updateOnResume, $savedPromptHash, $model),
             default => throw new \RuntimeException("Unsupported ENGINE={$this->config->engine}."),
         };
+    }
+
+    /**
+     * The Claude Code runner for the current configuration, extracted so that a test can still build
+     * a ClaudeRunner for a non-default engine name. The engine name is what the stored-session
+     * fingerprint tracks (see {@see Config::engineFingerprint()}); only `claude` has a runner
+     * implementation, so the runner selection and the fingerprint are decoupled.
+     *
+     * @param array<string, string> $extraEnv
+     */
+    protected function createClaudeRunner(
+        string $mode,
+        string $settingsJson,
+        array $extraEnv,
+        string $localeCode,
+        bool $withAgents,
+        bool $updateOnResume,
+        ?string $savedPromptHash,
+        ?string $model,
+    ): ClaudeRunner {
+        return new ClaudeRunner(
+            $this->config->claudeBin,
+            $this->config->repoPath,
+            $this->config->claudeTimeout,
+            $this->config->claudeExtraArgs,
+            $this->config->claudeStallTimeout,
+            $this->config->claudeAppendSystemPrompt,
+            $mode,
+            settingsJson: $settingsJson,
+            extraEnv: $extraEnv,
+            promptsDir: $this->config->promptsDir,
+            locale: $this->locale->with($localeCode),
+            stateDir: $this->config->stateDir,
+            withAgents: $withAgents,
+            homeDir: (string) getenv('HOME'),
+            updateOnResume: $updateOnResume,
+            savedPromptHash: $savedPromptHash,
+            forge: $this->config->forge,
+            model: $model,
+        );
     }
 }

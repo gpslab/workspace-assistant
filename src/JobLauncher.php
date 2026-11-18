@@ -14,5 +14,5 @@ interface JobLauncher
      * @param array<string, string>              $reviewShas reviewed commit per PR (`owner/repo#N` => SHA)
      * @param string|null                        $model      the model pinned in the queue item; re-checked against CLAUDE_MODELS here
      */
-    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = [], ?string $model = null): ?string;
+    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = [], ?string $model = null, bool $resumeSkipped = false): ?string;
 }

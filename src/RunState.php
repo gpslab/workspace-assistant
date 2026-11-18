@@ -18,7 +18,7 @@ final class RunState
      * overflowCaption) — not from sessions: /mode may have changed while the run was in progress.
      * The language (`locale`) is fixed the same way and read from the item, not from the /lang setting.
      *
-     * @var array{kind:string, chat_id:int, thread_id:int, thinking_id:int, prompt:string, last_progress_at:int, shown_count:int, compact_old_session_id:?string, session_saved:bool, inbox_files:list<string>, mode:string, locale:string, queue_id:int, epic_slug:?string, epic_run:array{run:string, pr:?string}|null, pm_gate_run_id:?string, prompt_hash:?string}|null
+     * @var array{kind:string, chat_id:int, thread_id:int, thinking_id:int, prompt:string, last_progress_at:int, shown_count:int, compact_old_session_id:?string, session_saved:bool, inbox_files:list<string>, mode:string, locale:string, queue_id:int, epic_slug:?string, epic_run:array{run:string, pr:?string}|null, pm_gate_run_id:?string, prompt_hash:?string, resume_skipped?:bool}|null
      */
     public ?array $jobContext = null;
 

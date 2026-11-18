@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests;
 
+use GpsLab\WorkspaceAssistant\AgentRunner;
 use GpsLab\WorkspaceAssistant\Bot;
 use GpsLab\WorkspaceAssistant\ClaudeErrorText;
 use GpsLab\WorkspaceAssistant\Config;
@@ -16,11 +17,13 @@ use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Inbox;
+use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\PmRunbook;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\ReviewCommitHook;
 use GpsLab\WorkspaceAssistant\ReviewStatusHook;
+use GpsLab\WorkspaceAssistant\RunnerFactory;
 use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
 use GpsLab\WorkspaceAssistant\Tests\Epic\FakeGitHub;
@@ -93,7 +96,7 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = ''): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -116,9 +119,29 @@ final class QueueFlowTest extends TestCase
             'forge' => $forge,
             'autoCommit' => $autoCommit,
             'subreposDir' => $subreposDir,
+            'engine' => $engine,
         ] + ($locale === null ? [] : ['botLocale' => $locale]));
 
-        return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github);
+        return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github, runnerFactory: $this->runnerFactoryFor($config));
+    }
+
+    /**
+     * A factory that builds a ClaudeRunner for a non-default engine name: the engine name is what the
+     * stored-session fingerprint tracks, but only `claude` has a runner implementation, so the fingerprint
+     * tests run Claude while asserting the configured engine name is what gets written.
+     */
+    private function runnerFactoryFor(Config $config): RunnerFactory
+    {
+        if ($config->engine === Config::DEFAULT_ENGINE_FINGERPRINT) {
+            return new RunnerFactory($config, Locale::fromConfig($config));
+        }
+
+        return new class($config, Locale::fromConfig($config)) extends RunnerFactory {
+            public function create(string $mode, string $settingsJson, array $extraEnv, string $localeCode, bool $withAgents, bool $updateOnResume, ?string $savedPromptHash, ?string $model): AgentRunner
+            {
+                return $this->createClaudeRunner($mode, $settingsJson, $extraEnv, $localeCode, $withAgents, $updateOnResume, $savedPromptHash, $model);
+            }
+        };
     }
 
     /**
@@ -493,6 +516,196 @@ final class QueueFlowTest extends TestCase
         $this->runChat('hello', 10);
 
         self::assertTrue($this->updateBlockIn(0));
+    }
+
+    public function testNullFingerprintSessionIsResumedUnderDefaultConfig(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null);
+
+        $this->runChat('hello', 10);
+
+        self::assertContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.0')));
+    }
+
+    public function testMismatchedEngineFingerprintStartsNewSessionAndAppendsNotice(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'other-engine');
+
+        $this->runChat('hello', 10);
+
+        self::assertNotContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.0')));
+        self::assertStringContainsString('new session was started', implode("\n", $this->tg->textsTo(100, 1)));
+        self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
+    }
+
+    public function testFingerprintMismatchResetsCountersAndTotalsForTheNewSession(): void
+    {
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', new UsageTotals(1000, 100, 50, 200, 1.0), null, 'other-engine');
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"done","session_id":"s-new","modelUsage":{"m":{"inputTokens":7,"cacheCreationInputTokens":1,"cacheReadInputTokens":2,"outputTokens":3}},"total_cost_usd":0.01}');
+
+        $this->runChat('hello', 10);
+
+        $row = $this->db->getSession(100, 1);
+        self::assertNotNull($row);
+        // The mismatch reset the old session's counters: the new run counts from one.
+        self::assertSame(1, (int) $row['message_count']);
+        self::assertSame(7, (int) $row['input_tokens']);
+        self::assertSame(3, (int) $row['output_tokens']);
+        self::assertEqualsWithDelta(0.01, (float) $row['cost_usd'], 1e-9);
+        self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
+    }
+
+    public function testFingerprintMismatchNoticeIsAlsoShownOnErrorRun(): void
+    {
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'other-engine');
+        $this->claudeOutput('{"type":"result","is_error":true,"result":"boom","session_id":"s-new","usage":{}}');
+
+        $this->runChat('hello', 10);
+
+        self::assertStringContainsString('new session was started', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    public function testEarlySessionIdStoresFingerprintSoNextMessageResumes(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'other-engine');
+        // Emit only the init event, then keep the process alive so the job stays Running
+        // while persistSessionEarly() saves the forked session id and its fingerprint.
+        $this->claudeOutput('{"type":"system","subtype":"init","session_id":"s-new","model":"claude-opus"}');
+        file_put_contents($this->root.'/claude', "#!/bin/sh\nd=\"$(dirname \"\$0\")\"\nn=\$(ls \"\$d\"/argv.* 2>/dev/null | wc -l)\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$d/argv.\$n\"\ncat \"\$d/out.json\"\nsleep 60\n");
+        chmod($this->root.'/claude', 0755);
+
+        $this->say(100, 1, 'first', 10);
+        $this->call('startQueueHead');
+        for ($i = 0; $i < 5; ++$i) {
+            $this->call('pollJob');
+            usleep(50000);
+        }
+
+        // The early save must also carry the fingerprint, otherwise the next message
+        // would mismatch again and drop --resume.
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+        self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
+
+        $this->command(100, 1, '/cancel');
+        self::assertFalse($this->activeJob());
+
+        $this->recordArgv();
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"done","session_id":"s-new","usage":{}}');
+        $this->runChat('second', 11);
+
+        self::assertContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.1')));
+    }
+
+    public function testCompactReseedStoresConfiguredEngineFingerprint(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'claude');
+        $this->command(100, 1, '/compact', 30);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $this->finishJob(); // summarize
+        $this->finishJob(); // reseed, launched by the summarize completion
+
+        // finishReseed() resets the row then records the new session, so the fingerprint
+        // must be re-written to the configured engine's value.
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+        self::assertSame('claude', $this->db->getEngineFingerprint(100, 1));
+    }
+
+    public function testNullFingerprintWithNonDefaultEngineStartsFreshAndStoresEngine(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot(engine: 'gemini');
+        $this->db->recordRun(100, 1, 's-old', null);
+
+        $this->runChat('hello', 10);
+
+        // A NULL fingerprint means the default ('claude'), which does not match 'gemini':
+        // the run must not resume the stored session.
+        self::assertNotContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.0')));
+        // The fresh session is stored under the configured engine, not a hardcoded default.
+        self::assertSame('gemini', $this->db->getEngineFingerprint(100, 1));
+    }
+
+    public function testEarlySessionIdStoresNonDefaultEngineFingerprint(): void
+    {
+        $this->bot = $this->makeBot(engine: 'gemini');
+        $this->db->recordRun(100, 1, 's-old', null);
+        // Emit only the init event, then keep the process alive so the job stays Running
+        // while persistSessionEarly() saves the forked session id and its fingerprint.
+        $this->claudeOutput('{"type":"system","subtype":"init","session_id":"s-new","model":"claude-opus"}');
+        file_put_contents($this->root.'/claude', "#!/bin/sh\nd=\"$(dirname \"\$0\")\"\nn=\$(ls \"\$d\"/argv.* 2>/dev/null | wc -l)\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$d/argv.\$n\"\ncat \"\$d/out.json\"\nsleep 60\n");
+        chmod($this->root.'/claude', 0755);
+
+        $this->say(100, 1, 'first', 10);
+        $this->call('startQueueHead');
+        for ($i = 0; $i < 5; ++$i) {
+            $this->call('pollJob');
+            usleep(50000);
+        }
+
+        // The early save must carry the configured fingerprint, otherwise the next message
+        // would mismatch again and drop --resume.
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+        self::assertSame('gemini', $this->db->getEngineFingerprint(100, 1));
+
+        $this->command(100, 1, '/cancel');
+        self::assertFalse($this->activeJob());
+    }
+
+    public function testCompactReseedStoresNonDefaultEngineFingerprint(): void
+    {
+        $this->bot = $this->makeBot(engine: 'gemini');
+        $this->db->recordRun(100, 1, 's-old', null, null, 'gemini');
+        $this->command(100, 1, '/compact', 30);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $this->finishJob(); // summarize
+        $this->finishJob(); // reseed, launched by the summarize completion
+
+        // finishReseed() resets the row then records the new session: the fingerprint
+        // must be re-written to the configured engine's value.
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+        self::assertSame('gemini', $this->db->getEngineFingerprint(100, 1));
+    }
+
+    public function testNextMessageAfterFingerprintMismatchResumes(): void
+    {
+        $this->recordArgv();
+        $this->bot = $this->makeBot();
+        $this->db->recordRun(100, 1, 's-old', null, null, 'other-engine');
+
+        $this->runChat('hello', 10);
+        $this->runChat('again', 11);
+
+        self::assertNotContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.0')));
+        self::assertContains('--resume', explode("\0", (string) file_get_contents($this->root.'/argv.1')));
+    }
+
+    public function testCompactRefusesOnMismatchedEngineFingerprint(): void
+    {
+        $this->db->recordRun(100, 1, 's-old', null, 'h1', 'other-engine');
+        $this->command(100, 1, '/compact', 30);
+
+        $this->call('startQueueHead');
+
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertSame(0, $this->launches());
+        self::assertStringContainsString('Compaction stopped', implode("\n", $this->tg->textsTo(100, 1)));
+        // The stored session (id and prompt hash) is left intact.
+        self::assertSame('s-old', $this->db->getSessionId(100, 1));
+        self::assertSame('h1', $this->db->getSession(100, 1)['prompt_hash'] ?? null);
     }
 
     public function testModeAndLangChangesProduceBlockOnNextMessage(): void
