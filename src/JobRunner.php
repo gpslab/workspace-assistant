@@ -41,6 +41,7 @@ final class JobRunner implements JobLauncher, RunControl
         private readonly QueueTexts $queueTexts,
         private readonly Card $epicCard,
         private readonly RunState $runState,
+        private readonly RunnerFactory $runnerFactory,
     ) {
         $this->claudeErrorText = new ClaudeErrorText($locale);
     }
@@ -208,25 +209,15 @@ final class JobRunner implements JobLauncher, RunControl
         }
 
         try {
-            $runner = new ClaudeRunner(
-                $this->config->claudeBin,
-                $this->config->repoPath,
-                $this->config->claudeTimeout,
-                $this->config->claudeExtraArgs,
-                $this->config->claudeStallTimeout,
-                $this->config->claudeAppendSystemPrompt,
+            $runner = $this->runnerFactory->create(
                 $mode,
-                settingsJson: $settingsJson,
-                extraEnv: $env,
-                promptsDir: $this->config->promptsDir,
-                locale: $this->locale->with($localeCode),
-                stateDir: $this->config->stateDir,
-                withAgents: RunKind::runsWithAgents($kind),
-                homeDir: (string) getenv('HOME'),
-                updateOnResume: $kind === RunKind::KIND_CHAT,
-                savedPromptHash: $kind === RunKind::KIND_CHAT && $sessionId !== null ? $this->savedPromptHash($chatId, $threadId) : null,
-                forge: $this->config->forge,
-                model: $model,
+                $settingsJson,
+                $env,
+                $localeCode,
+                RunKind::runsWithAgents($kind),
+                $kind === RunKind::KIND_CHAT,
+                $kind === RunKind::KIND_CHAT && $sessionId !== null ? $this->savedPromptHash($chatId, $threadId) : null,
+                $model,
             );
             $runner->start($prompt, $sessionId);
         } catch (\RuntimeException $e) {
@@ -360,9 +351,9 @@ final class JobRunner implements JobLauncher, RunControl
         // to compact (it would replace the session context); mark it in a chat reply.
         if ($claude->recovered && !$claude->isError) {
             if (in_array($kind, [RunKind::KIND_COMPACT_SUMMARIZE, RunKind::KIND_COMPACT_RESEED], true)) {
-                $claude = new ClaudeResult(true, $this->t('claude.recovered_unusable'), $claude->sessionId, $claude->totals, true, true);
+                $claude = new RunAnswer(true, $this->t('claude.recovered_unusable'), $claude->sessionId, $claude->totals, true, true);
             } elseif ($kind === RunKind::KIND_CHAT) {
-                $claude = new ClaudeResult(false, $claude->text."\n\n".$this->t('claude.recovered_note'), $claude->sessionId, $claude->totals, true, true);
+                $claude = new RunAnswer(false, $claude->text."\n\n".$this->t('claude.recovered_note'), $claude->sessionId, $claude->totals, true, true);
             }
         }
         // sendResult() appends the warnings to a normal reply itself; every

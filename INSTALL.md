@@ -147,6 +147,7 @@ GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab
 | `FORGE_REPO` | empty | Workspace repository as `owner/name`, for commit links (alias: `GITHUB_REPO`; the new key wins, a warning is logged when both are set) |
 | `FORGE_OWNERS` | empty | Owners the bot works with; the first is the default owner; with `FORGE=gitlab` an owner may be a namespace path `group/subgroup` (alias: `GITHUB_OWNERS`) |
 | `OPENRONIN_LOGINS` | empty | Logins allowed to author the `<!-- openronin:bot -->` marker |
+| `ENGINE` | `claude` | Agent engine the bot runs: `claude` for now; anything else is a startup error |
 | `CLAUDE_BIN` | `claude` | Path or name of the `claude` binary |
 | `CLAUDE_TIMEOUT` | `0` | Overall limit of one Claude call, seconds (0 = off) |
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |

@@ -167,6 +167,26 @@ final class ConfigTest extends TestCase
         Config::load($this->envFile);
     }
 
+    public function testEngineDefaultsToClaude(): void
+    {
+        $this->writeEnv();
+        self::assertSame('claude', Config::load($this->envFile)->engine);
+    }
+
+    public function testEngineClaudeIsAccepted(): void
+    {
+        $this->writeEnv('ENGINE=claude');
+        self::assertSame('claude', Config::load($this->envFile)->engine);
+    }
+
+    public function testInvalidEngineFailsTheStart(): void
+    {
+        $this->writeEnv('ENGINE=opencode');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Invalid ENGINE=opencode');
+        Config::load($this->envFile);
+    }
+
     public function testNewForgeKeysWinOverTheAliasesAndWarnOnce(): void
     {
         $this->writeEnv("FORGE_OWNERS=new\nGITHUB_OWNERS=old\nFORGE_REPO=new/repo\nGITHUB_REPO=old/repo\nOPENRONIN_LOGINS=bot\n");

@@ -56,7 +56,7 @@ final class CompactFlow
      * further, hand the decision to the user (commit/discard, with AUTO_COMMIT=1)
      * and leave the session untouched.
      */
-    public function finishSummarize(int $chatId, int $threadId, ClaudeResult $claude, ?string $compactOldSessionId, int $queueId, string $localeCode): void
+    public function finishSummarize(int $chatId, int $threadId, RunAnswer $claude, ?string $compactOldSessionId, int $queueId, string $localeCode): void
     {
         $summary = trim($claude->text);
         if ($summary === '') {
@@ -104,7 +104,7 @@ final class CompactFlow
      * (before making sure the new session really started), a start failure
      * (see {@see JobLauncher::launchJob()}) would leave us with neither the old context nor the new one.
      */
-    public function finishReseed(int $chatId, int $threadId, ClaudeResult $claude, ?string $compactOldSessionId, ?string $promptHash): void
+    public function finishReseed(int $chatId, int $threadId, RunAnswer $claude, ?string $compactOldSessionId, ?string $promptHash): void
     {
         if ($claude->sessionId === null) {
             $this->delivery->deliver($chatId, $threadId, $this->t('compact.reseed_failed'));

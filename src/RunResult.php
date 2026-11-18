@@ -29,7 +29,7 @@ final class RunResult implements DecisionHost
     /**
      * @param list<string> $promptWarnings
      */
-    public function sendResult(int $chatId, int $threadId, ClaudeResult $claude, string $prompt, string $mode, array $promptWarnings = []): void
+    public function sendResult(int $chatId, int $threadId, RunAnswer $claude, string $prompt, string $mode, array $promptWarnings = []): void
     {
         $text = $claude->text !== '' ? $claude->text : $this->t('result.empty');
         foreach ($promptWarnings as $warning) {

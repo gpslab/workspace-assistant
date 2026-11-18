@@ -58,6 +58,8 @@ final class Config
         public readonly bool $autoCommit = true,
         public readonly string $forge = self::FORGE_GITHUB,
         public readonly string $forgeHost = 'github.com',
+        /** Agent engine the bot runs: `claude` for now; anything else is rejected at startup. */
+        public readonly string $engine = 'claude',
         public readonly array $configWarnings = [],
         /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
         public readonly array $claudeModels = self::DEFAULT_CLAUDE_MODELS,
@@ -154,6 +156,14 @@ final class Config
         }
         $forgeHost = trim((string) $env->get('FORGE_HOST', '')) ?: self::DEFAULT_HOSTS[$forge];
 
+        // The engine is a property of the instance, set once in .env, never switched from chat.
+        $engine = trim((string) $env->get('ENGINE', ''));
+        if ($engine === '') {
+            $engine = 'claude';
+        } elseif ($engine !== 'claude') {
+            throw new \RuntimeException("Invalid ENGINE={$engine} in .env: expected claude.");
+        }
+
         $configWarnings = [];
         $forgeRepo = self::withAlias($env, 'FORGE_REPO', 'GITHUB_REPO', $configWarnings);
         $forgeOwners = self::withAlias($env, 'FORGE_OWNERS', 'GITHUB_OWNERS', $configWarnings);
@@ -211,6 +221,7 @@ final class Config
             autoCommit: $autoCommit === '1',
             forge: $forge,
             forgeHost: $forgeHost,
+            engine: $engine,
             configWarnings: $configWarnings,
             claudeModels: $claudeModels,
             modelEpicTick: $modelEpicTick,
