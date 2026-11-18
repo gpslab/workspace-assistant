@@ -283,6 +283,41 @@ final class PmGateHookTest extends TestCase
         self::assertStringContainsString('verify (agent verifier)', $decision['reason']);
     }
 
+    /**
+     * The verifier is called on its own line, after the critic's *call* but before the critic's
+     * *result* returned: a comparison against the previous stage's call position would let this
+     * through, only the result comparison denies it.
+     */
+    public function testStageCalledAfterPreviousCallButBeforeItsResultIsDenied(): void
+    {
+        $lines = [
+            self::user('x'),
+            self::agentCall('a1', 'critic'),
+            self::agentCall('a2', 'verifier'),
+            self::agentResult('a1'),
+            self::agentResult('a2'),
+        ];
+
+        $missing = self::missing($lines);
+        self::assertCount(1, $missing);
+        self::assertStringStartsWith('verify (agent verifier)', $missing[0]);
+    }
+
+    public function testDecideDeniesStageCalledAfterPreviousCallButBeforeItsResult(): void
+    {
+        $lines = [
+            self::user('x'),
+            self::agentCall('a1', 'critic'),
+            self::agentCall('a2', 'verifier'),
+            self::agentResult('a1'),
+            self::agentResult('a2'),
+        ];
+
+        $decision = PmGateHook::decide($lines, self::config(), 'pm', '');
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('verify (agent verifier)', $decision['reason']);
+    }
+
     public function testRerunInOrderFixesTheOrder(): void
     {
         $lines = [self::user('x'), ...self::stage('a2', 'verifier'), ...self::stage('a1', 'critic'), ...self::stage('a3', 'verifier')];
