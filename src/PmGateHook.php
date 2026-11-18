@@ -13,6 +13,11 @@ namespace GpsLab\WorkspaceAssistant;
  * holds a synchronous `Agent` call of the stage's agent that completed. What the agent said does
  * not matter. A background call (`async_launched`) and sub-agent entries (`isSidechain`) never count.
  *
+ * The gate is split in two: {@see ClaudeCodeTranscriptReader} reads the transcript into a list of
+ * agent calls (already limited to the window) and the neutral core ({@see counts()},
+ * {@see lastStagePositions()}) counts and orders them without touching a transcript line. The public
+ * entry points ({@see decide()}, {@see missingStages()}) run the reader, then the core.
+ *
  * Window: only stage calls after the last successful issue creation that was followed by a message
  * of the author count. A series of issues created in one batch passes on one set of stages; the next
  * design after the author's reply needs fresh stages.
@@ -389,6 +394,9 @@ final class PmGateHook
     /**
      * Required stages that are not satisfied: not run (completed) in the window, or run out of order.
      *
+     * A thin wrapper: the transcript is read by {@see ClaudeCodeTranscriptReader} and the neutral
+     * core ({@see lastStagePositions()}) maps the resulting call list to the last call of each stage.
+     *
      * @param list<string>                                           $transcriptLines
      * @param list<array{id: string, agent: string, required: bool}> $stages
      *
@@ -396,7 +404,7 @@ final class PmGateHook
      */
     public static function missingStages(array $transcriptLines, array $stages): array
     {
-        $last = self::lastStageCalls($transcriptLines, $stages);
+        $last = self::lastStagePositions(ClaudeCodeTranscriptReader::agentCalls($transcriptLines), $stages);
         $missing = [];
         $previous = null;
         $previousId = '';
@@ -421,61 +429,34 @@ final class PmGateHook
     }
 
     /**
-     * Line number of the last completed main-chain call of each stage agent inside the window.
+     * The neutral counting criterion for one agent call of the call list: a stage counts on a
+     * synchronous, completed `Agent` call that is not `async_launched` and not a sidechain.
      *
-     * @param list<string>                                           $lines
-     * @param list<array{id: string, agent: string, required: bool}> $stages
-     *
-     * @return array<string, int> stage id => line index
+     * @param array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool} $call
      */
-    private static function lastStageCalls(array $lines, array $stages): array
+    public static function counts(array $call): bool
     {
-        /** @var array<string, array{at: int, agent: string}> $agentCalls tool_use id => call */
-        $agentCalls = [];
-        /** @var array<string, bool> $issueCalls tool_use id => true */
-        $issueCalls = [];
-        /** @var array<string, string> $statuses tool_use id => status */
-        $statuses = [];
-        $windowStart = -1;
-        $lastCreate = null;
+        return $call['completed'] && !$call['asyncLaunched'] && !$call['isSidechain'];
+    }
 
-        foreach ($lines as $at => $line) {
-            $entry = json_decode($line, true);
-            if (!is_array($entry) || ($entry['isSidechain'] ?? false) === true) {
-                continue;
-            }
-            if (ReviewStatusHook::isRealUserMessage($entry)) {
-                if ($lastCreate !== null) {
-                    $windowStart = $lastCreate;
-                    $lastCreate = null;
-                }
-                continue;
-            }
-            foreach (self::blocks($entry) as $block) {
-                $type = $block['type'] ?? null;
-                $id = (string) ($block['id'] ?? $block['tool_use_id'] ?? '');
-                if ($type === 'tool_use' && ($entry['type'] ?? null) === 'assistant') {
-                    if (($block['name'] ?? null) === 'Agent' && is_string($block['input']['subagent_type'] ?? null)) {
-                        $agentCalls[$id] = ['at' => $at, 'agent' => $block['input']['subagent_type']];
-                    } elseif (($block['name'] ?? null) === 'Bash' && is_string($block['input']['command'] ?? null) && self::createsIssue($block['input']['command'])) {
-                        $issueCalls[$id] = true;
-                    }
-                } elseif ($type === 'tool_result' && ($entry['type'] ?? null) === 'user') {
-                    $result = $entry['toolUseResult'] ?? null;
-                    if (is_array($result) && is_string($result['status'] ?? null)) {
-                        $statuses[$id] = $result['status'];
-                    }
-                    if (isset($issueCalls[$id]) && ($block['is_error'] ?? false) !== true) {
-                        $lastCreate = $at;
-                    }
-                }
-            }
-        }
-
+    /**
+     * Call position of the last counted call of each stage agent, from a list of agent calls. This is
+     * the neutral core: it sees only the call list the reader produced, never a transcript line.
+     *
+     * The positions are carried but not used for ordering here; stage order by returned result is a
+     * later change that touches only decide().
+     *
+     * @param list<array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool}> $calls
+     * @param list<array{id: string, agent: string, required: bool}>                                                               $stages
+     *
+     * @return array<string, int> stage id => call position
+     */
+    public static function lastStagePositions(array $calls, array $stages): array
+    {
         $byAgent = [];
-        foreach ($agentCalls as $id => $call) {
-            if ($call['at'] > $windowStart && ($statuses[$id] ?? null) === 'completed') {
-                $byAgent[$call['agent']] = max($byAgent[$call['agent']] ?? -1, $call['at']);
+        foreach ($calls as $call) {
+            if (self::counts($call)) {
+                $byAgent[$call['agent']] = max($byAgent[$call['agent']] ?? -1, $call['callAt']);
             }
         }
         $last = [];
@@ -486,18 +467,6 @@ final class PmGateHook
         }
 
         return $last;
-    }
-
-    /**
-     * @param array<string, mixed> $entry
-     *
-     * @return list<array<string, mixed>>
-     */
-    private static function blocks(array $entry): array
-    {
-        $content = $entry['message']['content'] ?? null;
-
-        return is_array($content) ? array_values(array_filter($content, 'is_array')) : [];
     }
 
     /**
