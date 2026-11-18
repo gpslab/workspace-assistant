@@ -160,7 +160,7 @@ proc_open($argv, $descriptors, $pipes, $repoPath, $env);
   `claude-run-*` in the system tmp, removed together with the files. Files, not pipes: a pipe holds
   64 KiB, and when the main loop is busy the claude CLI loses what did not fit at exit; a file never blocks.
   Output is JSON Lines: `assistant` events give live progress (`tool_use`), the `result` event becomes
-  the `ClaudeResult` input.
+  the `RunAnswer` input.
 - `poll()` (every tick): `drain()` reads both files from the remembered offset (`readNew()`) and
   refreshes `lastProgressAt` on any new byte; overall timeout `CLAUDE_TIMEOUT` (off when `0`); stall
   timeout `CLAUDE_STALL_TIMEOUT`; still running → `Running`; exited → parse → `Done`. After a natural
@@ -175,7 +175,7 @@ proc_open($argv, $descriptors, $pipes, $repoPath, $env);
   the claude PID); a file whose PID is alive is kept.
 - The working directory is the managed repository.
 
-`ClaudeResult::fromJson`: not a JSON object → the process died before a result (`isError`, text =
+`RunAnswer::fromJson`: not a JSON object → the process died before a result (`isError`, text =
 stderr | stdout | "exit code N"); otherwise `totals` (a `UsageTotals`: `modelUsage` summed over models — input, cache creation, cache read,
 output — and `total_cost_usd`; `null` without `modelUsage`), `session_id` (empty → `null`), `is_error`,
 `result`. `ClaudeRunner` replaces `totals` with those of the last `result` event of the process.
@@ -275,6 +275,7 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `FORGE_HOST`            | Forge host | `github.com` / `gitlab.com` |
 | `FORGE_OWNERS`          | Owners (alias `GITHUB_OWNERS`; the new key wins, a warning is logged when both are set); the first is the default for `repo#N`; namespace paths allowed with `FORGE=gitlab`; epics and PR links in `review` need it | empty |
 | `OPENRONIN_LOGINS`      | logins allowed to author the `<!-- openronin:bot -->` marker   | empty (any author + warning)     |
+| `ENGINE`                | agent engine that runs the jobs: only `claude` (any other value fails startup) | `claude`                |
 | `CLAUDE_BIN`            | path to the claude binary                                      | `claude`                         |
 | `CLAUDE_TIMEOUT`        | overall call timeout, seconds (`0` = off)                      | `0`                              |
 | `CLAUDE_STALL_TIMEOUT`  | no output for N seconds → hung, kill (`0` = off)               | `900`                            |
