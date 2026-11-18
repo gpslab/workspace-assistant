@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 
 #[CoversMethod(PmGateHook::class, 'counts')]
 #[CoversMethod(PmGateHook::class, 'lastStagePositions')]
+#[CoversMethod(PmGateHook::class, 'lastStageResults')]
 final class PmGateDecisionTest extends TestCase
 {
     /**
@@ -81,5 +82,40 @@ final class PmGateDecisionTest extends TestCase
         $calls = [self::call('critic', callAt: 4, completed: true, asyncLaunched: true)];
 
         self::assertSame([], PmGateHook::lastStagePositions($calls, $stages));
+    }
+
+    public function testLastStageResultsMapsStagesToLastCountingResult(): void
+    {
+        /** @var list<array{id: string, agent: string, required: bool}> $stages */
+        $stages = [['id' => 'critique', 'agent' => 'critic', 'required' => true]];
+        $calls = [
+            self::call('critic', callAt: 2, resultAt: 3),
+            self::call('critic', callAt: 4, resultAt: 5, completed: false),
+            self::call('critic', callAt: 6, resultAt: 7, isSidechain: true),
+            self::call('critic', callAt: 8, resultAt: 9, completed: true, asyncLaunched: true),
+        ];
+
+        self::assertSame(['critique' => 3], PmGateHook::lastStageResults($calls, $stages));
+    }
+
+    public function testLastStageResultsMapMultipleAgents(): void
+    {
+        /** @var list<array{id: string, agent: string, required: bool}> $stages */
+        $stages = [
+            ['id' => 'critique', 'agent' => 'critic', 'required' => true],
+            ['id' => 'verify', 'agent' => 'verifier', 'required' => true],
+        ];
+        $calls = [self::call('critic', callAt: 2, resultAt: 3), self::call('verifier', callAt: 5, resultAt: 6)];
+
+        self::assertSame(['critique' => 3, 'verify' => 6], PmGateHook::lastStageResults($calls, $stages));
+    }
+
+    public function testLastStageResultsExcludeNonCountingCalls(): void
+    {
+        /** @var list<array{id: string, agent: string, required: bool}> $stages */
+        $stages = [['id' => 'critique', 'agent' => 'critic', 'required' => true]];
+        $calls = [self::call('critic', callAt: 4, resultAt: 5, completed: true, asyncLaunched: true)];
+
+        self::assertSame([], PmGateHook::lastStageResults($calls, $stages));
     }
 }

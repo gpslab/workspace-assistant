@@ -78,9 +78,9 @@ Target repositories: <absolute path of each repository the design touches>
 
 ## Calling agents
 
-Call every agent with `run_in_background: false` only. A background agent dies when the
-turn ends and still looks finished, so its result would be lost silently. Wait for the
-result before the next stage.
+Call each stage agent so that its result returns before the next stage starts; wait for the
+report of a stage's agent before starting the next stage; on Claude Code that means
+`run_in_background: false`.
 
 ## Skipping a stage
 

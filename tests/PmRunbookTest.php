@@ -74,7 +74,17 @@ final class PmRunbookTest extends TestCase
 
         self::assertSame([], PromptFiles::placeholders($text));
         self::assertStringContainsString('run_in_background: false', $text);
+        self::assertStringContainsString('result returns before the next stage starts', $text);
         self::assertSame(1, preg_match('/Decision document: .*\nTarget repositories: /', $text));
+    }
+
+    public function testShippedEpicRunbookIsInEnglishWithoutPlaceholders(): void
+    {
+        $text = PromptFiles::loadDist('epic_runbook');
+
+        self::assertSame([], PromptFiles::placeholders($text));
+        self::assertStringContainsString('run_in_background: false', $text);
+        self::assertStringContainsString('result returns before the next stage starts', $text);
     }
 
     public function testParsesValidBlock(): void

@@ -85,8 +85,10 @@ Go over the epic's tasks (plan + `added`) and decide for each whether judgement 
 it when the task's turn comes.
 
 Every issue an epic run files (`tick`, `review`, `final`) goes through the PM runbook in its
-authorless variant before it is opened: all its stages, via the built-in or instance agents,
-called synchronously only (`run_in_background: false`). There is no author in an epic run:
+authorless variant before it is opened: all its stages, via the built-in or instance agents.
+Call each stage agent so that its result returns before the next stage starts; wait for the
+report of a stage's agent before starting the next stage; on Claude Code that means
+`run_in_background: false`. There is no author in an epic run:
 a fork that would go to the author in a chat goes to `message`/`hold` by the rules in
 "Forks". Skipping stages is allowed only where `skip_allowed` in the PM runbook's pipeline
 config (the first ```json block) allows it for the run kind; that block, including any instance
