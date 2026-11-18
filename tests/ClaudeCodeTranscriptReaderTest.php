@@ -108,6 +108,16 @@ final class ClaudeCodeTranscriptReaderTest extends TestCase
         );
     }
 
+    public function testSidechainResultMarksMainChainCallAsSidechain(): void
+    {
+        $lines = [self::user('x'), self::agentCall('a1', 'critic'), self::agentResult('a1', 'completed', true)];
+
+        self::assertSame(
+            [['agent' => 'critic', 'callAt' => 1, 'resultAt' => 2, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => true]],
+            ClaudeCodeTranscriptReader::agentCalls($lines),
+        );
+    }
+
     public function testResultPositionIsNullWithoutAResult(): void
     {
         $lines = [self::user('x'), self::agentCall('a1', 'critic')];

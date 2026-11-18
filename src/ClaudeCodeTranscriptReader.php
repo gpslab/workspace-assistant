@@ -73,6 +73,7 @@ final class ClaudeCodeTranscriptReader
                         $calls[$id]['resultAt'] = $at;
                         $calls[$id]['completed'] = $result['status'] === 'completed';
                         $calls[$id]['asyncLaunched'] = $result['status'] === 'async_launched';
+                        $calls[$id]['isSidechain'] = $calls[$id]['isSidechain'] || $sidechain;
                     }
                     if (!$sidechain && isset($issueCalls[$id]) && ($block['is_error'] ?? false) !== true) {
                         $lastCreate = $at;
