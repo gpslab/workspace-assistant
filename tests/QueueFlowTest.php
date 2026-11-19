@@ -2447,6 +2447,67 @@ final class QueueFlowTest extends TestCase
         self::assertStringNotContainsString((new Locale('en'))->t('result.review_status_missing'), $this->textsOfTopic());
     }
 
+    /**
+     * Replaces the fake `opencode` with one that dumps the argv and, on every launch, also changes the
+     * managed tree, so the auto-commit message of the run is observable in the git log.
+     */
+    private function opencodeCommitting(string ...$sets): void
+    {
+        foreach ($sets as $i => $ndjson) {
+            file_put_contents($this->root.'/out.'.$i.'.ndjson', $ndjson."\n");
+        }
+        file_put_contents($this->root.'/opencode', "#!/bin/sh\nd=\"$(dirname \"\$0\")\"\necho x >> \"\$d/calls.log\"\nn=\$(ls \"\$d\"/argv.* 2>/dev/null | wc -l)\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$d/argv.\$n\"\necho changed > change.txt\ncat \"\$d/out.\$n.ndjson\"\n");
+        chmod($this->root.'/opencode', 0755);
+    }
+
+    public function testOpencodeReviewRepeatKeepsTheFirstRunsOutboxFiles(): void
+    {
+        $this->opencodeSessions(
+            self::opencodeTurn('gh pr view 1'),
+            self::opencodeTurn('gh pr view 1', self::opencodePublish()),
+        );
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->startReviewRun();
+        // The first turn dropped a file before the Bot checked its review status.
+        file_put_contents($this->root.'/outbox/report.md', "verdict\n");
+        $this->finishJob();
+
+        self::assertSame(2, $this->launches(), 'the Bot repeats the turn exactly once');
+        self::assertSame([['chat' => 100, 'thread' => 1, 'name' => 'report.md']], $this->tg->files);
+        self::assertSame([], glob($this->root.'/outbox/*') ?: []);
+    }
+
+    public function testOpencodeReviewRepeatDoesNotLeakTheFirstRunsGateFiles(): void
+    {
+        $this->opencodeSessions(
+            self::opencodeTurn('gh pr view 1'),
+            self::opencodeTurn('gh pr view 1', self::opencodePublish()),
+        );
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->startReviewRun();
+        $this->finishJob();
+
+        self::assertSame([], glob($this->root.'/state/pm-gate/*') ?: []);
+    }
+
+    public function testOpencodeReviewRepeatCommitsWithTheOriginalPrompt(): void
+    {
+        $this->opencodeCommitting(
+            self::opencodeTurn('gh pr view 1'),
+            self::opencodeTurn('gh pr view 1', self::opencodePublish()),
+        );
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->startReviewRun();
+        $this->finishJob();
+
+        $message = trim((string) shell_exec('git -C '.escapeshellarg($this->work).' log -1 --format=%s'));
+        self::assertSame('tg: review a#1', $message);
+        self::assertStringNotContainsString('Review-status check', $message);
+    }
+
     public function testClaudeReviewRunIsNotCheckedAfterTheRun(): void
     {
         // The Stop hook of the review mode does this during a Claude Code run; the Bot must not add a

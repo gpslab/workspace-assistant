@@ -127,7 +127,7 @@ final class JobRunner implements JobLauncher, RunControl
      * @param array{run:string, pr:?string}|null $epicRun
      * @param array<string, string>              $reviewShas reviewed commit per PR (`owner/repo#N` => SHA) for {@see ReviewCommitHook}
      */
-    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = [], ?string $model = null, bool $resumeSkipped = false): ?string
+    public function launchJob(int $chatId, int $threadId, string $kind, string $prompt, ?string $sessionId, int $thinkingId, ?string $compactOldSessionId, string $mode, int $queueId, ?string $epicSlug = null, ?array $epicRun = null, ?string $idsPath = null, ?string $localeCode = null, array $reviewShas = [], ?string $model = null, bool $resumeSkipped = false, bool $clearOutbox = true): ?string
     {
         $model = (new ModelChoice($this->config, $this->db))->checkPinned($model);
         // Compact summarize runs in arch regardless of the topic mode: the summary must
@@ -142,8 +142,12 @@ final class JobRunner implements JobLauncher, RunControl
 
         // Files in the outbox at this point belong to someone else (a cancelled or
         // failed run): otherwise they would go out with this run's reply, possibly
-        // to another topic.
-        $this->delivery->clearOutbox();
+        // to another topic. The repeat of a review turn (see repeatReviewRun())
+        // skips this: the files the repeated turn produced belong to its reply, and
+        // the run that delivers that reply is the repeat's.
+        if ($clearOutbox) {
+            $this->delivery->clearOutbox();
+        }
 
         // Epic run signal: the previous file is stale. The path is passed to the process via the environment.
         $env = [];
@@ -552,9 +556,9 @@ final class JobRunner implements JobLauncher, RunControl
         $previous = $this->runState->activeJob;
         Log::line('review status check: repeating the turn in session '.$claude->sessionId);
         try {
-            // The findings of this review are passed on: the repeat answers for the same list.
-            // The outbox files of the finished run are dropped by launchJob (clearOutbox) — the reply
-            // they belong to is superseded by the repeat.
+            // The findings of this review are passed on: the repeat answers for the same list. The
+            // outbox files of the finished run are kept (clearOutbox=false) and go out with the
+            // repeat's reply when it is delivered.
             $error = $this->launchJob(
                 $context['chat_id'],
                 $context['thread_id'],
@@ -568,12 +572,13 @@ final class JobRunner implements JobLauncher, RunControl
                 idsPath: $context['ids_path'] ?? null,
                 localeCode: $context['locale'],
                 model: $context['model'],
+                clearOutbox: false,
             );
         } catch (\Throwable $e) {
             // The process of the repeat may already be alive and tracked — then that run goes on, the
             // same way a queue item does when the launch throws after the start (see QueueScheduler).
             if ($this->runState->activeJob !== $previous) {
-                $this->handOverToRepeat($inboxFiles);
+                $this->handOverToRepeat($inboxFiles, $context['prompt'], $context['pm_gate_run_id']);
 
                 throw $e;
             }
@@ -591,24 +596,32 @@ final class JobRunner implements JobLauncher, RunControl
             return false;
         }
 
-        $this->handOverToRepeat($inboxFiles);
+        $this->handOverToRepeat($inboxFiles, $context['prompt'], $context['pm_gate_run_id']);
 
         return true;
     }
 
     /**
      * The repeat runs the same job item as the run it repeats: it takes over the inbox files of that
-     * run (launchJob() starts a context without them) and is marked as the repeated turn, so it is
-     * released with a marker instead of starting a further run.
+     * run (launchJob() starts a context without them), keeps the original prompt (the auto-commit
+     * message and the run outcome are built from it, not from the reason text) and is marked as the
+     * repeated turn, so it is released with a marker instead of starting a further run. The finished
+     * run's gate files go here: launchJob() already replaced jobContext, so finishJobState() will run
+     * only for the repeat and cannot reach the first run's id.
      *
      * @param list<string> $inboxFiles
      */
-    private function handOverToRepeat(array $inboxFiles): void
+    private function handOverToRepeat(array $inboxFiles, string $prompt, ?string $previousGateRunId): void
     {
         if ($this->runState->jobContext === null) {
             return;
         }
+        if ($previousGateRunId !== null) {
+            PmGateHook::cleanup($this->config->stateDir, $previousGateRunId);
+            ReviewCommitHook::cleanup($this->config->stateDir, $previousGateRunId);
+        }
         $this->runState->jobContext['inbox_files'] = $inboxFiles;
+        $this->runState->jobContext['prompt'] = $prompt;
         $this->runState->jobContext['review_repeated'] = true;
     }
 
