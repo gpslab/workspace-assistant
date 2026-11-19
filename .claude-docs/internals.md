@@ -195,7 +195,8 @@ a change of the model (or of the engine) resets the session and adds the usual n
   so a message starting with `-` is never parsed as a flag.
 - The system prompt is a file, not argv: the per-run directory `<STATE_DIR>/opencode-<runId>/` (0700, files
   0600) holds `system-prompt.md`, `opencode.json` (its `instructions` list, plus the repository `CLAUDE.md`
-  when there is no `AGENTS.md`), `explicit.json` (agent permissions) and `agents/<name>.md`. The run
+  when there is no `AGENTS.md`), `explicit.json` (agent permissions, and the gate plugin of a gated run) and
+  `agents/<name>.md`. The run
   environment adds `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_CONFIG_DIR=<dir>` and
   `OPENCODE_CONFIG=<dir>/explicit.json`, so a project `opencode.json` of the managed repository cannot
   override the Bot's config. `XDG_CONFIG_HOME` is left alone on purpose: it would also move the configs of
@@ -209,9 +210,18 @@ a change of the model (or of the engine) resets the session and adds the usual n
   background and stdout stays silent while it works, so silence stops meaning "hung".
 - `Bot::run()` calls `OpencodeRunner::purgeRunDirs()` next to `ClaudeRunner::purgeRunFiles()`; a run
   directory whose bot PID is still alive is kept.
-- No gate: `QueueScheduler` refuses a non-`arch` mode both at enqueue and at the head of the queue (a chat
-  item queued under claude survives a restart into OpenCode), `ChatSurface::cmdEpic()` answers
-  `epic.unavailable_on_opencode`, `Bot` wires no `Orchestrator`, and `ModelChoice::isPinned()` is always true.
+- Gates go through a plugin: OpenCode has no command hooks, so `explicit.json` of a gated run lists
+  `opencode-plugin/` in `plugins` and the runs' environment carries the gate contract
+  (`WORKSPACE_ASSISTANT_GATE_STATE_DIR`, `_KIND`, `_RUN_ID`, `_PHP`, `PmGateHook::SKIP_ENV`,
+  `ReviewCommitHook::ENABLED_ENV` and `_SHAS`), which `JobRunner` already sets for every gated run. The
+  plugin's `evaluate` hook starts the same PHP hooks (`bin/pm-gate-hook.php`) with those values, so the
+  gate logic stays single-source in PHP; the directory is listed only when the run has a gate kind
+  (`PmGateHook::KIND_ENV` non-empty), so `arch` and `/compact` pay no hook call.
+- The review Stop hook has no OpenCode equivalent: no Stop hooks at all. `JobRunner::repeatReviewRun()`
+  makes the same decision after the run (see [gotchas.md](gotchas.md)).
+- Epics are still off: `ChatSurface::cmdEpic()` answers `epic.unavailable_on_opencode`, `Bot` wires no
+  `Orchestrator`, `startEpicItem()` drops an epic item at the head of the queue, and `ModelChoice::isPinned()`
+  is always true.
 
 ---
 
@@ -308,7 +318,7 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `FORGE_HOST`            | Forge host | `github.com` / `gitlab.com` |
 | `FORGE_OWNERS`          | Owners (alias `GITHUB_OWNERS`; the new key wins, a warning is logged when both are set); the first is the default for `repo#N`; namespace paths allowed with `FORGE=gitlab`; epics and PR links in `review` need it | empty |
 | `OPENRONIN_LOGINS`      | logins allowed to author the `<!-- openronin:bot -->` marker   | empty (any author + warning)     |
-| `ENGINE`                | agent engine that runs the jobs: `claude` or `opencode` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner`, `/model` is read-only and the gated modes and epics are refused | `claude` |
+| `ENGINE`                | agent engine that runs the jobs: `claude` or `opencode` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner`, `/model` is read-only and the epics are refused | `claude` |
 | `CLAUDE_BIN`            | path to the claude binary                                      | `claude`                         |
 | `OPENCODE_BIN`          | path to the opencode binary (`ENGINE=opencode`; the installer checks this one instead of `CLAUDE_BIN`) | `opencode` |
 | `OPENCODE_MODEL`        | model of every run, `provider/model`; empty = the OpenCode default; changing it starts a new session | empty      |
@@ -412,4 +422,4 @@ its parser and its environment rely on.
 `composer validate --strict` and a QA matrix of those three on PHP 8.4 and 8.5 for pushes to `master` and PRs; the 8.5 job runs
 `composer test:coverage` (pcov), writes the coverage summary to the job summary and uploads
 `coverage.xml` as the `coverage` artifact.
-The flow tests (`QueueFlowTest`, `Epic\FlowTest`) drive `Bot` with fake `claude` shell scripts.
+The flow tests (`QueueFlowTest`, `Epic\FlowTest`) drive `Bot` with fake `claude` and `opencode` shell scripts.

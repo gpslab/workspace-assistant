@@ -75,7 +75,9 @@ parts, in order:
 `system-prompt.md` in its per-run config directory (`state/opencode-<runId>/`) and lists that file in the
 `instructions` of the rendered `opencode.json`; it also adds the managed repository's `CLAUDE.md` to the
 same list, but only when there is no `AGENTS.md` (OpenCode reads `AGENTS.md` itself and never `CLAUDE.md`).
-The parts and the order are the same on both engines.
+The parts and the order are the same on both engines. OpenCode takes no command hooks, so the run directory
+of a gated run (`pm`, `review`) also lists the gate shim (`opencode-plugin/`) in the `plugins` of
+`explicit.json`: the same PHP hooks then run there as on Claude Code, so the gates hold on both engines.
 
 #### Engine tokens
 

@@ -113,7 +113,10 @@ without it is used. The warning goes into the reply in the `pm` mode and into th
 ## The issue-creation gate
 
 A `PreToolUse` hook on `Bash` in the `pm` and `review` modes (and in epic runs) refuses to create an issue
-until the required stages ran. The `arch` mode is not covered.
+until the required stages ran. The `arch` mode is not covered. With `ENGINE=opencode` the same gate runs
+from the gate plugin (`opencode-plugin/`, listed in the run's own configuration, see
+[README](README.md#opencode)): the plugin dumps the session history to a file and starts the same two PHP
+hooks, so the checks, the wording and the fail-closed behaviour are identical on both engines.
 
 - It catches `gh issue create`, `gh api repos/X/Y/issues` that creates an issue, `glab issue create|new`, `glab api projects/<id>/issues` (POST) and a `createIssue` GraphQL mutation (`-f query=…`; not detected: `-F query=@file`, `--input`, `-F query=@-` and a query in a shell variable); comments
   (`.../issues/N/comments`) pass.

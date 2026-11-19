@@ -21,6 +21,14 @@ use GpsLab\WorkspaceAssistant\Opencode\OpencodeNdjsonParser;
  * config. `XDG_CONFIG_HOME` is never touched: it would also redirect the configs of `gh` / `glab` and
  * their authorisation.
  *
+ * A gated run (a `pm` / `review` mode run, which covers the epic runs) additionally lists the gate shim
+ * in the `plugins` of that config: OpenCode has no command hooks, so the PM gate and the review commit
+ * hook of such a run reach it through the plugin, which starts the same PHP hooks. The plugin reads the
+ * gate environment contract `JobRunner` passes in `$extraEnv` ({@see PmGateHook::STATE_ENV},
+ * {@see PmGateHook::KIND_ENV}, {@see PmGateHook::RUN_ENV}, {@see PmGateHook::PHP_ENV}, plus
+ * {@see PmGateHook::SKIP_ENV}, {@see ReviewCommitHook::SHAS_ENV} and
+ * {@see ReviewCommitHook::ENABLED_ENV} on a review). A run with no gate kind gets no plugin.
+ *
  * The model is pinned by the instance ({@see Config::$opencodeModel}); the `$model` of a
  * {@see JobRunner::launchJob()} call is a Claude Code alias and is deliberately ignored. A resumed
  * run needs no instructions-update block: OpenCode applies the changed instructions itself.
@@ -382,6 +390,18 @@ final class OpencodeRunner implements AgentRunner
     }
 
     /**
+     * Directory of the gate shim (`<bot>/opencode-plugin`) when this run is gated, null otherwise.
+     *
+     * OpenCode has no command hooks, so a gated run carries its PM gate and its review commit hook
+     * through this plugin (see {@see PmGateHook::KIND_ENV}, set by {@see JobRunner} on every gated run);
+     * the plugin starts the same PHP hooks, so the gate logic stays single-source.
+     */
+    private function gatePluginDir(): ?string
+    {
+        return ($this->extraEnv[PmGateHook::KIND_ENV] ?? '') === '' ? null : dirname(__DIR__).'/opencode-plugin';
+    }
+
+    /**
      * Writes the renderer's artefacts into the per-run config directory.
      *
      * @param list<OpencodeAgent> $builtinAgents
@@ -396,6 +416,7 @@ final class OpencodeRunner implements AgentRunner
             $this->repoPath,
             is_file($this->repoPath.'/CLAUDE.md'),
             is_file($this->repoPath.'/AGENTS.md'),
+            $this->gatePluginDir(),
         );
 
         foreach ($renderer->render() as $relative => $content) {

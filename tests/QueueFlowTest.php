@@ -18,6 +18,7 @@ use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Inbox;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\PmGateHook;
 use GpsLab\WorkspaceAssistant\PmRunbook;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
@@ -1336,6 +1337,66 @@ final class QueueFlowTest extends TestCase
         file_put_contents($dir.'/claude', "#!/bin/sh\necho x >> \"{$dir}/calls.log\"\n{ printf '%s\\n' \"\$@\"; env | grep '^WORKSPACE_ASSISTANT_REVIEW_'; cat; } > \"{$dir}/captured.txt\" 2>&1\ncp \"\$WORKSPACE_ASSISTANT_REVIEW_SHAS\" \"{$dir}/shas.json\" 2>/dev/null\ncat \"{$dir}/out.json\"\n");
     }
 
+    /**
+     * The shell script of a fake `opencode` that copies the artefacts of the run that the engine removes
+     * when the run ends (the explicit config, the recorded SHAs), runs $extra, then replays out.ndjson.
+     */
+    private function opencodeScript(string $extra = ''): string
+    {
+        return '#!/bin/sh'.PHP_EOL
+            .'d=$(dirname $0)'.PHP_EOL
+            .'cp $OPENCODE_CONFIG $d/explicit.json 2>/dev/null'.PHP_EOL
+            .'cp $WORKSPACE_ASSISTANT_REVIEW_SHAS $d/shas.json 2>/dev/null'.PHP_EOL
+            .$extra
+            .'cat $d/out.ndjson'.PHP_EOL;
+    }
+
+    /** Replaces the fake `opencode` with one that also keeps the explicit config of the run. */
+    private function captureOpencodeRun(): void
+    {
+        file_put_contents($this->root.'/opencode', $this->opencodeScript());
+        chmod($this->root.'/opencode', 0755);
+    }
+
+    /** The same, plus the environment of the run: the contract variables a gated run carries. */
+    private function captureOpencodeEnv(): void
+    {
+        file_put_contents($this->root.'/opencode', $this->opencodeScript('env | grep ^WORKSPACE_ASSISTANT_ | sort > $d/env.txt'.PHP_EOL));
+        chmod($this->root.'/opencode', 0755);
+    }
+
+    /**
+     * The explicit config of the run, as the engine received it.
+     *
+     * @return array<string, mixed>
+     */
+    private function capturedExplicitConfig(): array
+    {
+        /** @var array<string, mixed> $config */
+        $config = json_decode((string) file_get_contents($this->root.'/explicit.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        return $config;
+    }
+
+    /**
+     * The gate contract variables of the run, as the engine received them.
+     *
+     * @return array<string, string>
+     */
+    private function opencodeEnv(): array
+    {
+        $env = [];
+        foreach (file($this->root.'/env.txt') ?: [] as $line) {
+            $at = strpos($line, '=');
+            if ($at === false) {
+                continue;
+            }
+            $env[substr($line, 0, $at)] = rtrim(substr($line, $at + 1), "\n");
+        }
+
+        return $env;
+    }
+
     public function testModeGateAllowsOtherTopicAndBlocksOwnTopic(): void
     {
         $this->say(100, 1, 'running', 10);
@@ -2160,51 +2221,190 @@ final class QueueFlowTest extends TestCase
         }
     }
 
-    public function testOpencodeRefusesTheDefaultPmMode(): void
+    public function testOpencodeStartsARunInTheDefaultPmMode(): void
     {
         $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
         $this->say(100, 1, 'hi', 10);
+        $this->call('startQueueHead');
 
-        self::assertSame(
-            ['Mode pm is not supported on OpenCode yet. Switch with /mode arch.'],
-            $this->tg->textsTo(100, 1),
-        );
-        self::assertSame([], $this->db->queueWaiting());
-        self::assertSame(0, $this->launches());
+        $context = $this->jobContext();
+        self::assertNotNull($context);
+        self::assertSame('pm', $context['mode']);
+        $this->finishJob();
+
+        self::assertSame(1, $this->launches());
     }
 
-    public function testOpencodeRefusesTheReviewMode(): void
+    public function testOpencodeStartsARunInTheReviewMode(): void
     {
         $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
         $this->db->setMode(100, 1, 'review');
         $this->say(100, 1, 'hi', 11);
+        $this->call('startQueueHead');
 
-        self::assertSame(
-            ['Mode review is not supported on OpenCode yet. Switch with /mode arch.'],
-            $this->tg->textsTo(100, 1),
-        );
-        self::assertSame([], $this->db->queueWaiting());
-        self::assertSame(0, $this->launches());
+        $context = $this->jobContext();
+        self::assertNotNull($context);
+        self::assertSame('review', $context['mode']);
+        $this->finishJob();
+
+        self::assertSame(1, $this->launches());
     }
 
-    public function testOpencodeRefusesAtTheHeadAChatItemQueuedUnderClaude(): void
+    public function testOpencodeStartsAHeadItemQueuedUnderClaude(): void
     {
-        // Queued while the instance still ran claude: the enqueue gate did not apply, the mode is pm.
+        // Queued while the instance still ran claude: the enqueue gate did not apply then, and the mode
+        // is the default pm. The item survives the restart into ENGINE=opencode and runs there.
         $this->say(100, 1, 'queued under claude', 10);
         self::assertCount(1, $this->db->queueWaiting());
 
-        // The instance restarts into ENGINE=opencode: the surviving chat item is refused at the head,
-        // not launched without its PM gate.
         $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
         $this->call('startQueueHead');
 
         self::assertSame([], $this->db->queueWaiting());
-        self::assertSame(0, $this->launches());
-        $texts = $this->tg->textsTo(100, 1);
+        self::assertTrue($this->activeJob());
+        $this->finishJob();
+
+        self::assertSame(1, $this->launches());
+    }
+
+    public function testOpencodePmRunListsTheGateShimInThePluginsOfTheExplicitConfig(): void
+    {
+        $this->captureOpencodeRun();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->setMode(100, 1, 'pm');
+
+        $this->runChat('hi', 10);
+
+        $plugin = dirname(__DIR__).'/opencode-plugin';
+        self::assertSame([$plugin], $this->capturedExplicitConfig()['plugins'] ?? null);
+        self::assertFileExists($plugin.'/index.js');
+    }
+
+    public function testOpencodeReviewRunListsTheGateShimInThePluginsOfTheExplicitConfig(): void
+    {
+        $this->captureOpencodeRun();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->setMode(100, 1, 'review');
+
+        $this->runChat('hi', 10);
+
+        self::assertSame([dirname(__DIR__).'/opencode-plugin'], $this->capturedExplicitConfig()['plugins'] ?? null);
+    }
+
+    public function testOpencodeArchRunHasNoPluginsInTheExplicitConfig(): void
+    {
+        $this->captureOpencodeRun();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->setMode(100, 1, 'arch');
+
+        $this->runChat('hi', 10);
+
+        self::assertArrayNotHasKey('plugins', $this->capturedExplicitConfig());
+    }
+
+    public function testOpencodeGatedRunGetsTheGateStateDir(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->runChat('hi', 10);
+
+        self::assertSame($this->root.'/state', $this->opencodeEnv()[PmGateHook::STATE_ENV]);
+    }
+
+    public function testOpencodeGatedRunGetsTheGateKindOfTheMode(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->runChat('hi', 10);
+
+        // The gate kind of a chat run, not the mode: for `pm` and `review` the two coincide, an epic run
+        // would carry `tick` / `final` / `epic_review` here.
+        self::assertSame(PmRunbook::SKIP_PM, $this->opencodeEnv()[PmGateHook::KIND_ENV]);
+    }
+
+    public function testOpencodeGatedRunGetsTheGateRunId(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->say(100, 1, 'hi', 10);
+        $this->call('startQueueHead');
+
+        $context = $this->jobContext();
+        self::assertNotNull($context);
+        $runId = $context['pm_gate_run_id'];
+        self::assertIsString($runId);
+        self::assertNotSame('', $runId);
+        $this->finishJob();
+
+        self::assertSame($runId, $this->opencodeEnv()[PmGateHook::RUN_ENV]);
+    }
+
+    public function testOpencodeGatedRunGetsThePhpBinaryOfTheShim(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->runChat('hi', 10);
+
+        // The shim starts the PHP hooks with this binary, like the hook command of a Claude run does.
+        self::assertSame(PHP_BINARY, $this->opencodeEnv()[PmGateHook::PHP_ENV]);
+        self::assertFileExists(PHP_BINARY);
+    }
+
+    public function testOpencodeGatedRunGetsThePmSkipFileOfTheRun(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->runChat('hi', 10);
+
+        $env = $this->opencodeEnv();
         self::assertSame(
-            'Mode pm is not supported on OpenCode yet. Switch with /mode arch.',
-            $texts[count($texts) - 1],
+            PmGateHook::skipPath($this->root.'/state', $env[PmGateHook::RUN_ENV]),
+            $env[PmGateHook::SKIP_ENV],
         );
+    }
+
+    public function testOpencodeReviewRunGetsTheReviewCommitFlag(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->setMode(100, 1, 'review');
+
+        $this->runChat('hi', 10);
+
+        // The shim runs the commit hook only with this flag; `pm` is not a review and carries none.
+        self::assertSame('1', $this->opencodeEnv()[ReviewCommitHook::ENABLED_ENV]);
+    }
+
+    public function testOpencodePmRunGetsNoReviewCommitFlag(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->runChat('hi', 10);
+
+        self::assertArrayNotHasKey(ReviewCommitHook::ENABLED_ENV, $this->opencodeEnv());
+    }
+
+    public function testOpencodeReviewRunGetsTheRecordedShasOfTheReviewedPrs(): void
+    {
+        require_once __DIR__.'/Epic/OrchestratorTest.php';
+        $gh = new FakeGitHub();
+        $gh->heads['a#1'] = str_repeat('1', 40);
+        $this->captureOpencodeEnv();
+        $this->bot = $this->makeBot($gh, engine: Config::ENGINE_OPENCODE);
+        $this->db->setMode(100, 1, 'review');
+
+        $this->runChat('review a#1', 10);
+
+        $shasPath = $this->opencodeEnv()[ReviewCommitHook::SHAS_ENV];
+        self::assertStringStartsWith($this->root.'/state/review-shas/', $shasPath);
+        // The file itself is removed with the run; the fake copied it while the run was alive.
+        $shas = json_decode((string) file_get_contents($this->root.'/shas.json'), true);
+        self::assertSame(['anime-db/a#1' => str_repeat('1', 40)], $shas);
     }
 
     public function testOpencodeArchModeRuns(): void
@@ -2361,8 +2561,9 @@ final class QueueFlowTest extends TestCase
     }
 
     /**
-     * A review run on OpenCode, started the way the queue starts one: the item gate refuses `review`
-     * there, so the job is launched directly (the Bot's post-run check is what is under test).
+     * A review run on OpenCode, started with `launchJob` directly instead of a queued message, so the
+     * test owns the run id: the Bot's post-run status check is what is under test here (the queue path
+     * of a `review` run on OpenCode has its own tests).
      */
     private function startReviewRun(): void
     {

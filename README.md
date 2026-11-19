@@ -53,7 +53,7 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
 - Modes (`arch`, `review`, `pm`) with replaceable personas, interface locales, and *epics*: sets of
   GitHub tasks with dependencies that the bot's `Orchestrator` drives to completion — independent
   tasks run in parallel, dependent ones start once everything they depend on is merged. With
-  `ENGINE=opencode` only the `arch` mode runs and epics are off ([OpenCode](#opencode)).
+  `ENGINE=opencode` epics are off ([OpenCode](#opencode)).
 
 ## How it works
 
@@ -148,9 +148,11 @@ OpenCode keys are ignored. Verified against OpenCode **2.3.0**.
 
 - `OPENCODE_MODEL` (`provider/model`) is the model of every run. `/model` is read-only and `MODEL_EPIC_*`
   does not apply.
-- Only the `arch` mode works. `pm` and `review` are refused: OpenCode has no PM gate and no review commit
-  hook, and a run without its gate is worse than no run. The default mode is `pm`, so a new topic needs
-  `/mode arch` first.
+- All three modes work. OpenCode has no command hooks, so a gated run (`pm`, `review`) carries the PM gate
+  and the review commit hook through a plugin listed in the run's own configuration. The gate logic itself
+  stays in the bot: the plugin starts the same PHP hooks Claude Code would, so a `pm` run still needs the
+  issue created and a `review` run still publishes only the reviewed commits. A run with no gate (`arch`,
+  `/compact`) gets no plugin.
 - Epics are not available: `/epic` says so and the bot starts no `Orchestrator`.
 - Every run is approved automatically (OpenCode's `--auto`), with no equivalent of a stricter
   `CLAUDE_EXTRA_ARGS`. See [Security](#security).
@@ -232,7 +234,7 @@ the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.
 | `/queue` | Show the request queue |
 | `/stats` | Session statistics: messages and Claude's totals for the whole session (input, cache read, cache write, output tokens, estimated cost) |
 | `/verbose` | Show the token usage and cost of this run under every reply, plus the sync profile sent before "Thinking…" |
-| `/mode` | Switch the mode: `arch`, `review` or `pm` (with `ENGINE=opencode` only `arch`, see [OpenCode](#opencode)) |
+| `/mode` | Switch the mode: `arch`, `review` or `pm` |
 | `/model` | Choose the Claude model (`--model`) from `CLAUDE_MODELS`: `/model <name>` for this topic, `/model <name> all` for all topics, `default` clears a level; without an argument — buttons. The topic choice is sticky like `/mode`; `/stats` shows the model. A `--model` in `CLAUDE_EXTRA_ARGS` pins it and `/model` becomes read-only. With `ENGINE=opencode` it is read-only too: the model comes from `OPENCODE_MODEL` |
 | `/lang` | Language of Claude's replies in the chat |
 | `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation). Not available with `ENGINE=opencode` |

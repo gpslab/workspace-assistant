@@ -187,7 +187,6 @@
     "mode.session_warning": "\n⚠️ La session n'a pas été réinitialisée : le nouveau mode s'applique dès le message suivant, le contexte de la conversation est conservé.",
     "mode.switched": "Mode changé : {mode}.",
     "mode.unknown": "Mode inconnu : {mode}\nDisponibles : {available}",
-    "mode.opencode_unsupported": "Le mode {mode} n'est pas encore pris en charge sur OpenCode. Changez avec /mode arch.",
     "model.busy": "Un travail est en cours dans ce sujet — changez le modèle après la réponse ou utilisez /cancel.",
     "model.current": "Modèle : {model}\nCe sujet : {topic}\nTous les sujets : {all}",
     "model.unset": "non défini",

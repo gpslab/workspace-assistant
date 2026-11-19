@@ -182,6 +182,13 @@ final class JobRunner implements JobLauncher, RunControl
                 return $e->getMessage();
             }
             $env[PmGateHook::SKIP_ENV] = PmGateHook::skipPath($this->config->stateDir, $gateRunId);
+            // The gate contract of the run, unchanged for the engine it is not used by: Claude Code gets
+            // these as arguments of the hook command in its settings, OpenCode as the environment of the
+            // gate shim, which starts the same PHP hooks with the same arguments.
+            $env[PmGateHook::STATE_ENV] = $this->config->stateDir;
+            $env[PmGateHook::KIND_ENV] = $gateKind;
+            $env[PmGateHook::RUN_ENV] = $gateRunId;
+            $env[PmGateHook::PHP_ENV] = PHP_BINARY;
             $settingsJson = PmGateHook::settingsJson($this->config->stateDir, $gateKind, $gateRunId, $mode === SystemPrompt::MODE_REVIEW, $this->config->forge);
             // A formal review goes onto the reviewed commit: review mode and the epic review run.
             if ($mode === SystemPrompt::MODE_REVIEW || ($epicRun !== null && $epicRun['run'] === Run::REVIEW)) {
@@ -194,6 +201,7 @@ final class JobRunner implements JobLauncher, RunControl
 
                     return $e->getMessage();
                 }
+                $env[ReviewCommitHook::ENABLED_ENV] = '1';
                 $settingsJson = ReviewCommitHook::addTo($settingsJson, $this->config->stateDir);
             }
         }

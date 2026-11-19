@@ -187,7 +187,6 @@
     "mode.session_warning": "\n⚠️ A sessão não foi zerada: o novo modo vale a partir da próxima mensagem e o contexto da conversa é mantido.",
     "mode.switched": "Modo alterado: {mode}.",
     "mode.unknown": "Modo desconhecido: {mode}\nDisponíveis: {available}",
-    "mode.opencode_unsupported": "O modo {mode} ainda não é suportado no OpenCode. Alterne com /mode arch.",
     "model.busy": "Há trabalho em andamento neste tópico — troque o modelo depois da resposta ou use /cancel.",
     "model.current": "Modelo: {model}\nEste tópico: {topic}\nTodos os tópicos: {all}",
     "model.unset": "não definido",

@@ -187,7 +187,6 @@
     "mode.session_warning": "\n⚠️ Die Sitzung wurde nicht zurückgesetzt: Der neue Modus gilt ab der nächsten Nachricht, der Gesprächskontext bleibt erhalten.",
     "mode.switched": "Modus gewechselt: {mode}.",
     "mode.unknown": "Unbekannter Modus: {mode}\nVerfügbar: {available}",
-    "mode.opencode_unsupported": "Modus {mode} wird auf OpenCode noch nicht unterstützt. Wechseln Sie mit /mode arch.",
     "model.busy": "In diesem Thema läuft gerade Arbeit — wechsle das Modell nach der Antwort oder nutze /cancel.",
     "model.current": "Modell: {model}\nDieses Thema: {topic}\nAlle Themen: {all}",
     "model.unset": "nicht gesetzt",

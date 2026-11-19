@@ -187,7 +187,6 @@
     "mode.session_warning": "\n⚠️ 会话未重置：新模式从下一条消息起生效，对话上下文会保留。",
     "mode.switched": "模式已切换：{mode}。",
     "mode.unknown": "未知模式：{mode}\n可用：{available}",
-    "mode.opencode_unsupported": "模式 {mode} 在 OpenCode 上暂不支持。请用 /mode arch 切换。",
     "model.busy": "此话题正在工作——请在回复后更换模型，或使用 /cancel。",
     "model.current": "模型：{model}\n此话题：{topic}\n所有话题：{all}",
     "model.unset": "未设置",

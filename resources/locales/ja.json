@@ -187,7 +187,6 @@
     "mode.session_warning": "\n⚠️ セッションはリセットされていません。新しいモードは次のメッセージから有効になり、会話のコンテキストは保持されます。",
     "mode.switched": "モードを切り替えました：{mode}。",
     "mode.unknown": "不明なモードです：{mode}\n利用可能：{available}",
-    "mode.opencode_unsupported": "モード {mode} は OpenCode ではまだ対応していません。/mode arch で切り替えてください。",
     "model.busy": "このトピックでは作業中です。返信後にモデルを変更するか、/cancel を使ってください。",
     "model.current": "モデル: {model}\nこのトピック: {topic}\nすべてのトピック: {all}",
     "model.unset": "未設定",

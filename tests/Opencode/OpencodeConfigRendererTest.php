@@ -143,6 +143,22 @@ final class OpencodeConfigRendererTest extends TestCase
         self::assertSame(['instructions'], array_keys($config));
     }
 
+    public function testAGatedRunListsTheGateShimInThePlugins(): void
+    {
+        $files = $this->render(gatePlugin: '/bot/opencode-plugin');
+
+        $explicit = $this->explicitJson($files);
+        self::assertArrayHasKey('plugins', $explicit);
+        self::assertSame(['/bot/opencode-plugin'], $explicit['plugins']);
+    }
+
+    public function testARunWithNoGateListsNoPlugins(): void
+    {
+        $files = $this->render();
+
+        self::assertArrayNotHasKey('plugins', $this->explicitJson($files));
+    }
+
     public function testEditingToolsWithoutShellDenyTheShell(): void
     {
         $files = $this->render(builtin: [new OpencodeAgent('patcher', 'p', 'body', ['Read', 'Grep', 'Glob', 'Write', 'Edit'])]);
@@ -223,6 +239,7 @@ final class OpencodeConfigRendererTest extends TestCase
         array $override = [],
         bool $hasClaudeMd = false,
         bool $hasAgentsMd = false,
+        ?string $gatePlugin = null,
     ): array {
         return (new OpencodeConfigRenderer(
             'the system prompt',
@@ -232,6 +249,7 @@ final class OpencodeConfigRendererTest extends TestCase
             self::REPO,
             $hasClaudeMd,
             $hasAgentsMd,
+            $gatePlugin,
         ))->render();
     }
 
@@ -251,11 +269,11 @@ final class OpencodeConfigRendererTest extends TestCase
     /**
      * @param array<string, string> $files
      *
-     * @return array{agents: array<string, array{permissions: list<array{action: string, resource: string, effect: string}>}>}
+     * @return array{agents: array<string, array{permissions: list<array{action: string, resource: string, effect: string}>}>, plugins?: list<string>}
      */
     private function explicitJson(array $files): array
     {
-        /** @var array{agents: array<string, array{permissions: list<array{action: string, resource: string, effect: string}>}>} $data */
+        /** @var array{agents: array<string, array{permissions: list<array{action: string, resource: string, effect: string}>}>, plugins?: list<string>} $data */
         $data = json_decode($files['explicit.json'], true, flags: JSON_THROW_ON_ERROR);
 
         return $data;
