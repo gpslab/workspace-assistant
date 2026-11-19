@@ -179,14 +179,20 @@ final class RunPrompt
      * Master CI events for the tick prompt: a confirmed breakage - while it persists,
      * flakiness - once (the tick got it in the prompt).
      *
-     * @return list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>}>
+     * @return list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>, fix: ?string}>
      */
     private function masterEvents(string $slug): array
     {
         $events = [];
         foreach ($this->db->epicMasters($slug) as $rec) {
             if ($rec->kind === MasterRecord::BROKEN || ($rec->kind === MasterRecord::FLAKY && !$rec->prompted)) {
-                $events[] = ['repo' => $rec->repo, 'sha' => $rec->sha, 'kind' => $rec->kind, 'runs' => $rec->runs];
+                $events[] = [
+                    'repo' => $rec->repo,
+                    'sha' => $rec->sha,
+                    'kind' => $rec->kind,
+                    'runs' => $rec->runs,
+                    'fix' => $rec->kind === MasterRecord::BROKEN ? $this->fixTask($slug, $rec) : null,
+                ];
             }
             if ($rec->kind === MasterRecord::FLAKY && !$rec->prompted) {
                 $rec->prompted = true;
@@ -195,5 +201,23 @@ final class RunPrompt
         }
 
         return $events;
+    }
+
+    /**
+     * The existing fix task of a confirmed breakage, found with the same predicate as
+     * {@see Gates::brokenFailure()}: an `added` task of the same repository that is not in the
+     * plan's base tasks. null — no fix task was added yet.
+     */
+    private function fixTask(string $slug, MasterRecord $rec): ?string
+    {
+        foreach ($this->db->epicTasks($slug) as $task) {
+            if ($task['source'] === 'added'
+                && $this->config->forgeOwners->repoKey($task['task']) === $this->config->forgeOwners->repoKey($rec->repo)
+                && !in_array($task['task'], $rec->tasksBase, true)) {
+                return $task['task'];
+            }
+        }
+
+        return null;
     }
 }

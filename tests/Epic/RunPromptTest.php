@@ -7,6 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
+use GpsLab\WorkspaceAssistant\Epic\MasterRecord;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Epic\RunPrompt;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
@@ -154,5 +155,43 @@ final class RunPromptTest extends TestCase
     public function testManualReviewWithNullClientOnGithubStaysSilent(): void
     {
         self::assertSame([[], null, []], $this->runPrompt(null)->manualReviewFindings([['text' => 'review ws#1']]));
+    }
+
+    /**
+     * @param list<string> $baseTasks
+     */
+    private function brokenMaster(Database $db, array $baseTasks, ?string $fixTask = null): void
+    {
+        $tasks = [];
+        foreach ($baseTasks as $t) {
+            $tasks[] = ['task' => $t, 'after' => []];
+        }
+        $db->epicCreate('demo', 1, 0, $tasks, []);
+        if ($fixTask !== null) {
+            $db->epicApplySignal('demo', [['task' => $fixTask, 'after' => []]], null, false);
+        }
+        $db->epicMasterSet('demo', new MasterRecord('ws', 'sha-red', [], 0, MasterRecord::BROKEN, tasksBase: $baseTasks));
+    }
+
+    public function testBrokenMasterWithExistingFixTaskNamesItAndDoesNotOrderReAdding(): void
+    {
+        $db = new Database($this->root);
+        $this->brokenMaster($db, ['ws#1'], 'ws#9');
+
+        $prompt = $this->runPrompt(null, $db)->forEpicRun('demo', Run::TICK, null);
+
+        self::assertStringContainsString('Fix task ws#9 is already in the epic', $prompt);
+        self::assertStringNotContainsString('Create a fix task', $prompt);
+    }
+
+    public function testBrokenMasterWithoutFixTaskStillOrdersCreatingOne(): void
+    {
+        $db = new Database($this->root);
+        $this->brokenMaster($db, ['ws#1']);
+
+        $prompt = $this->runPrompt(null, $db)->forEpicRun('demo', Run::TICK, null);
+
+        self::assertStringContainsString('Create a fix task', $prompt);
+        self::assertStringContainsString('without "after"', $prompt);
     }
 }

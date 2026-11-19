@@ -70,7 +70,7 @@ final class Signal
         foreach ($rawAdded as $i => $item) {
             $ref = is_array($item) ? ($item['task'] ?? null) : null;
             if (!is_string($ref) || !Plan::isTaskRef($ref, $owners->isNested())) {
-                throw new \InvalidArgumentException("added[{$i}]: task must look like repo#N");
+                throw new \InvalidArgumentException("added[{$i}]: task must look like owner/repo#N or repo#N");
             }
             $added[] = ['task' => $norm($ref), 'after' => self::refs($item['after'] ?? [], "added[{$i}].after", $norm, $owners->isNested())];
         }
@@ -137,11 +137,11 @@ final class Signal
     private static function refs(mixed $value, string $where, \Closure $norm, bool $nested): array
     {
         if (!is_array($value) || !array_is_list($value)) {
-            throw new \InvalidArgumentException("{$where} must be a list of repo#N");
+            throw new \InvalidArgumentException("{$where} must be a list of owner/repo#N or repo#N");
         }
         foreach ($value as $ref) {
             if (!is_string($ref) || !Plan::isTaskRef($ref, $nested)) {
-                throw new \InvalidArgumentException("{$where}: an element must look like repo#N");
+                throw new \InvalidArgumentException("{$where}: an element must look like owner/repo#N or repo#N");
             }
         }
 

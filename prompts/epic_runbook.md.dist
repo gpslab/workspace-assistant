@@ -43,6 +43,9 @@ Start order for every run:
 - **Signal — always.** Write the signal file at the end of the run even if there is
   nothing to report (`{}`). A missing file or invalid JSON makes the bot count the run as
   failed.
+- **Task refs in the signal are written in full.** In the signal a task ref is
+  `owner/repo#N`, with the owner. The short `repo#N` names a task of the default owner (the
+  first of `FORGE_OWNERS`) and is ambiguous when the epic's tasks live under another owner.
 - **Language towards openronin** is directive: "must fix: X". No "nice to have", "not a
   blocker", "up to you": openronin skips such points. Severity calls and caveats go to the
   journal only.
@@ -82,7 +85,8 @@ Go over the epic's tasks (plan + `added`) and decide for each whether judgement 
 
 **Extra task**: draft → issue with labels per the managed repository's conventions →
 `added` in the signal with the right `after`. Do not set `openronin:do-it` — the bot sets
-it when the task's turn comes.
+it when the task's turn comes. A task that is already in the epic is not put into `added`
+again.
 
 Every issue an epic run files (`tick`, `review`, `final`) goes through the PM runbook in its
 authorless variant before it is opened: all its stages, via the built-in or instance agents.

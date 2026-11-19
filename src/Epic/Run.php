@@ -85,8 +85,8 @@ final class Run
     }
 
     /**
-     * @param list<array{id: string, source: string, path: ?string, line: ?int, body: string}>|null                           $coldFindings cold reviewer findings for a review run; null — not collected
-     * @param list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>}> $master       master CI events for the tick: a confirmed breakage and flakiness
+     * @param list<array{id: string, source: string, path: ?string, line: ?int, body: string}>|null                                          $coldFindings cold reviewer findings for a review run; null — not collected
+     * @param list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>, fix?: ?string}> $master       master CI events for the tick: a confirmed breakage and flakiness, and the existing fix task of a breakage (`fix`)
      */
     public static function prompt(string $slug, string $run, string $planPath, string $journalPath, string $signalPath, string $failuresPath, ?string $pr = null, ?array $coldFindings = null, array $master = [], string $outboxDir = '', string $addition = '', string $pmRunbookLine = '', bool $autoCommit = true, ?string $reviewHead = null, ?int $tailsRounds = null): string
     {
@@ -152,8 +152,8 @@ final class Run
         }
         $lines[] = '';
         $lines[] = 'Your reply text is NOT sent to the author. Report to the bot only through the signal file (JSON object, all fields optional):';
-        $lines[] = '- "added": [{"task": "repo#N", "after": ["repo#M"]}] — extra tasks and tails (a task is `owner/repo#N`, or the short `repo#N` for the default owner);';
-        $lines[] = '- "hold": ["repo#N"] (also `owner/repo#N`) — the full current list of tasks that must not be handed to openronin (depend on a parked fork); [] clears it;';
+        $lines[] = '- "added": [{"task": "owner/repo#N", "after": ["owner/repo#M"]}] — extra tasks and tails. Write task refs in full, with the owner: the short `repo#N` names a task of the default owner and is ambiguous when the tasks of the epic live under another owner;';
+        $lines[] = '- "hold": ["owner/repo#N"] — the full current list of tasks that must not be handed to openronin (depend on a parked fork); [] clears it;';
         $lines[] = '- "message": "text" — a question or a fork for the author;';
         $lines[] = '- "blocked": "reason" — the whole epic cannot continue;';
         $lines[] = '- "done": true — the final check passed and the report is in the outbox.';
@@ -165,7 +165,7 @@ final class Run
     }
 
     /**
-     * @param list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>}> $master
+     * @param list<array{repo: string, sha: string, kind: string, runs: list<array{id: int, url: string, workflow: string}>, fix?: ?string}> $master
      *
      * @return list<string>
      */
@@ -178,9 +178,15 @@ final class Run
             $verdict = $event['runs'] === []
                 ? 'The bot found no failed GitHub Actions runs to rerun and master is red (likely an external status), so it is a confirmed breakage.'
                 : 'The bot reran the failed jobs once and master stayed red, so it is a confirmed breakage.';
-            $lines[] = $event['kind'] === MasterRecord::BROKEN
-                ? "Master CI is broken: repository {$event['repo']}, commit {$event['sha']}. {$verdict} Merges and releases in this repository are paused by the bot, except the fix task. Create a fix task (run it through the instance's review steps for new tasks; labels per the rules; link the failed run in it) and add it to the epic through the signal field \"added\" without \"after\"; the bot sets `openronin:do-it` itself."
-                : "Flaky test: repository {$event['repo']}, commit {$event['sha']}. The failed jobs of master CI were rerun by the bot and went green, so nothing is broken and the epic goes on. File a side issue about the unstable test (no `openronin:do-it` label, do not add it to the epic) and record it in the journal.";
+            if ($event['kind'] === MasterRecord::BROKEN) {
+                $paused = "Master CI is broken: repository {$event['repo']}, commit {$event['sha']}. {$verdict} Merges and releases in this repository are paused by the bot, except the fix task.";
+                $fix = $event['fix'] ?? null;
+                $lines[] = $fix !== null && $fix !== ''
+                    ? "{$paused} Fix task {$fix} is already in the epic: do not add it again through the signal field \"added\"."
+                    : "{$paused} Create a fix task (run it through the instance's review steps for new tasks; labels per the rules; link the failed run in it) and add it to the epic through the signal field \"added\" without \"after\"; the bot sets `openronin:do-it` itself.";
+            } else {
+                $lines[] = "Flaky test: repository {$event['repo']}, commit {$event['sha']}. The failed jobs of master CI were rerun by the bot and went green, so nothing is broken and the epic goes on. File a side issue about the unstable test (no `openronin:do-it` label, do not add it to the epic) and record it in the journal.";
+            }
             $lines[] = 'Failed run: '.($runs !== '' ? $runs : 'none listed');
         }
 

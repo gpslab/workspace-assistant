@@ -33,6 +33,17 @@ final class RunTest extends TestCase
         self::assertStringContainsString('https://github.com/anime-db/a/actions/runs/11', $prompt);
     }
 
+    public function testSignalExampleTeachesTheFullOwnerQualifiedTaskRef(): void
+    {
+        $prompt = Run::prompt('demo', Run::TICK, 'p', 'j', 's', 'f');
+
+        self::assertStringContainsString('"task": "owner/repo#N"', $prompt);
+        self::assertStringContainsString('"after": ["owner/repo#M"]', $prompt);
+        self::assertStringContainsString('"hold": ["owner/repo#N"]', $prompt);
+        self::assertStringNotContainsString('"task": "repo#N"', $prompt);
+        self::assertStringNotContainsString('"hold": ["repo#N"]', $prompt);
+    }
+
     public function testPromptWithoutMasterEventsHasNoMasterSection(): void
     {
         self::assertStringNotContainsString('Master CI', Run::prompt('demo', Run::TICK, 'p', 'j', 's', 'f'));
@@ -95,7 +106,7 @@ final class RunTest extends TestCase
 
     public function testRunbookFileIsUnchanged(): void
     {
-        self::assertSame('d10c58556b2782f98282dfe4335f9b844f3fa53e684cb2d08e7006db28d23868', hash_file('sha256', Run::runbookPath()));
+        self::assertSame('ef688fb251b1450336220795792918182f09fac64876237c91b7c9ffcc97ea06', hash_file('sha256', Run::runbookPath()));
     }
 
     public function testPmRunbookLineIsInEveryEpicRunPrompt(): void
