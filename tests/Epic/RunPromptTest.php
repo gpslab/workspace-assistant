@@ -35,7 +35,7 @@ final class RunPromptTest extends TestCase
         exec('rm -rf '.escapeshellarg($this->root));
     }
 
-    private function runPrompt(?FakeGitHub $gh = null, ?Database $db = null, string $forge = Config::FORGE_GITHUB): RunPrompt
+    private function runPrompt(?FakeGitHub $gh = null, ?Database $db = null, string $forge = Config::FORGE_GITHUB, ?ForgeOwners $owners = null): RunPrompt
     {
         $config = new Config(
             botToken: 't',
@@ -52,7 +52,7 @@ final class RunPromptTest extends TestCase
             inboxDir: $this->root.'/inbox',
             pollTimeout: 1,
             gitTimeout: 30,
-            forgeOwners: new ForgeOwners(['gpslab']),
+            forgeOwners: $owners ?? new ForgeOwners(['gpslab']),
             forge: $forge,
         );
 
@@ -158,9 +158,10 @@ final class RunPromptTest extends TestCase
     }
 
     /**
-     * @param list<string> $baseTasks
+     * @param list<string>      $baseTasks plan tasks of the epic
+     * @param list<string>|null $tasksBase tasks at the moment the breakage was confirmed (defaults to the plan tasks)
      */
-    private function brokenMaster(Database $db, array $baseTasks, ?string $fixTask = null): void
+    private function brokenMaster(Database $db, array $baseTasks, ?string $fixTask = null, ?array $tasksBase = null, string $repo = 'ws'): void
     {
         $tasks = [];
         foreach ($baseTasks as $t) {
@@ -170,7 +171,7 @@ final class RunPromptTest extends TestCase
         if ($fixTask !== null) {
             $db->epicApplySignal('demo', [['task' => $fixTask, 'after' => []]], null, false);
         }
-        $db->epicMasterSet('demo', new MasterRecord('ws', 'sha-red', [], 0, MasterRecord::BROKEN, tasksBase: $baseTasks));
+        $db->epicMasterSet('demo', new MasterRecord($repo, 'sha-red', [], 0, MasterRecord::BROKEN, tasksBase: $tasksBase ?? $baseTasks));
     }
 
     public function testBrokenMasterWithExistingFixTaskNamesItAndDoesNotOrderReAdding(): void
@@ -180,7 +181,7 @@ final class RunPromptTest extends TestCase
 
         $prompt = $this->runPrompt(null, $db)->forEpicRun('demo', Run::TICK, null);
 
-        self::assertStringContainsString('Fix task ws#9 is already in the epic', $prompt);
+        self::assertStringContainsString('Task ws#9 was added after the breakage', $prompt);
         self::assertStringNotContainsString('Create a fix task', $prompt);
     }
 
@@ -193,5 +194,40 @@ final class RunPromptTest extends TestCase
 
         self::assertStringContainsString('Create a fix task', $prompt);
         self::assertStringContainsString('without "after"', $prompt);
+    }
+
+    public function testBrokenMasterWithFixTaskInAnotherRepositoryStillOrdersCreatingOne(): void
+    {
+        $db = new Database($this->root);
+        // other#9 is an `added` task of a different repository than the broken `ws`.
+        $this->brokenMaster($db, ['ws#1'], 'other#9');
+
+        $prompt = $this->runPrompt(null, $db)->forEpicRun('demo', Run::TICK, null);
+
+        self::assertStringContainsString('Create a fix task', $prompt);
+        self::assertStringNotContainsString('was added after the breakage', $prompt);
+    }
+
+    public function testBrokenMasterWithFixTaskAlreadyInTheBaseStillOrdersCreatingOne(): void
+    {
+        $db = new Database($this->root);
+        // ws#9 was added before the breakage was confirmed, so it is part of the base tasks.
+        $this->brokenMaster($db, ['ws#1'], 'ws#9', ['ws#1', 'ws#9']);
+
+        $prompt = $this->runPrompt(null, $db)->forEpicRun('demo', Run::TICK, null);
+
+        self::assertStringContainsString('Create a fix task', $prompt);
+        self::assertStringNotContainsString('was added after the breakage', $prompt);
+    }
+
+    public function testBrokenMasterWithOwnerQualifiedFixTaskOfANonDefaultOwnerNamesIt(): void
+    {
+        $db = new Database($this->root);
+        $this->brokenMaster($db, ['acme/ws#1'], 'acme/ws#9', null, 'acme/ws');
+
+        $prompt = $this->runPrompt(null, $db, Config::FORGE_GITHUB, new ForgeOwners(['gpslab', 'acme']))->forEpicRun('demo', Run::TICK, null);
+
+        self::assertStringContainsString('Task acme/ws#9 was added after the breakage', $prompt);
+        self::assertStringNotContainsString('Create a fix task', $prompt);
     }
 }
