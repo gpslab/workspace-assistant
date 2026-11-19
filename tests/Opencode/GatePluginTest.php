@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The OpenCode gate shim (`plugins/opencode`) under bare `node` with a stub `ctx`.
+ * The OpenCode gate shim (`opencode-plugin`) under bare `node` with a stub `ctx`.
  *
  * The shim holds no gate logic: it starts the PHP hooks of the bot. These tests pin the wiring the
  * bot relies on — the deny translation, the fail-closed paths and the engine-neutral input — not the
@@ -59,7 +59,7 @@ final class GatePluginTest extends TestCase
         $result = $this->evaluate(self::ISSUE_CREATE, self::fixture('stage-single'));
 
         self::assertSame('deny', $result['effect']);
-        self::assertStringContainsString('Issue creation blocked on OpenCode', (string) $result['message']);
+        self::assertStringContainsString('Issue creation blocked:', (string) $result['message']);
         self::assertStringContainsString('stage_b', (string) $result['message']);
     }
 
@@ -166,7 +166,7 @@ final class GatePluginTest extends TestCase
         unset($env['STUB_HISTORY']);
 
         $proc = proc_open(
-            [$node, $this->harness, dirname(__DIR__, 2).'/plugins/opencode/index.js'],
+            [$node, $this->harness, dirname(__DIR__, 2).'/opencode-plugin/index.js'],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             null,

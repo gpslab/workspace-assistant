@@ -135,7 +135,7 @@ final class Bot implements LoopControl
         $this->queueScheduler = new QueueScheduler($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->locales, $this->queueTexts, $this->dirtyTree, $this->runState, $runPrompt, $this->inbox, $this->subRepoSync, $this->jobRunner);
         $this->commandRouter = $this->buildCommandRouter();
         $this->commandMenu = new Menu($this->commandRouter, $tg, $this->locale);
-        $this->orchestrator = $github === null || !$config->epicsAvailable() ? null : new Orchestrator(
+        $this->orchestrator = $github === null || !$config->epicsAvailable() || $config->isOpencode() ? null : new Orchestrator(
             $db,
             $github,
             $this->queueScheduler->enqueueEpicRun(...),

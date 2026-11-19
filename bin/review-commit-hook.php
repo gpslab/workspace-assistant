@@ -6,7 +6,7 @@ namespace GpsLab\WorkspaceAssistant;
 
 /*
  * PreToolUse hook (matcher Bash) that keeps a formal PR review on the commit that was reviewed, see
- * ReviewCommitHook. Called by claude and by the OpenCode gate shim (`plugins/opencode`), not by the
+ * ReviewCommitHook. Called by claude and by the OpenCode gate shim (`opencode-plugin`), not by the
  * bot: php bin/review-commit-hook.php <STATE_DIR>, with the PreToolUse event JSON on stdin and the
  * file of recorded SHAs named by ReviewCommitHook::SHAS_ENV (unset: no SHA was recorded, only the form
  * of the command is checked). The stdin may also carry the engine-neutral input `{command, engine}` (it

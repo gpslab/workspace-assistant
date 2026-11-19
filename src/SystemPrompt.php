@@ -51,13 +51,12 @@ final class SystemPrompt
      *
      * @param string|null $promptsDir absolute path to the persona files, or null to use the shipped personas
      * @param string      $forge      `FORGE` setting, see {@see build()}
-     * @param string      $engine     engine of the instance, see {@see build()}
      *
      * @throws \RuntimeException when a shipped `.dist` file is missing
      */
-    public static function forMode(string $mode, ?string $promptsDir = null, string $forge = Config::FORGE_GITHUB, string $engine = Config::DEFAULT_ENGINE_FINGERPRINT): string
+    public static function forMode(string $mode, ?string $promptsDir = null, string $forge = Config::FORGE_GITHUB): string
     {
-        return self::build($mode, $promptsDir, null, $forge, $engine)['text'];
+        return self::build($mode, $promptsDir, null, $forge)['text'];
     }
 
     /**
@@ -68,16 +67,12 @@ final class SystemPrompt
      *
      * @param string|null $displayDir directory name shown in warnings instead of the absolute path
      * @param string      $forge      `FORGE` setting: with `gitlab` the `forge_gitlab` fragment is appended to every mode
-     * @param string      $engine     engine of the instance: the `{engine}` placeholder of the rendered parts
-     *                                ({@see Engine::LABELS}); the pieces go through {@see PromptFiles::load()}
-     *                                and the placeholder is filled over the assembled text, so it works in a
-     *                                local override too
      *
      * @return array{text: string, warnings: list<string>}
      *
      * @throws \RuntimeException when a shipped `.dist` file is missing
      */
-    public static function build(string $mode, ?string $promptsDir = null, ?string $displayDir = null, string $forge = Config::FORGE_GITHUB, string $engine = Config::DEFAULT_ENGINE_FINGERPRINT): array
+    public static function build(string $mode, ?string $promptsDir = null, ?string $displayDir = null, string $forge = Config::FORGE_GITHUB): array
     {
         $mode = self::isValidMode($mode) ? $mode : self::MODE_ARCH;
 
@@ -101,7 +96,7 @@ final class SystemPrompt
         }
 
         return [
-            'text' => strtr(implode("\n\n", $parts), ['{engine}' => Engine::label($engine)]),
+            'text' => implode("\n\n", $parts),
             'warnings' => $warnings,
         ];
     }

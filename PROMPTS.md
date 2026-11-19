@@ -18,7 +18,7 @@ There are three kinds of file:
 
 | File                                | Kind     | Used in                                                             | Placeholders                    |
 |-------------------------------------|----------|---------------------------------------------------------------------|---------------------------------|
-| `common`                            | contract | System prompt of every run (`SystemPrompt`)                         | `{engine}`                      |
+| `common`                            | contract | System prompt of every run (`SystemPrompt`)                         |                                 |
 | `common_limits`                     | contract | System prompt of every mode except `arch` (`SystemPrompt`)          |                                 |
 | `contract_review`                   | contract | System prompt of the `review` mode (`SystemPrompt`)                 |                                 |
 | `language_line`                     | contract | End of the system prompt of every run (`SystemPrompt`)              | `{language}`                    |
@@ -76,12 +76,6 @@ parts, in order:
 `instructions` of the rendered `opencode.json`; it also adds the managed repository's `CLAUDE.md` to the
 same list, but only when there is no `AGENTS.md` (OpenCode reads `AGENTS.md` itself and never `CLAUDE.md`).
 The parts and the order are the same on both engines.
-
-The `{engine}` placeholder of `common` is filled after the parts are assembled, with the name of the
-instance's engine: `Claude Code` or `OpenCode`. A local `prompts/common.md` keeps the placeholder like the
-`.dist`. The raw runbooks (`pm_runbook`, `epic_runbook`) are read by the model itself and are not rendered,
-so they stay engine-neutral; the deny reason of the PM gate (`PmGateHook`) is built in code and names the
-engine too.
 
 ### Chat message
 

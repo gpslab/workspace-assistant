@@ -39,6 +39,11 @@ final class ChatSurface
 
     public function cmdEpic(int $chatId, int $threadId, string $argument): void
     {
+        if ($this->config->isOpencode()) {
+            $this->tg->sendText($chatId, $this->t('epic.unavailable_on_opencode'), null, $threadId);
+
+            return;
+        }
         if (!$this->config->epicsAvailable()) {
             $this->tg->sendText($chatId, $this->t('epic.unavailable_on_gitlab'), null, $threadId);
 

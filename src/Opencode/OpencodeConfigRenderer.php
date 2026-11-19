@@ -10,7 +10,7 @@ namespace GpsLab\WorkspaceAssistant\Opencode;
  * Pure: no filesystem or network access. It returns the contents the future engine task places
  * in `state/opencode-<runId>/` and writes to disk itself. Four artefacts: the system-prompt file,
  * `opencode.json` (the `instructions` list), `agents/<name>.md` (OpenCode V2 markdown agents) and
- * `explicit.json` (the agent permissions and the gate plugin, passed to the engine via `OPENCODE_CONFIG`).
+ * `explicit.json` (the agent permissions, passed to the engine via `OPENCODE_CONFIG`).
  */
 final class OpencodeConfigRenderer
 {
@@ -29,8 +29,6 @@ final class OpencodeConfigRenderer
      * @param string              $repoRoot         absolute root of the managed repository
      * @param bool                $hasClaudeMd      whether `<repo>/CLAUDE.md` exists
      * @param bool                $hasAgentsMd      whether `<repo>/AGENTS.md` exists
-     * @param string              $pluginDir        absolute path of the gate shim directory listed in
-     *                                              `plugins` of `explicit.json`; '' lists no plugin
      */
     public function __construct(
         private readonly string $systemPrompt,
@@ -40,7 +38,6 @@ final class OpencodeConfigRenderer
         private readonly string $repoRoot,
         private readonly bool $hasClaudeMd,
         private readonly bool $hasAgentsMd,
-        private readonly string $pluginDir = '',
     ) {
     }
 
@@ -122,17 +119,10 @@ final class OpencodeConfigRenderer
             $agents[$name] = ['permissions' => ToolPermissions::rules($agent->tools)];
         }
 
-        $data = ['agents' => (object) $agents];
-        if ($this->pluginDir !== '') {
-            // The gate shim: the only place OpenCode reaches the PM gate and the review commit hook
-            // (it has no command hooks). Listed by absolute path, so it does not depend on the cwd.
-            $data['plugins'] = [$this->pluginDir];
-        }
-
         // Belt and braces on top of name validation: a stdClass always encodes as a JSON object,
         // so even a name that slipped through as a numeric string could not turn the agents map
         // into a JSON list and drop the name -> permissions binding.
-        return $this->json($data);
+        return $this->json(['agents' => (object) $agents]);
     }
 
     private function agentMarkdown(OpencodeAgent $agent): string

@@ -6,7 +6,7 @@ namespace GpsLab\WorkspaceAssistant;
 
 /*
  * PreToolUse hook (matcher Bash) that gates issue creation, see PmGateHook. Called by claude and by
- * the OpenCode gate shim (`plugins/opencode`), not by the bot: php bin/pm-gate-hook.php <STATE_DIR>
+ * the OpenCode gate shim (`opencode-plugin`), not by the bot: php bin/pm-gate-hook.php <STATE_DIR>
  * <run kind> <run id>, with the PreToolUse event JSON on stdin and the skip reason file named by
  * PmGateHook::SKIP_ENV. The stdin may also carry the engine-neutral input `{command, history, engine}`
  * (engine "opencode", history = the path of an OpenCode session-history file); the Claude Code

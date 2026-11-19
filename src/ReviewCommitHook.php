@@ -43,8 +43,8 @@ final class ReviewCommitHook
 
     /**
      * Environment variable: `1` when this run has the commit hook. Claude Code gets the hook in its
-     * `--settings`; the OpenCode shim reads this flag, so it does not check review commands of a run
-     * that is not a review. Set by {@see JobRunner::launchJob()}.
+     * `--settings`; the OpenCode gate shim (`opencode-plugin/`) reads this flag, so it does not check
+     * review commands of a run that is not a review.
      */
     public const string ENABLED_ENV = 'WORKSPACE_ASSISTANT_REVIEW_COMMIT_GATE';
 

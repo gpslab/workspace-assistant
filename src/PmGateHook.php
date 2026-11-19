@@ -53,9 +53,9 @@ final class PmGateHook
     public const string SKIP_ENV = 'WORKSPACE_ASSISTANT_PM_SKIP';
 
     /**
-     * Environment of a run that has a gate: the arguments the OpenCode shim passes to
-     * bin/pm-gate-hook.php (Claude Code gets them in the hook command instead) and the PHP binary
-     * the shim starts. They are set by {@see JobRunner::launchJob()} for both engines.
+     * Environment of a gated run: the arguments the OpenCode gate shim (`opencode-plugin/`) passes to
+     * bin/pm-gate-hook.php (Claude Code gets them in the hook command instead) and the PHP binary the
+     * shim starts.
      */
     public const string STATE_ENV = 'WORKSPACE_ASSISTANT_GATE_STATE_DIR';
     public const string KIND_ENV = 'WORKSPACE_ASSISTANT_GATE_KIND';
@@ -550,11 +550,10 @@ final class PmGateHook
      *
      * @param list<array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool}> $calls
      * @param array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>}             $config
-     * @param string                                                                                                               $engine the engine of the run; the deny reason names it ({@see Engine::LABELS})
      *
      * @return array{decision: self::ALLOW|self::DENY, reason: string, skipped: bool}
      */
-    public static function decideOnCalls(array $calls, array $config, string $kind, string $skipReason, string $engine = self::ENGINE_CLAUDE): array
+    public static function decideOnCalls(array $calls, array $config, string $kind, string $skipReason): array
     {
         $missing = self::missingStagesFromCalls($calls, $config['stages']);
         if ($missing === []) {
@@ -565,9 +564,8 @@ final class PmGateHook
             return ['decision' => self::ALLOW, 'reason' => '', 'skipped' => true];
         }
 
-        $reason = 'Issue creation blocked on {engine}: these required stages of the PM pipeline have not completed since the last author message: '
-            .implode('; ', $missing).'. Run each missing stage synchronously in the order of the runbook and wait for its report before starting the next stage, then create the issue.';
-        $reason = strtr($reason, ['{engine}' => Engine::label($engine)]);
+        $reason = 'Issue creation blocked: these required stages of the PM pipeline have not completed since the last author message: '
+            .implode('; ', $missing).'. Run each missing stage as a synchronous Agent call (run_in_background: false) in the order of the runbook, then create the issue.';
         if ($skipAllowed) {
             $reason .= ' This kind of run allows skipping: write the reason for skipping into the file named by the environment variable '
                 .self::SKIP_ENV.' and repeat the command.';
@@ -592,16 +590,10 @@ final class PmGateHook
     {
         $engine = $input['engine'] ?? self::ENGINE_CLAUDE;
         if ($engine === self::ENGINE_OPENCODE) {
-            return self::decideOnCalls(OpencodeHistoryReader::fromFile((string) ($input['history'] ?? '')), $config, $kind, $skipReason, self::ENGINE_OPENCODE);
+            return self::decideOnCalls(OpencodeHistoryReader::fromFile((string) ($input['history'] ?? '')), $config, $kind, $skipReason);
         }
 
-        return self::decideOnCalls(
-            ClaudeCodeTranscriptReader::agentCalls(self::transcriptLines((string) ($input['transcript_path'] ?? ''))),
-            $config,
-            $kind,
-            $skipReason,
-            self::ENGINE_CLAUDE,
-        );
+        return self::decide(self::transcriptLines((string) ($input['transcript_path'] ?? '')), $config, $kind, $skipReason);
     }
 
     /**

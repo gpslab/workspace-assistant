@@ -17,8 +17,8 @@
  * Fail-closed: any failure of this file or of a PHP hook denies the call. A gate that lets a command
  * through because it crashed is no gate.
  *
- * The environment of a run is set by `JobRunner`; without it (a run with no gate, e.g. `arch`) the
- * shim does nothing.
+ * The environment of a gated run carries the gate variables (state directory, run kind, run id, PHP
+ * binary, review-commit flag); without them (a run with no gate, e.g. `arch`) the shim does nothing.
  */
 
 import {spawnSync} from "node:child_process";
@@ -27,8 +27,8 @@ import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-/** Root of the bot: this file is `<bot>/plugins/opencode/index.js`. */
-const BOT_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+/** Root of the bot: this file is `<bot>/opencode-plugin/index.js`. */
+const BOT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const PM_HOOK = join(BOT_ROOT, "bin", "pm-gate-hook.php");
 const REVIEW_HOOK = join(BOT_ROOT, "bin", "review-commit-hook.php");

@@ -408,24 +408,6 @@ final class PmGateHookTest extends TestCase
         self::assertStringContainsString('stage_a (agent stage_a)', $decision['reason']);
     }
 
-    public function testTheDenyReasonNamesTheEngine(): void
-    {
-        $claude = PmGateHook::decide([self::user('x')], self::config(), 'pm', '');
-        $opencode = PmGateHook::decideFromInput(
-            ['command' => self::CREATE, 'history' => self::opencodeFixture('stage-single'), 'engine' => PmGateHook::ENGINE_OPENCODE],
-            self::opencodeConfig(),
-            'pm',
-            '',
-        );
-
-        self::assertSame(PmGateHook::DENY, $claude['decision']);
-        self::assertSame(PmGateHook::DENY, $opencode['decision']);
-        self::assertStringContainsString('Issue creation blocked on Claude Code:', $claude['reason']);
-        self::assertStringContainsString('Issue creation blocked on OpenCode:', $opencode['reason']);
-        self::assertStringNotContainsString('{engine}', $claude['reason']);
-        self::assertStringNotContainsString('{engine}', $opencode['reason']);
-    }
-
     public function testToolCommandReadsBothInputShapes(): void
     {
         self::assertSame('gh issue create', PmGateHook::toolCommand(['tool_name' => 'Bash', 'tool_input' => ['command' => 'gh issue create']]));

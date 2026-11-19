@@ -469,25 +469,6 @@ final class ConfigTest extends TestCase
         }
     }
 
-    public function testOpencodeEpicModelKeysAreNotValidatedAndWarnOnce(): void
-    {
-        $this->writeEnv("ENGINE=opencode\nOPENRONIN_LOGINS=bot\nMODEL_EPIC_TICK=nosuchmodel\nMODEL_EPIC_FINAL=sonnet\n");
-
-        $warnings = Config::load($this->envFile)->startupWarnings();
-
-        self::assertSame(
-            ['MODEL_EPIC_TICK, MODEL_EPIC_FINAL set but not applied on OpenCode: an epic run uses OPENCODE_MODEL.'],
-            $warnings,
-        );
-    }
-
-    public function testNoOpencodeEpicWarningWhenEveryEpicModelKeyIsEmpty(): void
-    {
-        $this->writeEnv("ENGINE=opencode\nOPENRONIN_LOGINS=bot\nMODEL_EPIC_TICK=\nMODEL_EPIC_FINAL=\nMODEL_EPIC_REVIEW=\n");
-
-        self::assertSame([], Config::load($this->envFile)->startupWarnings());
-    }
-
     public function testNoEpicWarningWhenNoEpicKeyIsSetOrNoExtraArgsModel(): void
     {
         $this->writeEnv("OPENRONIN_LOGINS=bot\n");
