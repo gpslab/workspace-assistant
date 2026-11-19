@@ -1,0 +1,8 @@
+{
+  "name": "workspace-assistant-opencode-gate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Forwards OpenCode shell calls to the Workspace Assistant PHP gate hooks",
+  "type": "module",
+  "main": "index.js"
+}

@@ -209,9 +209,15 @@ a change of the model (or of the engine) resets the session and adds the usual n
   background and stdout stays silent while it works, so silence stops meaning "hung".
 - `Bot::run()` calls `OpencodeRunner::purgeRunDirs()` next to `ClaudeRunner::purgeRunFiles()`; a run
   directory whose bot PID is still alive is kept.
-- No gate: `QueueScheduler` refuses a non-`arch` mode both at enqueue and at the head of the queue (a chat
-  item queued under claude survives a restart into OpenCode), `ChatSurface::cmdEpic()` answers
-  `epic.unavailable_on_opencode`, `Bot` wires no `Orchestrator`, and `ModelChoice::isPinned()` is always true.
+- Gates: OpenCode has no command hooks, so `plugins/opencode/` (a plain ES-module `{id, setup(ctx)}` with no
+  build step, listed in `plugins` of the per-run `explicit.json`) registers a `permission` `evaluate` hook for
+  shell calls. It dumps `ctx.session.context({sessionID})` to a temporary file and starts
+  `bin/pm-gate-hook.php` and `bin/review-commit-hook.php` with `{command, history, engine: "opencode"}`; a
+  deny becomes `e.effect = "deny"` with the hook's reason. The environment of the run carries
+  `PmGateHook::STATE_ENV` / `KIND_ENV` / `RUN_ENV` / `PHP_ENV` and `ReviewCommitHook::ENABLED_ENV` (set by
+  `JobRunner` for both engines); without them (an `arch` run) the shim does nothing. Any failure of the shim
+  or a hook denies (fail-closed). All modes and epic runs work; `Bot` wires the `Orchestrator` as on
+  Claude Code, and `ModelChoice::isPinned()` stays true because the model comes from `OPENCODE_MODEL`.
 
 ---
 

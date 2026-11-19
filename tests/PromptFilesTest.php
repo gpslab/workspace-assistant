@@ -47,12 +47,12 @@ final class PromptFilesTest extends TestCase
 
     /** sha256 of the texts as they were assembled from the PHP constants, before they moved to files. */
     private const array GOLDEN = [
-        'prompt_arch' => '376a2c7b9b26425b7115b8e0d093c5fc27fa31aa690f01c6ee5c7c684c9944ab',
-        'prompt_arch_dir' => 'f0418868048d57fb94128286aa81abdd13de9eb83db3e84398d87d502b6a5aa5',
-        'prompt_review' => '2da2e8ce2a55352509b2da4da3dbc2543e69d8939ab95e4c4dcd03ab0c5acbde',
-        'prompt_review_dir' => 'cfdd44a2913ad8cbd47b15858208a63c48abf9a19283a48f36d6718a8689f64c',
-        'prompt_pm' => '1b2058e33a61a35221f255e8a6774df23e0f8671a4c3442613c4e12ce2c21c36',
-        'prompt_pm_dir' => 'f833469e528c736dee939a8f094e5eee8c0b2612c4018919e3ea26144af0aaa4',
+        'prompt_arch' => '00ac75b49b83ce4d672a96d14fdfbcea974d9122db7273f6c3f556d1410e92e5',
+        'prompt_arch_dir' => 'fee17b15824e3e07043d0a37f9e62e6c28dff4edfff62e3c36e3b1cdb29bc40b',
+        'prompt_review' => '41b4a6959eae0eb1f3dcf832b26aee949687e6eb0504d36f743a0d8758fc31a1',
+        'prompt_review_dir' => '6dfe901542363474171082f21ee05a4452c0ea0c115450b99163db3643e4d471',
+        'prompt_pm' => 'c13176e63c2137bac0c8fb10916c266b01acc5ce9ba3c94746b44334a212282c',
+        'prompt_pm_dir' => '7c8844989189b38bd44a71dabdaeb5f601e6c89808bc45ade995ea1209f45015',
         'lang_en' => '041abac3c59dfa51c46afb98e6bf7c8d54c2b012b9f836d79e4057d15da4f65c',
         'compact_summarize' => 'bd3113eb06a70e558bed972cf8d3da85edafa6aaafc9ad57756f8acd3575e327',
         'compact_reseed_prefix' => 'a5de86dc6f44a6a53adb1d450bfb21d3d5a6b9ef6460d126ced385eb6e1abd90',
@@ -195,6 +195,7 @@ final class PromptFilesTest extends TestCase
     {
         $this->isolate();
         $values = [
+            'common' => ['engine' => 'Claude Code'],
             'language_line' => ['language' => 'English'],
             'session_update' => ['prompt' => 'text'],
             'secret_blocked' => ['findings' => '- a:1 (t)'],

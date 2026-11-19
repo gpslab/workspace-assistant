@@ -196,18 +196,29 @@ final class Config
         $modelEpicTick = trim((string) $env->get('MODEL_EPIC_TICK', ''));
         $modelEpicFinal = trim((string) $env->get('MODEL_EPIC_FINAL', ''));
         $modelEpicReview = trim((string) $env->get('MODEL_EPIC_REVIEW', ''));
-        foreach ([
+        $epicModels = [
             'MODEL_EPIC_TICK' => $modelEpicTick,
             'MODEL_EPIC_FINAL' => $modelEpicFinal,
             'MODEL_EPIC_REVIEW' => $modelEpicReview,
-        ] as $key => $model) {
-            if ($model !== '' && !in_array($model, $claudeModels, true)) {
-                throw new \RuntimeException("{$key}={$model} in .env is not in CLAUDE_MODELS.");
+        ];
+        if ($engine === self::ENGINE_OPENCODE) {
+            // An OpenCode epic run takes its model from OPENCODE_MODEL, not from a Claude Code alias:
+            // the keys are not applied and are not validated against CLAUDE_MODELS. One line names
+            // every key that is set, instead of one line per key.
+            $set = array_keys(array_filter($epicModels, static fn (string $model): bool => $model !== ''));
+            if ($set !== []) {
+                $configWarnings[] = implode(', ', $set).' set but not applied on OpenCode: an epic run uses OPENCODE_MODEL.';
             }
-        }
-        if (($modelEpicTick !== '' || $modelEpicFinal !== '' || $modelEpicReview !== '')
-            && ClaudeRunner::modelFromArgs($claudeExtraArgs) !== null) {
-            $configWarnings[] = 'MODEL_EPIC_TICK, MODEL_EPIC_FINAL and MODEL_EPIC_REVIEW are ignored: a --model in CLAUDE_EXTRA_ARGS pins the model for every run.';
+        } else {
+            foreach ($epicModels as $key => $model) {
+                if ($model !== '' && !in_array($model, $claudeModels, true)) {
+                    throw new \RuntimeException("{$key}={$model} in .env is not in CLAUDE_MODELS.");
+                }
+            }
+            if (array_filter($epicModels, static fn (string $model): bool => $model !== '') !== []
+                && ClaudeRunner::modelFromArgs($claudeExtraArgs) !== null) {
+                $configWarnings[] = 'MODEL_EPIC_TICK, MODEL_EPIC_FINAL and MODEL_EPIC_REVIEW are ignored: a --model in CLAUDE_EXTRA_ARGS pins the model for every run.';
+            }
         }
 
         return new self(
@@ -359,7 +370,8 @@ final class Config
 
     /**
      * Whether the instance runs OpenCode ({@see self::ENGINE_OPENCODE}): the factory then builds an
-     * {@see OpencodeRunner}, gated modes are refused, epics are unavailable and `/model` is read-only.
+     * {@see OpencodeRunner}, the gates reach it through the plugin shim, epic runs use
+     * `OPENCODE_MODEL` and `/model` is read-only.
      */
     public function isOpencode(): bool
     {

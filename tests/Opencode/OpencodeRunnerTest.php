@@ -120,6 +120,7 @@ final class OpencodeRunnerTest extends TestCase
         $explicitJson = json_decode((string) file_get_contents($dir.'/explicit.json'), true);
         self::assertIsArray($explicitJson);
         self::assertArrayHasKey('critic', $explicitJson['agents']);
+        self::assertSame([OpencodeRunner::gatePluginDir()], $explicitJson['plugins']);
 
         $runner->kill();
         self::assertSame([], glob($this->root.'/state/opencode-*') ?: []);
@@ -151,7 +152,7 @@ final class OpencodeRunnerTest extends TestCase
         self::assertSame([], glob($this->root.'/state/opencode-*') ?: []);
     }
 
-    public function testPromptHashAndWarningsMatchTheClaudeRunner(): void
+    public function testPromptWarningsMatchTheClaudeRunnerAndTheEngineWordingDiffers(): void
     {
         $claude = new ClaudeRunner('/bin/true', $this->root.'/repo', 0, []);
         $opencode = $this->runner('/bin/true', withAgents: true);
@@ -160,7 +161,8 @@ final class OpencodeRunnerTest extends TestCase
             $claude->start('hello', null);
             $opencode->start('hello', null);
 
-            self::assertSame($claude->promptHash(), $opencode->promptHash());
+            // The assembled prompt differs by the {engine} placeholder only (see SystemPromptTest).
+            self::assertNotSame($claude->promptHash(), $opencode->promptHash());
             self::assertSame($claude->promptWarnings(), $opencode->promptWarnings());
         } finally {
             $claude->kill();

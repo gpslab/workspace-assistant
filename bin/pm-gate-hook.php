@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant;
 
 /*
- * PreToolUse hook (matcher Bash) that gates issue creation, see PmGateHook. Called by claude,
- * not by the bot: php bin/pm-gate-hook.php <STATE_DIR> <run kind> <run id>, with the PreToolUse
- * event JSON on stdin and the skip reason file named by PmGateHook::SKIP_ENV. The stdin may also
- * carry the engine-neutral input `{command, history, engine}` (engine "opencode", history = the
- * path of an OpenCode session-history file); the Claude Code PreToolUse input path is unchanged.
+ * PreToolUse hook (matcher Bash) that gates issue creation, see PmGateHook. Called by claude and by
+ * the OpenCode gate shim (`plugins/opencode`), not by the bot: php bin/pm-gate-hook.php <STATE_DIR>
+ * <run kind> <run id>, with the PreToolUse event JSON on stdin and the skip reason file named by
+ * PmGateHook::SKIP_ENV. The stdin may also carry the engine-neutral input `{command, history, engine}`
+ * (engine "opencode", history = the path of an OpenCode session-history file); the Claude Code
+ * PreToolUse input path is unchanged.
  *
  * Fail-CLOSED, the opposite of the review Stop hook: any failure (including the bootstrap
  * not loading) exits 2 with a fixed reason on stderr, which blocks the command. A fatal that

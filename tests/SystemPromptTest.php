@@ -21,6 +21,18 @@ final class SystemPromptTest extends TestCase
         }
     }
 
+    public function testTheEngineWordingIsRenderedPerEngine(): void
+    {
+        $claude = SystemPrompt::forMode(SystemPrompt::MODE_PM);
+        $opencode = SystemPrompt::forMode(SystemPrompt::MODE_PM, null, Config::FORGE_GITHUB, Config::ENGINE_OPENCODE);
+
+        self::assertStringContainsString('a session of Claude Code driven through a Telegram bot', $claude);
+        self::assertStringContainsString('a session of OpenCode driven through a Telegram bot', $opencode);
+        self::assertStringNotContainsString('{engine}', $claude);
+        self::assertStringNotContainsString('{engine}', $opencode);
+        self::assertNotSame($claude, $opencode);
+    }
+
     public function testContainsSelfPreservationRule(): void
     {
         self::assertStringContainsString('bin/ctl.sh', SystemPrompt::forMode(SystemPrompt::MODE_ARCH));

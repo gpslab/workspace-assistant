@@ -269,7 +269,7 @@ final class SystemPromptPersonaTest extends TestCase
     {
         $text = SystemPrompt::forMode(SystemPrompt::MODE_ARCH);
 
-        self::assertStringStartsWith('You are running as Workspace Assistant: a Claude Code session driven through a Telegram bot. Follow these rules.', $text);
+        self::assertStringStartsWith('You are running as Workspace Assistant: a session of Claude Code driven through a Telegram bot. Follow these rules.', $text);
         self::assertStringContainsString("Delivery — the user sees ONLY your final text response:\n- The user communicates via Telegram and CANNOT see tool calls", $text);
         self::assertStringContainsString("Self-preservation — you ARE the bot process (bin/bot.php):\n- NEVER run bin/ctl.sh and never stop, restart, or kill the bot process", $text);
         self::assertStringContainsString('report status by reading files and logs (state/bot.log) and git state, but never manage the process itself.', $text);

@@ -348,6 +348,7 @@ final class OpencodeRunner implements AgentRunner
             $this->promptsDir !== '' ? $this->repoPath.'/'.$this->promptsDir : null,
             $this->promptsDir !== '' ? $this->promptsDir : null,
             $this->forge,
+            Config::ENGINE_OPENCODE,
         );
         $this->promptWarnings = $built['warnings'];
         $systemPrompt = $built['text'];
@@ -380,6 +381,16 @@ final class OpencodeRunner implements AgentRunner
     }
 
     /**
+     * The directory of the gate shim loaded by OpenCode from `plugins` of the explicit config. The
+     * shim lives in the bot's repository and has no build step; it only forwards a shell call to the
+     * PHP gate hooks ({@see PmGateHook}, {@see ReviewCommitHook}) and translates their answer.
+     */
+    public static function gatePluginDir(): string
+    {
+        return dirname(__DIR__).'/plugins/opencode';
+    }
+
+    /**
      * Writes the renderer's artefacts into the per-run config directory.
      *
      * @param list<OpencodeAgent> $builtinAgents
@@ -394,6 +405,7 @@ final class OpencodeRunner implements AgentRunner
             $this->repoPath,
             is_file($this->repoPath.'/CLAUDE.md'),
             is_file($this->repoPath.'/AGENTS.md'),
+            self::gatePluginDir(),
         );
 
         foreach ($renderer->render() as $relative => $content) {

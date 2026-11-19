@@ -18,6 +18,7 @@ final class OpencodeConfigRendererTest extends TestCase
 {
     private const string PROMPT_PATH = '/state/opencode-run-1/system-prompt.md';
     private const string REPO = '/repo';
+    private const string PLUGIN_DIR = '/bot/plugins/opencode';
 
     public function testSystemPromptFileCarriesTheAssembledPrompt(): void
     {
@@ -107,6 +108,28 @@ final class OpencodeConfigRendererTest extends TestCase
             array_keys($files),
         );
         self::assertSame('the system prompt', $files[OpencodeConfigRenderer::SYSTEM_PROMPT_FILE]);
+    }
+
+    public function testTheGatePluginIsListedInExplicitJson(): void
+    {
+        $files = $this->render();
+
+        self::assertSame([self::PLUGIN_DIR], $this->explicitJson($files)['plugins'] ?? null);
+    }
+
+    public function testNoPluginIsListedWithoutAPluginDirectory(): void
+    {
+        $files = (new OpencodeConfigRenderer(
+            'the system prompt',
+            self::PROMPT_PATH,
+            [],
+            [],
+            self::REPO,
+            false,
+            false,
+        ))->render();
+
+        self::assertArrayNotHasKey('plugins', $this->explicitJson($files));
     }
 
     public function testAgentPermissionsAreRenderedIntoExplicitJson(): void
@@ -232,6 +255,7 @@ final class OpencodeConfigRendererTest extends TestCase
             self::REPO,
             $hasClaudeMd,
             $hasAgentsMd,
+            self::PLUGIN_DIR,
         ))->render();
     }
 
@@ -251,7 +275,7 @@ final class OpencodeConfigRendererTest extends TestCase
     /**
      * @param array<string, string> $files
      *
-     * @return array{agents: array<string, array{permissions: list<array{action: string, resource: string, effect: string}>}>}
+     * @return array{agents: array<string, array{permissions: list<array{action: string, resource: string, effect: string}>}>, plugins?: list<string>}
      */
     private function explicitJson(array $files): array
     {
