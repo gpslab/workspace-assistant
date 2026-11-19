@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests\Opencode;
 
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
+use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\OpencodeRunner;
 use GpsLab\WorkspaceAssistant\RunnerState;
@@ -151,16 +152,44 @@ final class OpencodeRunnerTest extends TestCase
         self::assertSame([], glob($this->root.'/state/opencode-*') ?: []);
     }
 
-    public function testPromptHashAndWarningsMatchTheClaudeRunner(): void
+    /**
+     * The two runners assemble the same parts in the same order and differ only in the engine tokens
+     * (see PROMPTS.md): the OpenCode prompt is the Claude one with the OpenCode wording, which is what
+     * makes the hashes differ.
+     */
+    public function testPromptIsTheClaudeOneWithTheOpencodeEngineTokens(): void
     {
-        $claude = new ClaudeRunner('/bin/true', $this->root.'/repo', 0, []);
+        $claudeBin = $this->root.'/claude';
+        file_put_contents($claudeBin, "#!/bin/sh\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$0.argv\"\n");
+        chmod($claudeBin, 0o755);
+
+        $claude = new ClaudeRunner($claudeBin, $this->root.'/repo', 0, []);
         $opencode = $this->runner('/bin/true', withAgents: true);
 
         try {
             $claude->start('hello', null);
             $opencode->start('hello', null);
 
-            self::assertSame($claude->promptHash(), $opencode->promptHash());
+            // The Claude prompt is passed in argv, the OpenCode one is written to the per-run directory.
+            for ($i = 0; $i < 500 && !is_file($claudeBin.'.argv'); ++$i) {
+                usleep(10000);
+            }
+            $args = explode("\0", (string) file_get_contents($claudeBin.'.argv'));
+            $at = array_search('--append-system-prompt', $args, true);
+            self::assertIsInt($at);
+
+            $dirs = glob($this->root.'/state/opencode-*') ?: [];
+            self::assertCount(1, $dirs);
+            $opencodeText = (string) file_get_contents($dirs[0].'/system-prompt.md');
+
+            $claudeTokens = SystemPrompt::engineTokens(Config::DEFAULT_ENGINE_FINGERPRINT);
+            $back = [];
+            foreach (SystemPrompt::engineTokens(Config::ENGINE_OPENCODE) as $token => $value) {
+                $back[$value] = $claudeTokens[$token];
+            }
+
+            self::assertSame($args[$at + 1], strtr($opencodeText, $back));
+            self::assertNotSame($claude->promptHash(), $opencode->promptHash());
             self::assertSame($claude->promptWarnings(), $opencode->promptWarnings());
         } finally {
             $claude->kill();

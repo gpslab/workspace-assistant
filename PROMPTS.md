@@ -18,9 +18,9 @@ There are three kinds of file:
 
 | File                                | Kind     | Used in                                                             | Placeholders                    |
 |-------------------------------------|----------|---------------------------------------------------------------------|---------------------------------|
-| `common`                            | contract | System prompt of every run (`SystemPrompt`)                         |                                 |
+| `common`                            | contract | System prompt of every run (`SystemPrompt`)                         | `{engine_session}`              |
 | `common_limits`                     | contract | System prompt of every mode except `arch` (`SystemPrompt`)          |                                 |
-| `contract_review`                   | contract | System prompt of the `review` mode (`SystemPrompt`)                 |                                 |
+| `contract_review`                   | contract | System prompt of the `review` mode (`SystemPrompt`)                 | `{engine_review_check}`         |
 | `language_line`                     | contract | End of the system prompt of every run (`SystemPrompt`)              | `{language}`                    |
 | `session_update`                    | contract | Resumed session whose system prompt changed (`ClaudeRunner` only)   | `{prompt}`                      |
 | `secret_blocked`                    | contract | Chat run started while the commit is blocked by a secret (`QueueScheduler`) | `{findings}`                    |
@@ -76,6 +76,25 @@ parts, in order:
 `instructions` of the rendered `opencode.json`; it also adds the managed repository's `CLAUDE.md` to the
 same list, but only when there is no `AGENTS.md` (OpenCode reads `AGENTS.md` itself and never `CLAUDE.md`).
 The parts and the order are the same on both engines.
+
+#### Engine tokens
+
+`SystemPrompt::build` replaces two tokens in ONE substitution step over the assembled text
+(`SystemPrompt::engineTokens`), with the wording of the engine the instance runs (`ENGINE`):
+
+- `{engine_session}` — how the session is identified to the model. `ENGINE=claude` (the default):
+  `a Claude Code session`; `ENGINE=opencode`: `an OpenCode session`.
+- `{engine_review_check}` — what enforces that the ids of the cold findings are in the published review
+  body. `ENGINE=claude`: `the Stop hook does not read a body from a file (\`-F body=@file\`, \`--input\`) and
+  blocks the turn until every id is in the body`; `ENGINE=opencode`: `the bot reads the published review
+  after the run and does not see a body from a file (\`-F body=@file\`, \`--input\`): it repeats the turn
+  until every id is in the body`.
+
+These two texts are why the tokens exist: `common` and `contract_review` are `load`-ed, not rendered
+(`PromptFiles::render`), so without that step a placeholder in them would reach the model unfilled. The
+substitution runs over the whole assembled text, so a persona file may use the tokens as well. On Claude
+Code the values are that text exactly as it was before the tokens, byte for byte; on OpenCode the wording
+names the mechanics of that engine, which has neither a Stop hook nor `run_in_background`.
 
 ### Chat message
 
@@ -163,6 +182,12 @@ no longer become an extra task.
     `review_status_reason*`, `compact_*`, `secret_blocked` and `epic_runbook` a placeholder mistake passes silently (only the
     override warning appears), and `default_file_prompt` gets no checks, so keep the placeholders of the
     `.dist` exactly.
+  - *Engine tokens in a local override.* `common` and `contract_review` carry `{engine_session}` and
+    `{engine_review_check}` (see [Engine tokens](#engine-tokens)). A local `prompts/common.md` or
+    `prompts/contract_review.md` written before them has no such placeholder, and such an instance gets
+    the "placeholders differ from `.dist`" warning once in the reply of every run, until the local file
+    carries the same tokens. The step replaces the tokens of the assembled text, so a local file without
+    them is used as it is.
   - *Agent files.* Agent bodies are loaded, not rendered, so there are no placeholder warnings; only an
     empty or unreadable local file and a missing `name:` are reported.
 - **`PROMPTS_DIR` persona layer.** The directory is set in `.env`, relative to `REPO_PATH`, for example

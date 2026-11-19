@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests;
 
+use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\ReviewStatusHook;
@@ -202,11 +203,24 @@ final class PromptFilesTest extends TestCase
             'review_status_reason_ids' => ['ids' => 'C1'],
             'review_status_reason_ids_gitlab' => ['ids' => 'C1'],
         ];
+        // `common` and `contract_review` are load-ed, not rendered: their placeholders are the engine
+        // tokens, which SystemPrompt::build replaces in one step over the assembled prompt.
+        $notRendered = ['common' => ['engine_session'], 'contract_review' => ['engine_review_check']];
+        $engineTokens = SystemPrompt::engineTokens(Config::DEFAULT_ENGINE_FINGERPRINT);
+
         foreach (array_keys(self::NAMES) as $name) {
             $placeholders = PromptFiles::placeholders(PromptFiles::load($name));
-            $keys = array_keys($values[$name] ?? []);
+            $keys = [...array_keys($values[$name] ?? []), ...($notRendered[$name] ?? [])];
             sort($keys);
             self::assertSame($placeholders, $keys, $name);
+
+            if (isset($notRendered[$name])) {
+                // The engine tokens are filled by SystemPrompt::build, so render() is not called on
+                // these two and no unfilled-placeholder warning is due for them.
+                self::assertSame([], PromptFiles::placeholders(strtr(PromptFiles::load($name), $engineTokens)), $name);
+
+                continue;
+            }
 
             $warnings = [];
             $text = PromptFiles::render($name, $values[$name] ?? [], $warnings);
