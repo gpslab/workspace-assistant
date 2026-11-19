@@ -7,7 +7,7 @@ namespace GpsLab\WorkspaceAssistant;
 /**
  * The git hooks directory of the bot (`hooks/git/`) and the environment that points git at it.
  *
- * The Claude process gets `core.hooksPath` through `GIT_CONFIG_COUNT/KEY_n/VALUE_n`, so every git
+ * The agent process gets `core.hooksPath` through `GIT_CONFIG_COUNT/KEY_n/VALUE_n`, so every git
  * it starts (also from a script or `sh -c`) runs the bot's `pre-push` scan. It is a safety net:
  * `git push --no-verify` and pushes not made through git bypass it. Every other hook name in the
  * directory dispatches to the repository's own hook.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Safety net for the pushes Claude makes during a run: scans the commits about to be pushed for secrets
+# Safety net for the pushes the agent makes during a run: scans the commits about to be pushed for secrets
 # (bin/pre-push-scan.php), then runs the repository's own pre-push. `git push --no-verify` skips it.
 . "$(dirname "$0")/lib.sh"
 

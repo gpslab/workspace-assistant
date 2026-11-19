@@ -21,6 +21,9 @@ use GpsLab\WorkspaceAssistant\Opencode\OpencodeNdjsonParser;
  * config. `XDG_CONFIG_HOME` is never touched: it would also redirect the configs of `gh` / `glab` and
  * their authorisation.
  *
+ * The environment also carries the bot's git hooks `core.hooksPath` ({@see GitHooks}), exactly as
+ * {@see ClaudeRunner::processEnv()} does, so the agent process is wired the same way on both engines.
+ *
  * A gated run (a `pm` / `review` mode run, which covers the epic runs) additionally lists the gate shim
  * in the `plugins` of that config: OpenCode has no command hooks, so the PM gate and the review commit
  * hook of such a run reach it through the plugin, which starts the same PHP hooks. The plugin reads the
@@ -296,8 +299,10 @@ final class OpencodeRunner implements AgentRunner
     }
 
     /**
-     * The complete environment of the process: the bot's, the run variables, and the per-run config
-     * pointers. It must be complete: with extra variables proc_open does not inherit the rest.
+     * The complete environment of the process: the bot's, the run variables, the per-run config
+     * pointers, and the `core.hooksPath` of the bot's git hooks ({@see GitHooks}), exactly as
+     * {@see ClaudeRunner::processEnv()} builds it. It must be complete: with extra variables proc_open
+     * does not inherit the rest.
      *
      * `XDG_CONFIG_HOME` is deliberately left as it is: redirecting it would also move the configs of
      * `gh` / `glab` and lose their authorisation.
@@ -308,11 +313,11 @@ final class OpencodeRunner implements AgentRunner
     {
         $dir = (string) $this->configDir;
 
-        return array_merge(getenv(), $this->extraEnv, [
+        return GitHooks::apply(array_merge(getenv(), $this->extraEnv, [
             'OPENCODE_DISABLE_PROJECT_CONFIG' => '1',
             'OPENCODE_CONFIG_DIR' => $dir,
             'OPENCODE_CONFIG' => $dir.'/explicit.json',
-        ]);
+        ]));
     }
 
     /**

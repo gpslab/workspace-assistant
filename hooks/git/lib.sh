@@ -1,6 +1,6 @@
 # Shared by the hooks of this directory (sourced, not a hook itself). POSIX sh.
 #
-# The directory is set as core.hooksPath for the Claude process, which replaces the repository's own
+# The directory is set as core.hooksPath for the agent process, which replaces the repository's own
 # hooks. Each hook here therefore hands over to the repository's hook of the same name.
 
 WA_HOOKS_DIR=$(cd "$(dirname "$0")" && pwd -P)
