@@ -98,13 +98,14 @@ final class QueueScheduler implements QueueControl
 
     /**
      * Whether the stored session can be resumed by the current configuration: its engine fingerprint
-     * (`NULL` = the default Claude fingerprint) equals the current one.
+     * (`NULL` = the default Claude fingerprint) equals the current one. `$model` is the `--model` the
+     * run would pass, so a foreign provider whose model changed starts a new session.
      */
-    private function fingerprintsMatch(int $chatId, int $threadId): bool
+    private function fingerprintsMatch(int $chatId, int $threadId, ?string $model): bool
     {
         $stored = $this->db->getEngineFingerprint($chatId, $threadId) ?? Config::DEFAULT_ENGINE_FINGERPRINT;
 
-        return $stored === $this->config->engineFingerprint();
+        return $stored === $this->config->engineFingerprint($model);
     }
 
     public function resetTopicSession(int $chatId, int $threadId): void
@@ -575,7 +576,7 @@ final class QueueScheduler implements QueueControl
         $sessionId = $this->db->getSessionId($chatId, $threadId);
         // A session id is meaningful only to the engine that created it: another engine (later also
         // another provider) cannot resume it. A mismatch starts a new session instead.
-        $fingerprintChanged = $sessionId !== null && !$this->fingerprintsMatch($chatId, $threadId);
+        $fingerprintChanged = $sessionId !== null && !$this->fingerprintsMatch($chatId, $threadId, $this->models()->checkPinned($head['model'] ?? null));
 
         // 5. "Is there anything to compact".
         if ($head['kind'] === self::ITEM_COMPACT) {

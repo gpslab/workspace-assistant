@@ -83,4 +83,23 @@ final class EnvTest extends TestCase
         $this->expectException(\RuntimeException::class);
         Env::load('/no/such/path/.env');
     }
+
+    public function testProviderEnvPassesOnlyProviderPrefixedKeys(): void
+    {
+        $this->write(<<<'ENV'
+            ANTHROPIC_BASE_URL=https://api.example.com
+            ANTHROPIC_MODEL=sonnet
+            CLAUDE_CODE_SUBAGENT_MODEL=haiku
+            BOT_TOKEN=not-a-provider-key
+            CLAUDE_EXTRA_ARGS=--x
+            ENV);
+
+        $env = Env::load($this->file);
+
+        self::assertSame([
+            'ANTHROPIC_BASE_URL' => 'https://api.example.com',
+            'ANTHROPIC_MODEL' => 'sonnet',
+            'CLAUDE_CODE_SUBAGENT_MODEL' => 'haiku',
+        ], $env->providerEnv());
+    }
 }

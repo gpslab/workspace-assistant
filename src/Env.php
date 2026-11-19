@@ -93,4 +93,27 @@ final class Env
 
         return array_values(array_filter(array_map('trim', explode(',', $raw)), static fn (string $v): bool => $v !== ''));
     }
+
+    /**
+     * The `.env` keys Claude Code reads for an Anthropic-compatible provider: every key whose
+     * name starts with `ANTHROPIC_` or `CLAUDE_CODE_`. Both are Claude Code's own namespaces,
+     * so a fixed list would go stale with the next Claude Code release that adds a variable.
+     *
+     * File values only, regardless of {@see self::$fileOnly}: the real environment reaches the
+     * process on its own, so the caller must merge these BELOW `getenv()` to keep the existing
+     * precedence (the real environment wins over the file, as in {@see self::get()}).
+     *
+     * @return array<string, string>
+     */
+    public function providerEnv(): array
+    {
+        $result = [];
+        foreach ($this->values as $key => $value) {
+            if (str_starts_with($key, 'ANTHROPIC_') || str_starts_with($key, 'CLAUDE_CODE_')) {
+                $result[$key] = $value;
+            }
+        }
+
+        return $result;
+    }
 }

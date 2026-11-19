@@ -78,6 +78,7 @@ class RunnerFactory
             savedPromptHash: $savedPromptHash,
             forge: $this->config->forge,
             model: $model,
+            providerEnv: $this->config->providerEnv,
         );
     }
 }

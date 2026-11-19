@@ -141,6 +141,7 @@
     "error.claude": "Claude error: {text}",
     "error.no_text": "no text",
     "error.session_expired": "⏳ The session expired: Claude keeps transcripts for ~30 days and has already deleted the context of this chat — the old history cannot be continued. Use /new to start a new session. The conversation stays in Telegram (you can see it), but Claude will not remember it in the new session.",
+    "error.provider_quota": "⚠️ The provider quota or balance is exhausted (waiting will not help): {text}",
     "file.download_failed": "Could not download the file: {error}",
     "file.download_too_big": "📎 File is too large — the Telegram Bot API download limit is 20 MB.",
     "file.too_big_named": "File is too large — the Telegram Bot API download limit is 20 MB ({name})",

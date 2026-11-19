@@ -141,6 +141,7 @@
     "error.claude": "Claude-Fehler: {text}",
     "error.no_text": "kein Text",
     "error.session_expired": "⏳ Die Sitzung ist abgelaufen: Claude speichert Transkripte ca. 30 Tage und hat den Kontext dieses Chats bereits gelöscht — der alte Verlauf kann nicht fortgesetzt werden. Starte mit /new eine neue Sitzung. Die Unterhaltung bleibt in Telegram (du siehst sie), aber Claude erinnert sich in der neuen Sitzung nicht daran.",
+    "error.provider_quota": "⚠️ Das Kontingent oder Guthaben des Anbieters ist erschöpft (Warten hilft nicht): {text}",
     "file.download_failed": "Die Datei konnte nicht heruntergeladen werden: {error}",
     "file.download_too_big": "📎 Die Datei ist zu groß — das Download-Limit der Telegram Bot API beträgt 20 MB.",
     "file.too_big_named": "Die Datei ist zu groß — das Download-Limit der Telegram Bot API beträgt 20 MB ({name})",

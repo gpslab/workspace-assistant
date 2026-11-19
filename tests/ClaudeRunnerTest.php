@@ -433,4 +433,34 @@ final class ClaudeRunnerTest extends TestCase
         self::assertSame('opus[1m]', ClaudeRunner::modelFromArgs(['--x', '--model=opus[1m]']));
         self::assertSame('', ClaudeRunner::modelFromArgs(['--model']));
     }
+
+    public function testProcessEnvPassesProviderKeysIntoTheClaudeProcessEnv(): void
+    {
+        putenv('ANTHROPIC_BASE_URL');
+        putenv('CLAUDE_CODE_SUBAGENT_MODEL');
+        $runner = new ClaudeRunner('claude', sys_get_temp_dir(), 0, [], providerEnv: [
+            'ANTHROPIC_BASE_URL' => 'https://api.example.com',
+            'CLAUDE_CODE_SUBAGENT_MODEL' => 'haiku',
+        ]);
+
+        $env = $runner->processEnv();
+
+        self::assertSame('https://api.example.com', $env['ANTHROPIC_BASE_URL']);
+        self::assertSame('haiku', $env['CLAUDE_CODE_SUBAGENT_MODEL']);
+        putenv('ANTHROPIC_BASE_URL');
+        putenv('CLAUDE_CODE_SUBAGENT_MODEL');
+    }
+
+    public function testRealEnvWinsOverProviderEnv(): void
+    {
+        putenv('ANTHROPIC_BASE_URL=https://real.example.com');
+        $runner = new ClaudeRunner('claude', sys_get_temp_dir(), 0, [], providerEnv: [
+            'ANTHROPIC_BASE_URL' => 'https://file.example.com',
+        ]);
+
+        $env = $runner->processEnv();
+
+        self::assertSame('https://real.example.com', $env['ANTHROPIC_BASE_URL']);
+        putenv('ANTHROPIC_BASE_URL');
+    }
 }

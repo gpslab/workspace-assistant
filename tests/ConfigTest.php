@@ -481,6 +481,121 @@ final class ConfigTest extends TestCase
         self::assertSame(['~/.secrets.env', '/etc/app/prod.env'], Config::load($this->envFile)->secretEnvFiles);
     }
 
+    public function testProviderSettingsAndPassthroughKeysAreCollected(): void
+    {
+        $this->writeEnv(<<<'ENV'
+            ANTHROPIC_BASE_URL=https://api.openrouter.ai/v1
+            ANTHROPIC_MODEL=sonnet
+            ANTHROPIC_AUTH_TOKEN=provider-token
+            CLAUDE_CODE_SUBAGENT_MODEL=haiku
+            NOT_A_PROVIDER_KEY=value
+            ENV);
+
+        $config = Config::load($this->envFile);
+
+        self::assertSame('https://api.openrouter.ai/v1', $config->anthropicBaseUrl);
+        self::assertSame('sonnet', $config->anthropicModel);
+        self::assertSame([
+            'ANTHROPIC_BASE_URL' => 'https://api.openrouter.ai/v1',
+            'ANTHROPIC_MODEL' => 'sonnet',
+            'ANTHROPIC_AUTH_TOKEN' => 'provider-token',
+            'CLAUDE_CODE_SUBAGENT_MODEL' => 'haiku',
+        ], $config->providerEnv);
+    }
+
+    public function testProviderSettingsUnsetAreNullAndPassthroughIsEmpty(): void
+    {
+        $this->writeEnv();
+        $config = Config::load($this->envFile);
+
+        self::assertNull($config->anthropicBaseUrl);
+        self::assertNull($config->anthropicModel);
+        self::assertSame([], $config->providerEnv);
+    }
+
+    /** A minimal Config for the fingerprint helpers, with the provider-relevant fields overridden. */
+    private function fingerprintConfig(?string $anthropicBaseUrl = null, ?string $anthropicModel = null): Config
+    {
+        return new Config(
+            botToken: 't',
+            allowedUserIds: [1],
+            repoPath: sys_get_temp_dir(),
+            forgeRepo: '',
+            claudeBin: 'claude',
+            claudeTimeout: 0,
+            claudeStallTimeout: 900,
+            claudeExtraArgs: [],
+            claudeAppendSystemPrompt: '',
+            stateDir: sys_get_temp_dir(),
+            outboxDir: sys_get_temp_dir(),
+            inboxDir: sys_get_temp_dir(),
+            pollTimeout: 30,
+            gitTimeout: 30,
+            anthropicBaseUrl: $anthropicBaseUrl,
+            anthropicModel: $anthropicModel,
+        );
+    }
+
+    public function testEngineFingerprintWithoutBaseUrlIsTheDefault(): void
+    {
+        $config = $this->fingerprintConfig();
+
+        self::assertSame(Config::DEFAULT_ENGINE_FINGERPRINT, $config->engineFingerprint());
+        // `NULL` (the "no model" argument) maps to the same default.
+        self::assertSame($config->engineFingerprint(null), $config->engineFingerprint());
+    }
+
+    public function testModelDoesNotChangeFingerprintOnAnthropicHost(): void
+    {
+        $config = $this->fingerprintConfig('https://api.anthropic.com', 'sonnet');
+
+        self::assertSame('claude|api.anthropic.com', $config->engineFingerprint());
+        // Neither ANTHROPIC_MODEL nor the --model argument changes the fingerprint on Anthropic.
+        self::assertSame('claude|api.anthropic.com', $config->engineFingerprint('opus'));
+
+        $other = $this->fingerprintConfig('https://api.anthropic.com', 'haiku');
+        self::assertSame($config->engineFingerprint(), $other->engineFingerprint());
+    }
+
+    public function testAnthropicModelChangesFingerprintOnForeignHost(): void
+    {
+        $sonnet = $this->fingerprintConfig('https://openrouter.ai', 'sonnet');
+        $haiku = $this->fingerprintConfig('https://openrouter.ai', 'haiku');
+
+        self::assertSame('claude|openrouter.ai|sonnet', $sonnet->engineFingerprint());
+        self::assertNotSame($sonnet->engineFingerprint(), $haiku->engineFingerprint());
+    }
+
+    public function testModelArgumentChangesFingerprintOnForeignHost(): void
+    {
+        $config = $this->fingerprintConfig('https://openrouter.ai', 'sonnet');
+
+        self::assertSame('claude|openrouter.ai|sonnet', $config->engineFingerprint());
+        self::assertSame('claude|openrouter.ai|opus', $config->engineFingerprint('opus'));
+    }
+
+    public function testBaseUrlHostChangeChangesFingerprint(): void
+    {
+        $a = $this->fingerprintConfig('https://openrouter.ai');
+        $b = $this->fingerprintConfig('https://api.deepseek.com');
+
+        self::assertSame('claude|openrouter.ai', $a->engineFingerprint());
+        self::assertSame('claude|api.deepseek.com', $b->engineFingerprint());
+        self::assertNotSame($a->engineFingerprint(), $b->engineFingerprint());
+    }
+
+    public function testAnthropicHostDetection(): void
+    {
+        self::assertTrue($this->fingerprintConfig()->isAnthropicBaseUrl());
+        self::assertFalse($this->fingerprintConfig()->usesForeignProvider());
+
+        self::assertTrue($this->fingerprintConfig('https://api.anthropic.com')->isAnthropicBaseUrl());
+        self::assertTrue($this->fingerprintConfig('https://eu.anthropic.com')->isAnthropicBaseUrl());
+
+        self::assertFalse($this->fingerprintConfig('https://openrouter.ai')->isAnthropicBaseUrl());
+        self::assertTrue($this->fingerprintConfig('https://openrouter.ai')->usesForeignProvider());
+    }
+
     public function testOpencodeFieldsDefaultAndAreNotParsedFromEnv(): void
     {
         // The OPENCODE_* keys belong to the future ENGINE=opencode task: they are not read yet,
