@@ -2025,6 +2025,26 @@ final class QueueFlowTest extends TestCase
         self::assertSame(0, $this->launches());
     }
 
+    public function testOpencodeRefusesAtTheHeadAChatItemQueuedUnderClaude(): void
+    {
+        // Queued while the instance still ran claude: the enqueue gate did not apply, the mode is pm.
+        $this->say(100, 1, 'queued under claude', 10);
+        self::assertCount(1, $this->db->queueWaiting());
+
+        // The instance restarts into ENGINE=opencode: the surviving chat item is refused at the head,
+        // not launched without its PM gate.
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->call('startQueueHead');
+
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertSame(0, $this->launches());
+        $texts = $this->tg->textsTo(100, 1);
+        self::assertSame(
+            'Mode pm is not supported on OpenCode yet. Switch with /mode arch.',
+            $texts[count($texts) - 1],
+        );
+    }
+
     public function testOpencodeArchModeRuns(): void
     {
         $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);

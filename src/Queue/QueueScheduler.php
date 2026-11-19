@@ -496,6 +496,16 @@ final class QueueScheduler implements QueueControl
         $chatId = $head['chat_id'];
         $threadId = $head['thread_id'];
 
+        // OpenCode has no PM gate and no review commit hook: the enqueue gate refuses the gated
+        // modes on a new message, but a chat item queued under claude survives a restart into
+        // ENGINE=opencode. Re-check the mode at the head so it is refused here, not launched
+        // without its gate (the epic head-start guard below does the same for epic items).
+        if ($head['kind'] === self::ITEM_CHAT && $this->config->isOpencode() && $head['mode'] !== SystemPrompt::MODE_ARCH) {
+            $this->dropItem($head, $this->t('mode.opencode_unsupported', ['mode' => $head['mode']]));
+
+            return;
+        }
+
         // 1. Placeholder: "no message/topic" -> the item is dropped, claude is not
         //    started and no quota is spent. The /new barrier without claude is not edited.
         if ($head['kind'] !== self::ITEM_NEW && $head['placeholder_id'] > 0 && $this->editedItemId !== $head['id']) {
