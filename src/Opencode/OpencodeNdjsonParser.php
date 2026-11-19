@@ -62,11 +62,11 @@ final class OpencodeNdjsonParser
                 if ($tokens !== []) {
                     $sawTokens = true;
                     $cache = is_array($tokens['cache'] ?? null) ? $tokens['cache'] : [];
-                    $input += (int) ($tokens['input'] ?? 0);
-                    $output += (int) ($tokens['output'] ?? 0);
-                    $reasoning += (int) ($tokens['reasoning'] ?? 0);
-                    $cacheRead += (int) ($cache['read'] ?? 0);
-                    $cacheWrite += (int) ($cache['write'] ?? 0);
+                    $input += self::countTokens($tokens['input'] ?? null);
+                    $output += self::countTokens($tokens['output'] ?? null);
+                    $reasoning += self::countTokens($tokens['reasoning'] ?? null);
+                    $cacheRead += self::countTokens($cache['read'] ?? null);
+                    $cacheWrite += self::countTokens($cache['write'] ?? null);
                 }
                 $cost = $part['cost'] ?? null;
                 if (is_int($cost) || is_float($cost)) {
@@ -74,9 +74,9 @@ final class OpencodeNdjsonParser
                 }
             } elseif ($type === 'error') {
                 $err = $event['error'] ?? null;
-                if (is_array($err)) {
-                    $error = $err;
-                }
+                $error = is_array($err)
+                    ? $err
+                    : ['type' => null, 'message' => is_string($err) ? $err : null];
             }
         }
 
@@ -110,5 +110,19 @@ final class OpencodeNdjsonParser
             'command' => is_string($command) ? $command : null,
             'status' => is_string($state['status'] ?? null) ? $state['status'] : null,
         ];
+    }
+
+    /**
+     * A single token count as OpenCode reports it, or 0 when the value is missing or not a
+     * non-negative number. A bare `(int)` cast would turn a string, array or negative value into a
+     * plausible-but-wrong count, so only int/float >= 0 are summed.
+     */
+    private static function countTokens(mixed $value): int
+    {
+        if ((is_int($value) || is_float($value)) && $value >= 0) {
+            return (int) $value;
+        }
+
+        return 0;
     }
 }

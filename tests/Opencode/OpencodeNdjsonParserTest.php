@@ -83,6 +83,65 @@ final class OpencodeNdjsonParserTest extends TestCase
 
         self::assertTrue($turn->isError());
         self::assertSame('provider.quota', $turn->error['type'] ?? null);
+        // No step_finish event: the run reported no usage.
+        self::assertNull($turn->tokens);
+        self::assertNull($turn->costUsd);
+    }
+
+    public function testErrorEventWithAStringPayloadStillSetsTheErrorFlag(): void
+    {
+        $turn = OpencodeNdjsonParser::parse([
+            '{"type":"error","sessionID":"s","error":"provider exploded"}',
+        ]);
+
+        self::assertTrue($turn->isError());
+        self::assertSame(['type' => null, 'message' => 'provider exploded'], $turn->error);
+    }
+
+    public function testErrorEventWithoutAnErrorPayloadStillSetsTheErrorFlag(): void
+    {
+        $turn = OpencodeNdjsonParser::parse([
+            '{"type":"error","sessionID":"s"}',
+        ]);
+
+        self::assertTrue($turn->isError());
+        self::assertSame(['type' => null, 'message' => null], $turn->error);
+    }
+
+    public function testSessionIdTakesTheFirstEvent(): void
+    {
+        $turn = OpencodeNdjsonParser::parse([
+            '{"type":"step_start","sessionID":"first"}',
+            '{"type":"text","sessionID":"second","part":{"text":"hello"}}',
+        ]);
+
+        self::assertSame('first', $turn->sessionId);
+    }
+
+    public function testMalformedLinesAreSkipped(): void
+    {
+        $turn = OpencodeNdjsonParser::parse([
+            'not json',
+            '{"type":"text","sessionID":"s","part":{"text":"a"}}',
+            '42',
+            '"a scalar"',
+            '{"type":"text","sessionID":"s","part":{"text":"b"}}',
+        ]);
+
+        self::assertSame('s', $turn->sessionId);
+        self::assertSame('b', $turn->finalText);
+    }
+
+    public function testNonNumericOrNegativeTokensAreIgnored(): void
+    {
+        $turn = OpencodeNdjsonParser::parse([
+            '{"type":"step_finish","sessionID":"s","part":{"tokens":{"input":"5","output":3,"reasoning":-2,"cache":{"read":1.5,"write":0}}}}',
+        ]);
+
+        self::assertEquals(
+            new OpencodeTokens(input: 0, output: 3, reasoning: 0, cacheRead: 1, cacheWrite: 0),
+            $turn->tokens,
+        );
     }
 
     private function parse(string $file): OpencodeTurn

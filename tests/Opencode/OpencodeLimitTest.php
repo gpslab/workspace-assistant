@@ -61,6 +61,27 @@ final class OpencodeLimitTest extends TestCase
         self::assertSame('rate', OpencodeLimit::classify($error, $this->classifier()));
     }
 
+    public function testProvider429StatusIsRateWhenTheTextIsNeutral(): void
+    {
+        $error = ['type' => 'provider.unknown', 'status' => 429, 'message' => 'Too Many Requests'];
+
+        self::assertSame('rate', OpencodeLimit::classify($error, $this->classifier()));
+    }
+
+    public function testProvider402StatusIsQuotaWhenTheTextIsNeutral(): void
+    {
+        $error = ['type' => 'provider.unknown', 'status' => 402, 'message' => 'Payment required.'];
+
+        self::assertSame('quota', OpencodeLimit::classify($error, $this->classifier()));
+    }
+
+    public function testQuotaTextWinsOverA429Status(): void
+    {
+        $error = ['type' => 'provider.unknown', 'status' => 429, 'message' => 'Insufficient credits.'];
+
+        self::assertSame('quota', OpencodeLimit::classify($error, $this->classifier()));
+    }
+
     public function testRateLimitTextIsRate(): void
     {
         $error = ['type' => 'provider.unknown', 'message' => 'You are being rate limited.'];
