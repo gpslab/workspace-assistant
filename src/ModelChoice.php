@@ -22,6 +22,18 @@ final readonly class ModelChoice
     public const string LEVEL_ALL = 'all';
     public const string LEVEL_DEFAULT = 'default';
 
+    /** What `/stats` and `/model` show instead of an empty OPENCODE_MODEL: OpenCode falls back to its own default. */
+    private const string OPENCODE_DEFAULT_MODEL = 'default model of OpenCode';
+
+    /** The source phrase of the pin for `model.pinned` (a `--model` in CLAUDE_EXTRA_ARGS). */
+    private const string SOURCE_PIN_EXTRA_ARGS = '--model in CLAUDE_EXTRA_ARGS';
+
+    /** The source phrase of the pin for `model.level_pinned` (a `--model` in CLAUDE_EXTRA_ARGS). */
+    private const string SOURCE_LEVEL_EXTRA_ARGS = 'CLAUDE_EXTRA_ARGS';
+
+    /** The source phrase of the pin for both texts on an OpenCode instance. */
+    private const string SOURCE_OPENCODE = 'OPENCODE_MODEL';
+
     public function __construct(private Config $config, private Database $db)
     {
     }
@@ -56,12 +68,21 @@ final readonly class ModelChoice
     }
 
     /**
+     * True when the instance pins the model for every run: a `--model` in CLAUDE_EXTRA_ARGS, or
+     * OPENCODE_MODEL on an OpenCode instance. No stored `/model` choice survives the pin.
+     */
+    public function isPinned(): bool
+    {
+        return $this->pinnedByExtraArgs() !== null || $this->config->isOpencode();
+    }
+
+    /**
      * What a new queue item pins: topic model, else the model for all topics, else null.
      * A stored level outside the list is skipped (log line) and the next level is tried.
      */
     public function resolve(int $chatId, int $threadId): ?string
     {
-        if ($this->pinnedByExtraArgs() !== null) {
+        if ($this->isPinned()) {
             return null;
         }
 
@@ -72,7 +93,7 @@ final readonly class ModelChoice
     /** The model for all topics (or null): the last level of resolve() and the fallback of resolveEpic(). */
     public function resolveForAll(): ?string
     {
-        if ($this->pinnedByExtraArgs() !== null) {
+        if ($this->isPinned()) {
             return null;
         }
 
@@ -85,7 +106,7 @@ final readonly class ModelChoice
      */
     public function resolveEpic(string $run): ?string
     {
-        if ($this->pinnedByExtraArgs() !== null) {
+        if ($this->isPinned()) {
             return null;
         }
 
@@ -108,7 +129,7 @@ final readonly class ModelChoice
      */
     public function checkPinned(?string $model): ?string
     {
-        if ($model === null || $this->pinnedByExtraArgs() !== null) {
+        if ($model === null || $this->isPinned()) {
             return null;
         }
 
@@ -140,9 +161,18 @@ final readonly class ModelChoice
      */
     public function describe(Locale $locale, int $chatId, int $threadId, bool $markNotApplied = true): string
     {
+        if ($this->config->isOpencode()) {
+            return $locale->t('model.level_pinned', [
+                'model' => $this->opencodeModel(),
+                'source' => self::SOURCE_OPENCODE,
+            ]);
+        }
         $pinned = $this->pinnedByExtraArgs();
         if ($pinned !== null) {
-            return $locale->t('model.level_pinned', ['model' => $pinned !== '' ? $pinned : '--model']);
+            return $locale->t('model.level_pinned', [
+                'model' => $pinned !== '' ? $pinned : '--model',
+                'source' => self::SOURCE_LEVEL_EXTRA_ARGS,
+            ]);
         }
 
         [$model, $level] = $this->effective($chatId, $threadId);
@@ -158,6 +188,32 @@ final readonly class ModelChoice
         }
 
         return $text;
+    }
+
+    /** The pinned model of an OpenCode instance: OPENCODE_MODEL, or "default model of OpenCode" when it is empty. */
+    private function opencodeModel(): string
+    {
+        return $this->config->opencodeModel !== '' ? $this->config->opencodeModel : self::OPENCODE_DEFAULT_MODEL;
+    }
+
+    /**
+     * The refusal text of a pinned model (`/model` with an argument, or a `model:` callback): names the
+     * source of the pin and the pinned model (or the engine's default when the value is empty).
+     */
+    public function pinnedRefusalText(Locale $locale): string
+    {
+        if ($this->config->isOpencode()) {
+            return $locale->t('model.pinned', [
+                'model' => $this->opencodeModel(),
+                'source' => self::SOURCE_OPENCODE,
+            ]);
+        }
+        $pinned = $this->pinnedByExtraArgs() ?? '';
+
+        return $locale->t('model.pinned', [
+            'model' => $pinned !== '' ? $pinned : '--model',
+            'source' => self::SOURCE_PIN_EXTRA_ARGS,
+        ]);
     }
 
     private function applicable(?string $model, string $where): ?string

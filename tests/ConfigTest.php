@@ -480,4 +480,42 @@ final class ConfigTest extends TestCase
         $this->writeEnv('SECRET_ENV_FILES=~/.secrets.env, /etc/app/prod.env');
         self::assertSame(['~/.secrets.env', '/etc/app/prod.env'], Config::load($this->envFile)->secretEnvFiles);
     }
+
+    public function testOpencodeFieldsDefaultAndAreNotParsedFromEnv(): void
+    {
+        // The OPENCODE_* keys belong to the future ENGINE=opencode task: they are not read yet,
+        // so even when present they must not move the defaults (and the engine stays claude).
+        $this->writeEnv("OPENCODE_BIN=/usr/bin/opencode\nOPENCODE_MODEL=anthropic/sonnet\nOPENCODE_EXTRA_ARGS=--foo\n");
+        $config = Config::load($this->envFile);
+
+        self::assertSame('opencode', $config->opencodeBin);
+        self::assertSame('', $config->opencodeModel);
+        self::assertSame([], $config->opencodeExtraArgs);
+        self::assertFalse($config->isOpencode());
+    }
+
+    public function testOpencodeEngineSetsTheGateAndKeepsTheConfiguredFields(): void
+    {
+        $config = new Config(
+            botToken: 't',
+            allowedUserIds: [1],
+            repoPath: $this->repoDir,
+            forgeRepo: '',
+            claudeBin: 'claude',
+            claudeTimeout: 0,
+            claudeStallTimeout: 900,
+            claudeExtraArgs: [],
+            claudeAppendSystemPrompt: '',
+            stateDir: $this->repoDir.'/state',
+            outboxDir: $this->repoDir.'/outbox',
+            inboxDir: $this->repoDir.'/inbox',
+            pollTimeout: 30,
+            gitTimeout: 30,
+            engine: Config::ENGINE_OPENCODE,
+            opencodeModel: 'anthropic/sonnet',
+        );
+
+        self::assertTrue($config->isOpencode());
+        self::assertSame('anthropic/sonnet', $config->opencodeModel);
+    }
 }
