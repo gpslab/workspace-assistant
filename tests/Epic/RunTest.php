@@ -6,7 +6,10 @@ namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 
 use GpsLab\WorkspaceAssistant\Epic\MasterRecord;
 use GpsLab\WorkspaceAssistant\Epic\Run;
+use GpsLab\WorkspaceAssistant\PmRunbook;
+use GpsLab\WorkspaceAssistant\SystemPrompt;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(Run::class)]
@@ -102,6 +105,26 @@ final class RunTest extends TestCase
             @unlink($dir.'/epic.md');
             rmdir($dir);
         }
+    }
+
+    /**
+     * The mode of a run kind: tick and final check are the `pm` mode, the hot review is the `review`
+     * mode. The gate shim distinguishes them by {@see PmRunbook::skipKeyForEpicRun()}.
+     *
+     * @return iterable<string, array{string, string, string}>
+     */
+    public static function modes(): iterable
+    {
+        yield 'tick' => [Run::TICK, SystemPrompt::MODE_PM, 'tick'];
+        yield 'final' => [Run::FINAL, SystemPrompt::MODE_PM, 'final'];
+        yield 'review' => [Run::REVIEW, SystemPrompt::MODE_REVIEW, 'epic_review'];
+    }
+
+    #[DataProvider('modes')]
+    public function testModeForGivesTheGateKindOfTheRunKind(string $run, string $mode, string $gateKind): void
+    {
+        self::assertSame($mode, Run::modeFor($run));
+        self::assertSame($gateKind, PmRunbook::skipKeyForEpicRun($run));
     }
 
     public function testRunbookFileIsUnchanged(): void

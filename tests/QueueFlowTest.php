@@ -2489,39 +2489,151 @@ final class QueueFlowTest extends TestCase
         self::assertSame('s-new', $this->db->getSessionId(100, 1));
     }
 
-    public function testOpencodeDropsAStrayEpicItemSilently(): void
+    public function testOpencodeStartsAnEpicTickRun(): void
     {
-        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
-        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
-        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::TICK));
+        $this->startOpencodeEpicRun(Run::TICK);
+        $context = $this->jobContext();
+        self::assertNotNull($context);
+        self::assertSame('pm', $context['mode']);
+        self::assertSame(['run' => Run::TICK, 'pr' => null], $context['epic_run']);
+        $this->finishJob();
 
-        $this->call('startQueueHead');
-
-        self::assertSame([], $this->db->queueWaiting());
-        self::assertSame(0, $this->launches());
-        self::assertSame([], $this->tg->textsTo(100, 1));
+        self::assertSame(1, $this->launches());
     }
 
-    public function testOpencodeRefusesTheEpicCommands(): void
+    public function testOpencodeStartsAnEpicFinalRun(): void
+    {
+        $this->startOpencodeEpicRun(Run::FINAL);
+        $context = $this->jobContext();
+        self::assertNotNull($context);
+        self::assertSame('pm', $context['mode']);
+        self::assertSame(['run' => Run::FINAL, 'pr' => null], $context['epic_run']);
+        $this->finishJob();
+
+        self::assertSame(1, $this->launches());
+    }
+
+    public function testOpencodeStartsAnEpicReviewRun(): void
+    {
+        $this->startOpencodeEpicRun(Run::REVIEW);
+        $context = $this->jobContext();
+        self::assertNotNull($context);
+        self::assertSame('review', $context['mode']);
+        self::assertSame(['run' => Run::REVIEW, 'pr' => 'gpslab/ws#5'], $context['epic_run']);
+        $this->finishJob();
+
+        self::assertSame(1, $this->launches());
+    }
+
+    public function testOpencodeEpicTickRunListsTheGateShimInThePluginsOfTheExplicitConfig(): void
+    {
+        $this->captureOpencodeRun();
+        $this->startOpencodeEpicRun(Run::TICK);
+        $this->finishJob();
+
+        $plugin = dirname(__DIR__).'/opencode-plugin';
+        self::assertSame([$plugin], $this->capturedExplicitConfig()['plugins'] ?? null);
+        self::assertFileExists($plugin.'/index.js');
+    }
+
+    public function testOpencodeEpicFinalRunListsTheGateShimInThePluginsOfTheExplicitConfig(): void
+    {
+        $this->captureOpencodeRun();
+        $this->startOpencodeEpicRun(Run::FINAL);
+        $this->finishJob();
+
+        self::assertSame([dirname(__DIR__).'/opencode-plugin'], $this->capturedExplicitConfig()['plugins'] ?? null);
+    }
+
+    public function testOpencodeEpicReviewRunListsTheGateShimInThePluginsOfTheExplicitConfig(): void
+    {
+        $this->captureOpencodeRun();
+        $this->startOpencodeEpicRun(Run::REVIEW);
+        $this->finishJob();
+
+        self::assertSame([dirname(__DIR__).'/opencode-plugin'], $this->capturedExplicitConfig()['plugins'] ?? null);
+    }
+
+    public function testOpencodeEpicReviewRunGetsTheReviewCommitFlag(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->startOpencodeEpicRun(Run::REVIEW);
+        $this->finishJob();
+
+        // The shim runs the commit hook only with this flag: the epic review is a formal review.
+        self::assertSame('1', $this->opencodeEnv()[ReviewCommitHook::ENABLED_ENV]);
+    }
+
+    public function testOpencodeEpicTickRunGetsNoReviewCommitFlag(): void
+    {
+        $this->captureOpencodeEnv();
+        $this->startOpencodeEpicRun(Run::TICK);
+        $this->finishJob();
+
+        $env = $this->opencodeEnv();
+        self::assertArrayHasKey(PmGateHook::KIND_ENV, $env);
+        self::assertArrayNotHasKey(ReviewCommitHook::ENABLED_ENV, $env);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function epicGateKinds(): iterable
+    {
+        yield 'tick' => [Run::TICK, 'tick'];
+        yield 'final' => [Run::FINAL, 'final'];
+        yield 'review' => [Run::REVIEW, 'epic_review'];
+    }
+
+    /**
+     * The epic run is gated on OpenCode with no wiring of its own: `Run::modeFor` gives it the `pm` /
+     * `review` mode and `PmRunbook::skipKeyForEpicRun` the gate kind of the run kind.
+     */
+    #[DataProvider('epicGateKinds')]
+    public function testOpencodeEpicRunCarriesTheGateKindOfTheRunKind(string $run, string $gateKind): void
+    {
+        $this->captureOpencodeEnv();
+        $this->startOpencodeEpicRun($run);
+        $this->finishJob();
+
+        self::assertSame($gateKind, $this->opencodeEnv()[PmGateHook::KIND_ENV]);
+    }
+
+    public function testOpencodeAcceptsTheEpicCommands(): void
     {
         $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
 
         $this->command(100, 1, '/epic start demo', 20);
         $this->command(100, 1, '/epic', 21);
 
-        self::assertSame(
-            ['Epics are not available on OpenCode yet.', 'Epics are not available on OpenCode yet.'],
-            $this->tg->textsTo(100, 1),
-        );
+        $texts = $this->tg->textsTo(100, 1);
+        self::assertCount(2, $texts);
+        // `demo` has no plan file: the command is served, the epic is not created.
+        self::assertStringContainsString('The epic was not created', $texts[0]);
+        // No epic in the topic and no plan to start: the menu falls back to the usage.
+        self::assertStringContainsString('/epic start <slug>', $texts[1]);
         self::assertSame(0, $this->launches());
     }
 
-    public function testOpencodeDoesNotConnectTheOrchestrator(): void
+    public function testOpencodeConnectsTheOrchestrator(): void
     {
         $this->bot = $this->makeBot(new FakeGitHub(), engine: Config::ENGINE_OPENCODE);
 
         $orchestrator = (new \ReflectionProperty(Bot::class, 'orchestrator'))->getValue($this->bot);
-        self::assertNull($orchestrator);
+        self::assertNotNull($orchestrator);
+    }
+
+    /** Creates the epic `demo`, enqueues the OpenCode epic run `$run` and starts it. */
+    private function startOpencodeEpicRun(string $run): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', $run, $run === Run::REVIEW ? 'gpslab/ws#5' : null));
+
+        $this->call('startQueueHead');
+
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertTrue($this->activeJob());
     }
 
     /**

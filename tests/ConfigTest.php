@@ -469,6 +469,41 @@ final class ConfigTest extends TestCase
         }
     }
 
+    public function testEachEpicModelKeyIsReportedAsNotAppliedOnOpencode(): void
+    {
+        foreach (['MODEL_EPIC_TICK', 'MODEL_EPIC_FINAL', 'MODEL_EPIC_REVIEW'] as $key) {
+            $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=opencode\n{$key}=sonnet\n");
+            self::assertSame(
+                [$key.' is not applied on OpenCode: the model of every run comes from OPENCODE_MODEL.'],
+                Config::load($this->envFile)->startupWarnings(),
+            );
+        }
+    }
+
+    public function testEverySetEpicModelKeyIsNamedInTheSingleOpencodeWarning(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=opencode\nMODEL_EPIC_TICK=sonnet\nMODEL_EPIC_FINAL=opus\nMODEL_EPIC_REVIEW=opus\n");
+
+        self::assertSame(
+            ['MODEL_EPIC_TICK, MODEL_EPIC_FINAL and MODEL_EPIC_REVIEW are not applied on OpenCode: the model of every run comes from OPENCODE_MODEL.'],
+            Config::load($this->envFile)->startupWarnings(),
+        );
+    }
+
+    public function testNoOpencodeWarningWithoutAnEpicModelKey(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=opencode\n");
+
+        self::assertSame([], Config::load($this->envFile)->startupWarnings());
+    }
+
+    public function testNoOpencodeWarningOnClaude(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nMODEL_EPIC_TICK=sonnet\n");
+
+        self::assertSame([], Config::load($this->envFile)->startupWarnings());
+    }
+
     public function testNoEpicWarningWhenNoEpicKeyIsSetOrNoExtraArgsModel(): void
     {
         $this->writeEnv("OPENRONIN_LOGINS=bot\n");

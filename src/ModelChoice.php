@@ -99,7 +99,9 @@ final readonly class ModelChoice
 
     /**
      * Epic runs: the run-kind key (MODEL_EPIC_<RUN>), else the model for all topics, else null.
-     * The key value is validated at startup against CLAUDE_MODELS, so it is passed as it is.
+     * The key value is validated at startup against CLAUDE_MODELS, so it is passed as it is. An
+     * OpenCode instance is pinned by OPENCODE_MODEL ({@see self::isPinned()}) and resolves nothing:
+     * its epic runs take the same model as every other run.
      */
     public function resolveEpic(string $run): ?string
     {

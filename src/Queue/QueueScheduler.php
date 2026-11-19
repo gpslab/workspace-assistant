@@ -663,15 +663,6 @@ final class QueueScheduler implements QueueControl
         $slug = (string) ($head['parts'][0]['slug'] ?? '');
         $run = (string) ($head['parts'][0]['run'] ?? '');
 
-        // OpenCode has nobody home for the epic ticks: an item queued before a restart is dropped
-        // silently (no chat message) so the refusal does not repeat on every tick.
-        if ($this->config->isOpencode()) {
-            Log::line("queue: epic run {$slug} ({$run}) dropped - epics are not available on OpenCode");
-            $this->dropItem($head, null);
-
-            return;
-        }
-
         $pr = isset($head['parts'][0]['pr']) ? (string) $head['parts'][0]['pr'] : null;
 
         // The epic was paused in the meantime or the run is stale: the item is dropped silently.

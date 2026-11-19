@@ -76,8 +76,9 @@ parts, in order:
 `instructions` of the rendered `opencode.json`; it also adds the managed repository's `CLAUDE.md` to the
 same list, but only when there is no `AGENTS.md` (OpenCode reads `AGENTS.md` itself and never `CLAUDE.md`).
 The parts and the order are the same on both engines. OpenCode takes no command hooks, so the run directory
-of a gated run (`pm`, `review`) also lists the gate shim (`opencode-plugin/`) in the `plugins` of
-`explicit.json`: the same PHP hooks then run there as on Claude Code, so the gates hold on both engines.
+of a gated run (`pm`, `review` and the epic runs) also lists the gate shim (`opencode-plugin/`) in the
+`plugins` of `explicit.json`: the same PHP hooks then run there as on Claude Code, so the gates hold on both
+engines.
 
 #### Engine tokens
 
@@ -123,7 +124,9 @@ built in code), and the instruction to remove the secret and rewrite an unpushed
 `tick` and `final` run in the `pm` mode, `review` in the `review` mode, always in a new session. The system
 prompt is the one above. The message is built in code by `Epic\Run::prompt()`, no file overrides it: a
 pointer to `epic_runbook` (Claude reads the file itself), the text of `PROMPTS_DIR/epic.md` if present,
-the PM runbook line, and the paths and data of the run.
+the PM runbook line, and the paths and data of the run. Both engines run epics with this same assembly: on
+OpenCode the run is gated by the shim of its run kind (`tick`, `final` or `epic_review`) and its model is
+`OPENCODE_MODEL`, since `MODEL_EPIC_*` is a Claude Code key.
 
 With `AUTO_COMMIT=0` the journal line reads "write it to disk right after each external action; do not
 commit or push it" instead of "commit and push it right after each external action", and one more line
