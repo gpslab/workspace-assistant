@@ -23,6 +23,7 @@ use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\ReviewCommitHook;
 use GpsLab\WorkspaceAssistant\ReviewStatusHook;
+use GpsLab\WorkspaceAssistant\RunAnswer;
 use GpsLab\WorkspaceAssistant\RunnerFactory;
 use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
@@ -47,6 +48,8 @@ final class QueueFlowTest extends TestCase
     private Database $db;
     private FakeTelegram $tg;
     private Bot $bot;
+    /** A runner every job of this test gets instead of a real one. */
+    private ?FixedRunner $fixedRunner = null;
 
     protected function setUp(): void
     {
@@ -127,6 +130,13 @@ final class QueueFlowTest extends TestCase
         return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github, runnerFactory: $this->runnerFactoryFor($config));
     }
 
+    /** Rebuilds the bot so that every job it launches gets $answer instead of a real engine run. */
+    private function useFixedRunner(RunAnswer $answer): void
+    {
+        $this->fixedRunner = new FixedRunner($answer);
+        $this->bot = $this->makeBot();
+    }
+
     /**
      * A factory that builds a ClaudeRunner for a non-default engine name: the engine name is what the
      * stored-session fingerprint tracks, but only `claude` has a runner implementation, so the fingerprint
@@ -134,6 +144,22 @@ final class QueueFlowTest extends TestCase
      */
     private function runnerFactoryFor(Config $config): RunnerFactory
     {
+        if ($this->fixedRunner !== null) {
+            $runner = $this->fixedRunner;
+
+            return new class($config, Locale::fromConfig($config), $runner) extends RunnerFactory {
+                public function __construct(Config $config, Locale $locale, private readonly AgentRunner $runner)
+                {
+                    parent::__construct($config, $locale);
+                }
+
+                public function create(string $mode, string $settingsJson, array $extraEnv, string $localeCode, bool $withAgents, bool $updateOnResume, ?string $savedPromptHash, ?string $model): AgentRunner
+                {
+                    return $this->runner;
+                }
+            };
+        }
+
         if ($config->engine === Config::DEFAULT_ENGINE_FINGERPRINT) {
             return new RunnerFactory($config, Locale::fromConfig($config));
         }
@@ -1569,6 +1595,34 @@ final class QueueFlowTest extends TestCase
         self::assertSame(0, $this->db->getLimitPauseUntil());
         self::assertCount(0, $this->db->queueWaiting());
         self::assertStringContainsString($result, implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    public function testEngineClassifiedRateLimitPausesTheQueueOnAPlainAnthropicSetup(): void
+    {
+        // The engine's parser said "rate"; the text alone would not match the foreign-provider rules
+        // (no ANTHROPIC_BASE_URL here), so this pauses only because the classification is honoured.
+        $this->useFixedRunner(new RunAnswer(true, 'Too Many Requests', 's-1', limitClass: 'rate'));
+        $this->say(100, 1, 'will hit the rate limit', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertEqualsWithDelta(time() + 3600, $this->db->getLimitPauseUntil(), 5);
+        self::assertCount(1, $this->db->queueWaiting());
+        self::assertStringContainsString('Too Many Requests', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    public function testEngineClassifiedQuotaIsReportedWithoutPausingTheQueue(): void
+    {
+        $this->useFixedRunner(new RunAnswer(true, 'This request requires more credits.', 's-1', limitClass: 'quota'));
+        $this->say(100, 1, 'will hit the quota', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame(0, $this->db->getLimitPauseUntil());
+        self::assertCount(0, $this->db->queueWaiting());
+        $reply = implode("\n", $this->tg->textsTo(100, 1));
+        self::assertStringContainsString('provider quota or balance is exhausted', $reply);
+        self::assertStringContainsString('This request requires more credits.', $reply);
     }
 
     public function testForeign429TextWithoutBaseUrlKeepsTodaysBehaviour(): void

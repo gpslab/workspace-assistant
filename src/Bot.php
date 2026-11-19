@@ -197,6 +197,7 @@ final class Bot implements LoopControl
             Log::line('locale: '.$warning);
         }
         ClaudeRunner::purgeRunFiles($this->config->stateDir);
+        OpencodeRunner::purgeRunDirs($this->config->stateDir);
         $this->commandMenu->register();
         $this->recoverQueueOnStart();
         Log::line('started, listening to Telegram...');

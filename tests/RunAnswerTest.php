@@ -184,4 +184,19 @@ final class RunAnswerTest extends TestCase
         self::assertTrue($result->isError);
         self::assertSame('', $result->text);
     }
+
+    public function testLimitClassDefaultsToNull(): void
+    {
+        $result = RunAnswer::fromJson('{"is_error":false,"result":"ok","session_id":"s-1"}', '', 0);
+
+        self::assertNull($result->limitClass);
+    }
+
+    public function testLimitClassSurvivesWithTotalsAndWithText(): void
+    {
+        $result = new RunAnswer(true, 'quota', 's-1', limitClass: 'quota');
+
+        self::assertSame('quota', $result->withTotals(null)->limitClass);
+        self::assertSame('quota', $result->withText('other')->limitClass);
+    }
 }
