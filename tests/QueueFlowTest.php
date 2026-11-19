@@ -1552,7 +1552,7 @@ final class QueueFlowTest extends TestCase
     {
         return [
             'quota' => ['Your quota has been exceeded.'],
-            'balance' => ['Insufficient balance on the account.'],
+            'balance' => ['Account balance is exhausted.'],
             'insufficient' => ['Insufficient credits.'],
         ];
     }

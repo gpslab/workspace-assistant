@@ -34,7 +34,7 @@ final class ClaudeErrorTextTest extends TestCase
 
     public function testForeignQuotaOnBalanceText(): void
     {
-        self::assertSame('quota', $this->errorText()->foreignLimit('Insufficient balance on the account.'));
+        self::assertSame('quota', $this->errorText()->foreignLimit('Account balance is exhausted.'));
     }
 
     public function testForeignQuotaOnInsufficientText(): void
