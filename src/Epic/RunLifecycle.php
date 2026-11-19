@@ -88,9 +88,19 @@ final class RunLifecycle
                 }
             }
             // A wrong number (or a PR number) in a known repository fails the same way as a wrong
-            // repository, so every new task is checked against the forge.
+            // repository, so every new task is checked against the forge. Each check is one
+            // synchronous `gh` call (up to the GhClient timeout), so once the forge cannot be
+            // reached the rest of the tasks are stored without further calls: otherwise a hanging
+            // GitHub would stall the whole Bot loop for N × timeout.
+            $unchecked = false;
             foreach ($signal->added as $added) {
-                if (!$this->taskExists($slug, $added['task'])) {
+                if ($unchecked) {
+                    continue;
+                }
+                $exists = $this->taskExists($slug, $added['task']);
+                if ($exists === null) {
+                    $unchecked = true;
+                } elseif (!$exists) {
                     throw new \InvalidArgumentException("added task {$added['task']} does not exist");
                 }
             }
@@ -153,9 +163,10 @@ final class RunLifecycle
     /**
      * Whether a new task of the signal exists. "Not found" is the author's error and fails the run
      * (the caller throws); a check that could not be done (network, rate limit, token, no forge) is
-     * not, so the task is stored anyway and only a warning goes to the log.
+     * not, so the task is stored anyway and only a warning goes to the log. Returns `null` when the
+     * check could not be performed, so the caller stops checking the remaining tasks.
      */
-    private function taskExists(string $slug, string $task): bool
+    private function taskExists(string $slug, string $task): ?bool
     {
         try {
             return $this->forge?->taskExists($task) ?? true;
@@ -164,7 +175,7 @@ final class RunLifecycle
         } catch (\RuntimeException $e) {
             Log::line("epic {$slug}: task {$task} not checked: ".$e->getMessage());
 
-            return true;
+            return null;
         }
     }
 

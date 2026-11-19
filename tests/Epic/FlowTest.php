@@ -1028,6 +1028,24 @@ final class FlowTest extends TestCase
         self::assertSame(['a#1', 'a#2', 'b#9'], array_column($this->db->epicTasks('demo'), 'task'));
     }
 
+    public function testSignalStopsCheckingTasksAfterOneUnchecked(): void
+    {
+        require_once __DIR__.'/OrchestratorTest.php';
+        $this->startEpic();
+        $gh = new FakeGitHub();
+        $gh->unchecked = ['b#9'];
+        $gh->missing = ['c#7'];
+        $this->buildBot(0, '', null, $gh);
+        // The first added task cannot be checked, so the remaining tasks are stored without a
+        // forge round-trip: the missing later task must not fail the run.
+        $this->signal('{"added":[{"task":"b#9"},{"task":"c#7"}]}');
+
+        $this->runEpic();
+
+        self::assertStringNotContainsString('Epic run demo failed', $this->allText());
+        self::assertSame(['a#1', 'a#2', 'b#9', 'c#7'], array_column($this->db->epicTasks('demo'), 'task'));
+    }
+
     /**
      * @return iterable<string, array{?string}>
      */
