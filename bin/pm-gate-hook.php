@@ -7,7 +7,9 @@ namespace GpsLab\WorkspaceAssistant;
 /*
  * PreToolUse hook (matcher Bash) that gates issue creation, see PmGateHook. Called by claude,
  * not by the bot: php bin/pm-gate-hook.php <STATE_DIR> <run kind> <run id>, with the PreToolUse
- * event JSON on stdin and the skip reason file named by PmGateHook::SKIP_ENV.
+ * event JSON on stdin and the skip reason file named by PmGateHook::SKIP_ENV. The stdin may also
+ * carry the engine-neutral input `{command, history, engine}` (engine "opencode", history = the
+ * path of an OpenCode session-history file); the Claude Code PreToolUse input path is unchanged.
  *
  * Fail-CLOSED, the opposite of the review Stop hook: any failure (including the bootstrap
  * not loading) exits 2 with a fixed reason on stderr, which blocks the command. A fatal that
@@ -46,27 +48,16 @@ try {
     if (!is_array($input)) {
         throw new \RuntimeException('stdin is not JSON');
     }
-    $command = $input['tool_input']['command'] ?? null;
-    if (($input['tool_name'] ?? 'Bash') !== 'Bash' || !is_string($command)) {
-        exit(0);
-    }
-    if (!PmGateHook::createsIssue($command)) {
+    $command = PmGateHook::toolCommand($input);
+    if ($command === null || !PmGateHook::createsIssue($command)) {
         exit(0);
     }
 
-    $transcriptPath = (string) ($input['transcript_path'] ?? '');
-    if ($transcriptPath === '' || !is_file($transcriptPath)) {
-        throw new \RuntimeException('transcript is not available');
-    }
-    $lines = file($transcriptPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if ($lines === false) {
-        throw new \RuntimeException('transcript cannot be read');
-    }
     $config = PmGateHook::readSnapshot($stateDir, $runId);
     $skipFile = (string) getenv(PmGateHook::SKIP_ENV);
     $skipReason = $skipFile !== '' && is_file($skipFile) ? (string) file_get_contents($skipFile) : '';
 
-    $decision = PmGateHook::decide($lines, $config, $kind, $skipReason);
+    $decision = PmGateHook::decideFromInput($input, $config, $kind, $skipReason);
     if ($decision['decision'] === PmGateHook::DENY) {
         $log("{$kind} {$runId} deny: {$decision['reason']}");
         echo PmGateHook::denyJson($decision['reason']);

@@ -8,7 +8,9 @@ namespace GpsLab\WorkspaceAssistant;
  * PreToolUse hook (matcher Bash) that keeps a formal PR review on the commit that was reviewed, see
  * ReviewCommitHook. Called by claude, not by the bot: php bin/review-commit-hook.php <STATE_DIR>, with
  * the PreToolUse event JSON on stdin and the file of recorded SHAs named by ReviewCommitHook::SHAS_ENV
- * (unset: no SHA was recorded, only the form of the command is checked).
+ * (unset: no SHA was recorded, only the form of the command is checked). The stdin may also carry the
+ * engine-neutral input `{command, engine}` (it reads no history, only the command and the SHAs); the
+ * Claude Code PreToolUse input path is unchanged.
  *
  * Fail-CLOSED like bin/pm-gate-hook.php: any failure exits 2 with a fixed reason on stderr. A deny
  * decision goes out as JSON on stdout (exit 0) and is logged to <STATE_DIR>/review-commit-hook.log.
@@ -35,8 +37,8 @@ try {
     if (!is_array($input)) {
         throw new \RuntimeException('stdin is not JSON');
     }
-    $command = $input['tool_input']['command'] ?? null;
-    if (($input['tool_name'] ?? 'Bash') !== 'Bash' || !is_string($command)) {
+    $command = PmGateHook::toolCommand($input);
+    if ($command === null) {
         exit(0);
     }
     $shasFile = (string) getenv(ReviewCommitHook::SHAS_ENV);
