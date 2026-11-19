@@ -84,7 +84,7 @@ final class OpencodeRunner implements AgentRunner
     private ?string $promptHash = null;
 
     /**
-     * @param string[]              $extraArgs     extra argv appended after the prompt (`OPENCODE_EXTRA_ARGS`)
+     * @param string[]              $extraArgs     extra argv passed as flags before the prompt (`OPENCODE_EXTRA_ARGS`)
      * @param int                   $timeout       overall ceiling for a run (sec); 0 disables it
      * @param int                   $stallTimeout  if the process emits no byte for longer than this (sec)
      *                                             it is considered hung and killed; 0 disables it
@@ -299,8 +299,11 @@ final class OpencodeRunner implements AgentRunner
     }
 
     /**
-     * Argv of the run: the fixed `opencode run` flags, the optional session and model, the prompt,
-     * then the instance's extra arguments.
+     * Argv of the run: the fixed `opencode run` flags, the optional session and model, the
+     * instance's extra arguments, then `--` with the prompt last.
+     *
+     * The prompt is chat input: it goes after the end-of-options marker so a message starting with
+     * `-` / `--` is never parsed as an opencode flag.
      *
      * @return list<string>
      */
@@ -315,10 +318,12 @@ final class OpencodeRunner implements AgentRunner
             $argv[] = '--model';
             $argv[] = $this->opencodeModel;
         }
-        $argv[] = $prompt;
         foreach ($this->extraArgs as $arg) {
             $argv[] = $arg;
         }
+        // End of options: the prompt is chat input and must never be parsed as a flag.
+        $argv[] = '--';
+        $argv[] = $prompt;
 
         return $argv;
     }

@@ -44,7 +44,7 @@ final class OpencodeRunnerTest extends TestCase
         $this->waitDone($runner);
 
         self::assertSame(
-            ['run', '--format', 'json', '--standalone', '--auto', '--session', 'sess-1', '--model', 'openrouter/model-x', 'hello', '--foo', 'bar'],
+            ['run', '--format', 'json', '--standalone', '--auto', '--session', 'sess-1', '--model', 'openrouter/model-x', '--foo', 'bar', '--', 'hello'],
             $this->recordedArgv(),
         );
     }
@@ -58,9 +58,24 @@ final class OpencodeRunnerTest extends TestCase
         $this->waitDone($runner);
 
         $argv = $this->recordedArgv();
-        self::assertSame(['run', '--format', 'json', '--standalone', '--auto', 'hello'], $argv);
+        self::assertSame(['run', '--format', 'json', '--standalone', '--auto', '--', 'hello'], $argv);
         self::assertNotContains('--session', $argv);
         self::assertNotContains('--model', $argv);
+    }
+
+    public function testAPromptStartingWithADashIsPassedAfterTheEndOfOptionsMarker(): void
+    {
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson');
+        $runner = $this->runner($bin, extraArgs: ['--model', 'openrouter/model-x']);
+
+        $runner->start('- fix the typo in README', null);
+        $this->waitDone($runner);
+
+        $argv = $this->recordedArgv();
+        $marker = array_search('--', $argv, true);
+        self::assertIsInt($marker);
+        self::assertSame($marker + 1, array_key_last($argv));
+        self::assertSame('- fix the typo in README', $argv[$marker + 1]);
     }
 
     public function testRunEnvironmentPointsAtThePerRunConfigAndNeverMovesXdgConfigHome(): void
