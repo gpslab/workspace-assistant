@@ -518,4 +518,37 @@ final class ReviewCommitHookTest extends TestCase
 
         exec('rm -rf '.escapeshellarg($dir));
     }
+
+    public function testHookScriptAcceptsNeutralInput(): void
+    {
+        $dir = sys_get_temp_dir().'/rch-'.bin2hex(random_bytes(4));
+        mkdir($dir);
+        $run = static function (string $command, array $env) use ($dir): array {
+            $proc = proc_open(
+                [PHP_BINARY, dirname(__DIR__).'/bin/review-commit-hook.php', $dir],
+                [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+                null,
+                array_merge(getenv(), $env),
+            );
+            self::assertIsResource($proc);
+            fwrite($pipes[0], (string) json_encode(['command' => $command, 'engine' => PmGateHook::ENGINE_OPENCODE]));
+            fclose($pipes[0]);
+            $out = (string) stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+
+            return [$out, proc_close($proc)];
+        };
+        $post = static fn (string $sha): string => 'gh api repos/gpslab/ws/pulls/7/reviews -f commit_id='.$sha.' -f event=APPROVE -f body=ok';
+        $file = ReviewCommitHook::writeShas($dir, 'r1', ['gpslab/ws#7' => self::SHA]);
+        $env = [ReviewCommitHook::SHAS_ENV => $file];
+
+        self::assertSame(['', 0], $run($post(self::SHA), $env));
+        [$out, $code] = $run($post(self::OTHER), $env);
+        self::assertSame(0, $code);
+        self::assertSame('deny', json_decode($out, true)['hookSpecificOutput']['permissionDecision']);
+
+        exec('rm -rf '.escapeshellarg($dir));
+    }
 }

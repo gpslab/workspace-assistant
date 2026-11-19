@@ -1,0 +1,149 @@
+{
+    "_note": "Derived from stage-single.json by inserting, after the stage_a report, a `gh issue create` shell whose call errored (`status: \"error\"`), a real `user` message, and then a stage_b subagent call and its report. A shell that did not complete must not open a new window: the stage_a call still counts. The exit code of 0 pins that the `status` check alone decides this.",
+    "sessionID": "ses_window_create_error",
+    "command": "echo GATE",
+    "messages": [
+        {
+            "id": "msg_user_error",
+            "time": {
+                "created": 1794662630000
+            },
+            "text": "Call the stage_a subagent, wait for its report, then create the issue.",
+            "files": [],
+            "type": "user"
+        },
+        {
+            "id": "msg_call_stage_a",
+            "time": {
+                "created": 1794662631000
+            },
+            "type": "assistant",
+            "agent": "build",
+            "content": [
+                {
+                    "type": "tool",
+                    "id": "call_stage_a",
+                    "name": "subagent",
+                    "executed": false,
+                    "state": {
+                        "status": "completed",
+                        "input": {
+                            "agent": "stage_a",
+                            "description": "Run stage_a",
+                            "prompt": "Run stage_a and report."
+                        },
+                        "content": [],
+                        "metadata": {
+                            "sessionID": "ses_a_error",
+                            "status": "running",
+                            "truncated": false
+                        }
+                    },
+                    "time": {
+                        "created": 1794662631000
+                    }
+                }
+            ]
+        },
+        {
+            "id": "msg_report_stage_a",
+            "metadata": {
+                "source": "subagent",
+                "childID": "ses_a_error",
+                "agent": "stage_a",
+                "state": "completed"
+            },
+            "time": {
+                "created": 1794662632000
+            },
+            "text": "<subagent sessionID=\"ses_a_error\" state=\"completed\" description=\"Run stage_a\">stage_a-done</subagent>",
+            "description": "Run stage_a",
+            "type": "synthetic"
+        },
+        {
+            "id": "msg_shell_create_error",
+            "time": {
+                "created": 1794662633000
+            },
+            "type": "assistant",
+            "agent": "build",
+            "content": [
+                {
+                    "type": "tool",
+                    "id": "call_shell_create_error",
+                    "name": "shell",
+                    "executed": false,
+                    "state": {
+                        "status": "error",
+                        "input": {
+                            "command": "gh issue create --title t --body b"
+                        },
+                        "metadata": {
+                            "exit": 0
+                        }
+                    },
+                    "time": {
+                        "created": 1794662633000
+                    }
+                }
+            ]
+        },
+        {
+            "id": "msg_user_retry",
+            "time": {
+                "created": 1794662634000
+            },
+            "text": "and another one",
+            "files": [],
+            "type": "user"
+        },
+        {
+            "id": "msg_call_stage_b",
+            "time": {
+                "created": 1794662635000
+            },
+            "type": "assistant",
+            "agent": "build",
+            "content": [
+                {
+                    "type": "tool",
+                    "id": "call_stage_b",
+                    "name": "subagent",
+                    "executed": false,
+                    "state": {
+                        "status": "completed",
+                        "input": {
+                            "agent": "stage_b",
+                            "description": "Run stage_b",
+                            "prompt": "Run stage_b and report."
+                        },
+                        "content": [],
+                        "metadata": {
+                            "sessionID": "ses_b_error",
+                            "status": "running",
+                            "truncated": false
+                        }
+                    },
+                    "time": {
+                        "created": 1794662635000
+                    }
+                }
+            ]
+        },
+        {
+            "id": "msg_report_stage_b",
+            "metadata": {
+                "source": "subagent",
+                "childID": "ses_b_error",
+                "agent": "stage_b",
+                "state": "completed"
+            },
+            "time": {
+                "created": 1794662636000
+            },
+            "text": "<subagent sessionID=\"ses_b_error\" state=\"completed\" description=\"Run stage_b\">stage_b-done</subagent>",
+            "description": "Run stage_b",
+            "type": "synthetic"
+        }
+    ]
+}

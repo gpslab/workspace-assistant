@@ -1,0 +1,64 @@
+{
+    "_note": "Derived from stage-single.json by changing the subagent report's state to \"error\": a sub-agent that failed must not count as a completed stage.",
+    "sessionID": "ses_error_report",
+    "command": "echo GATE",
+    "messages": [
+        {
+            "id": "msg_user_error",
+            "time": {
+                "created": 1794662630000
+            },
+            "text": "Call the stage_a subagent, then run exactly this shell command: echo GATE",
+            "files": [],
+            "type": "user"
+        },
+        {
+            "id": "msg_call_stage_a",
+            "time": {
+                "created": 1794662631000
+            },
+            "type": "assistant",
+            "agent": "build",
+            "content": [
+                {
+                    "type": "tool",
+                    "id": "call_stage_a",
+                    "name": "subagent",
+                    "executed": false,
+                    "state": {
+                        "status": "completed",
+                        "input": {
+                            "agent": "stage_a",
+                            "description": "Run stage_a",
+                            "prompt": "Run stage_a and report."
+                        },
+                        "content": [],
+                        "metadata": {
+                            "sessionID": "ses_a_error_report",
+                            "status": "running",
+                            "truncated": false
+                        }
+                    },
+                    "time": {
+                        "created": 1794662631000
+                    }
+                }
+            ]
+        },
+        {
+            "id": "msg_report_error",
+            "metadata": {
+                "source": "subagent",
+                "childID": "ses_a_error_report",
+                "agent": "stage_a",
+                "state": "error"
+            },
+            "time": {
+                "created": 1794662632000
+            },
+            "text": "<subagent sessionID=\"ses_a_error_report\" state=\"error\" description=\"Run stage_a\">stage_a failed</subagent>",
+            "description": "Run stage_a",
+            "type": "synthetic"
+        }
+    ]
+}

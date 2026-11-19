@@ -18,6 +18,12 @@ final class PmGateHookTest extends TestCase
         ['id' => 'extra', 'agent' => 'extra', 'required' => false],
     ];
 
+    /** The stage agents of the OpenCode history fixtures. */
+    private const array OPENCODE_STAGES = [
+        ['id' => 'stage_a', 'agent' => 'stage_a', 'required' => true],
+        ['id' => 'stage_b', 'agent' => 'stage_b', 'required' => true],
+    ];
+
     private const string CREATE = 'gh issue create --title t --body b';
 
     private string $dir;
@@ -357,6 +363,60 @@ final class PmGateHookTest extends TestCase
         return ['stages' => self::STAGES, 'skip_allowed' => ['pm' => false, 'review' => true]];
     }
 
+    /**
+     * @return array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>}
+     */
+    private static function opencodeConfig(): array
+    {
+        return ['stages' => self::OPENCODE_STAGES, 'skip_allowed' => ['pm' => false]];
+    }
+
+    /**
+     * The absolute path of an OpenCode history fixture.
+     */
+    private static function opencodeFixture(string $name): string
+    {
+        return __DIR__.'/fixtures/opencode/history/'.$name.'.json';
+    }
+
+    public function testOpenCodeSequentialIsAllowedThroughDecide(): void
+    {
+        $input = ['command' => self::CREATE, 'history' => self::opencodeFixture('stage-sequential'), 'engine' => PmGateHook::ENGINE_OPENCODE];
+
+        $decision = PmGateHook::decideFromInput($input, self::opencodeConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::ALLOW, $decision['decision']);
+    }
+
+    public function testOpenCodeParallelIsDeniedThroughDecide(): void
+    {
+        $input = ['command' => self::CREATE, 'history' => self::opencodeFixture('stage-parallel'), 'engine' => PmGateHook::ENGINE_OPENCODE];
+
+        $decision = PmGateHook::decideFromInput($input, self::opencodeConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('stage_b (agent stage_b)', $decision['reason']);
+    }
+
+    public function testOpenCodeErrorReportIsDeniedThroughDecide(): void
+    {
+        $input = ['command' => self::CREATE, 'history' => self::opencodeFixture('derived-error-report'), 'engine' => PmGateHook::ENGINE_OPENCODE];
+
+        $decision = PmGateHook::decideFromInput($input, self::opencodeConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('stage_a (agent stage_a)', $decision['reason']);
+    }
+
+    public function testToolCommandReadsBothInputShapes(): void
+    {
+        self::assertSame('gh issue create', PmGateHook::toolCommand(['tool_name' => 'Bash', 'tool_input' => ['command' => 'gh issue create']]));
+        self::assertSame('gh issue create', PmGateHook::toolCommand(['command' => 'gh issue create', 'engine' => PmGateHook::ENGINE_OPENCODE]));
+        self::assertSame('gh issue create', PmGateHook::toolCommand(['tool_input' => ['command' => 'gh issue create']]));
+        self::assertNull(PmGateHook::toolCommand(['tool_name' => 'Read', 'tool_input' => ['command' => 'x']]));
+        self::assertNull(PmGateHook::toolCommand(['command' => 5]));
+    }
+
     public function testSkipWithReasonWhereAllowed(): void
     {
         $lines = [self::user('x')];
@@ -428,6 +488,30 @@ final class PmGateHookTest extends TestCase
         return [proc_close($proc), $out, $err];
     }
 
+    /**
+     * Runs the hook with the engine-neutral input `{command, history, engine}`.
+     *
+     * @return array{int, string, string} exit code, stdout, stderr
+     */
+    private function runScriptNeutral(string $script, string $historyPath, string $command, string $kind = 'pm', string $runId = 'run-1', string $skipFile = ''): array
+    {
+        $input = json_encode(['command' => $command, 'history' => $historyPath, 'engine' => PmGateHook::ENGINE_OPENCODE]);
+        $proc = proc_open(
+            [PHP_BINARY, $script, $this->dir, $kind, $runId],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            array_merge(getenv(), [PmGateHook::SKIP_ENV => $skipFile]),
+        );
+        self::assertIsResource($proc);
+        fwrite($pipes[0], (string) $input);
+        fclose($pipes[0]);
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+
+        return [proc_close($proc), $out, $err];
+    }
+
     private function script(): string
     {
         return dirname(__DIR__).'/bin/pm-gate-hook.php';
@@ -445,6 +529,22 @@ final class PmGateHookTest extends TestCase
         self::assertSame('deny', $json['hookSpecificOutput']['permissionDecision']);
         self::assertStringContainsString('critique (agent critic)', $json['hookSpecificOutput']['permissionDecisionReason']);
         self::assertStringContainsString('deny:', (string) file_get_contents($this->dir.'/pm-gate.log'));
+    }
+
+    public function testHookScriptAcceptsNeutralInput(): void
+    {
+        PmGateHook::writeSnapshot($this->dir, 'run-1', ['stages' => self::OPENCODE_STAGES, 'skip_allowed' => ['pm' => false]]);
+
+        // Sequential: the report of stage N-1 precedes the call of stage N — allowed.
+        [$code, $out, $err] = $this->runScriptNeutral($this->script(), self::opencodeFixture('stage-sequential'), self::CREATE);
+        self::assertSame([0, ''], [$code, $out], $err);
+
+        // Parallel: the call of stage N precedes the report of stage N-1 — denied.
+        [$code, $out, $err] = $this->runScriptNeutral($this->script(), self::opencodeFixture('stage-parallel'), self::CREATE);
+        self::assertSame(0, $code, $err);
+        $json = json_decode($out, true);
+        self::assertIsArray($json);
+        self::assertSame('deny', $json['hookSpecificOutput']['permissionDecision']);
     }
 
     public function testScriptAllowsOtherCommandsAndSkipWithReason(): void

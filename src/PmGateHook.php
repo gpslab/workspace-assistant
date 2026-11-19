@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Opencode\OpencodeHistoryReader;
+
 /**
  * Claude Code PreToolUse hook (matcher `Bash`) that gates issue creation in the `pm` and `review`
  * modes: an issue may be created only after the required stages of the PM pipeline
@@ -13,10 +15,13 @@ namespace GpsLab\WorkspaceAssistant;
  * holds a synchronous `Agent` call of the stage's agent that completed. What the agent said does
  * not matter. A background call (`async_launched`) and sub-agent entries (`isSidechain`) never count.
  *
- * The gate is split in two: {@see ClaudeCodeTranscriptReader} reads the transcript into a list of
- * agent calls (already limited to the window) and the neutral core ({@see counts()},
- * {@see lastStagePositions()}) counts and orders them without touching a transcript line. The public
- * entry points ({@see decide()}, {@see missingStages()}) run the reader, then the core.
+ * The gate is split in two: an engine reader ({@see ClaudeCodeTranscriptReader} for Claude Code,
+ * {@see OpencodeHistoryReader} for OpenCode) reads the history into a list of agent calls (already
+ * limited to the window) and the neutral core ({@see counts()}, {@see lastStagePositions()})
+ * counts and orders them without touching a history line. The public entry points
+ * ({@see decide()}, {@see missingStages()}) run the Claude reader then the core; the neutral core
+ * itself is {@see decideOnCalls()} / {@see missingStagesFromCalls()}, which an engine-neutral input
+ * reaches through {@see decideFromInput()}.
  *
  * Window: only stage calls after the last successful issue creation that was followed by a message
  * of the author count. A series of issues created in one batch passes on one set of stages; the next
@@ -52,6 +57,10 @@ final class PmGateHook
 
     public const string ALLOW = 'allow';
     public const string DENY = 'deny';
+
+    /** Engine values of the neutral hook input; the Claude Code PreToolUse input carries none. */
+    public const string ENGINE_CLAUDE = 'claude';
+    public const string ENGINE_OPENCODE = 'opencode';
 
     /** Shell keywords, wrappers and `VAR=value` assignments that may precede the command itself. */
     private const string PREFIX_RE = '/^(?:env(?:\s+(?:-(?:[uCS]|-unset|-chdir|-split-string)\s+\S+|-\S+))*(?=\s)|timeout(?:\s+(?:-[ks]\s+\S+|--?[A-Za-z]\S*))*\s+[\d.]+[smhd]?(?=\s)|(?:(?:if|then|elif|else|do|while|until|time|command|exec|xargs|sudo|nohup)(?:\s+-[^\s=]+)*|[!{])(?=\s)|[A-Za-z_]\w*=(?:"[^"]*"|\'[^\']*\'|\$(?<sub>\((?:[^()]++|(?&sub))*\))|`[^`]*`|\S)*+)\s*/';
@@ -407,7 +416,20 @@ final class PmGateHook
      */
     public static function missingStages(array $transcriptLines, array $stages): array
     {
-        $calls = ClaudeCodeTranscriptReader::agentCalls($transcriptLines);
+        return self::missingStagesFromCalls(ClaudeCodeTranscriptReader::agentCalls($transcriptLines), $stages);
+    }
+
+    /**
+     * The neutral core of {@see missingStages()}: it sees only the call list an engine reader
+     * produced, never a history line.
+     *
+     * @param list<array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool}> $calls
+     * @param list<array{id: string, agent: string, required: bool}>                                                               $stages
+     *
+     * @return list<string> human-readable entries
+     */
+    public static function missingStagesFromCalls(array $calls, array $stages): array
+    {
         $last = self::lastStagePositions($calls, $stages);
         $lastResult = self::lastStageResults($calls, $stages);
         $missing = [];
@@ -501,7 +523,7 @@ final class PmGateHook
     }
 
     /**
-     * The decision for one issue-creating command.
+     * The decision for one issue-creating command, from a Claude Code transcript.
      *
      * @param list<string>                                                                                             $transcriptLines
      * @param array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>} $config          snapshot
@@ -510,7 +532,20 @@ final class PmGateHook
      */
     public static function decide(array $transcriptLines, array $config, string $kind, string $skipReason): array
     {
-        $missing = self::missingStages($transcriptLines, $config['stages']);
+        return self::decideOnCalls(ClaudeCodeTranscriptReader::agentCalls($transcriptLines), $config, $kind, $skipReason);
+    }
+
+    /**
+     * The neutral core of {@see decide()}: the decision from a call list an engine reader produced.
+     *
+     * @param list<array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool}> $calls
+     * @param array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>}             $config
+     *
+     * @return array{decision: self::ALLOW|self::DENY, reason: string, skipped: bool}
+     */
+    public static function decideOnCalls(array $calls, array $config, string $kind, string $skipReason): array
+    {
+        $missing = self::missingStagesFromCalls($calls, $config['stages']);
         if ($missing === []) {
             return ['decision' => self::ALLOW, 'reason' => '', 'skipped' => false];
         }
@@ -527,6 +562,72 @@ final class PmGateHook
         }
 
         return ['decision' => self::DENY, 'reason' => $reason, 'skipped' => false];
+    }
+
+    /**
+     * The decision for one issue-creating command, from a decoded hook input: the neutral input
+     * (`engine` {@see ENGINE_OPENCODE}, `history` path) goes through the OpenCode reader, the
+     * Claude Code PreToolUse input (`transcript_path`) through the Claude reader.
+     *
+     * @param array<string, mixed>                                                                                     $input
+     * @param array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>} $config
+     *
+     * @return array{decision: self::ALLOW|self::DENY, reason: string, skipped: bool}
+     *
+     * @throws \RuntimeException when the history of the chosen engine is not available
+     */
+    public static function decideFromInput(array $input, array $config, string $kind, string $skipReason): array
+    {
+        $engine = $input['engine'] ?? self::ENGINE_CLAUDE;
+        if ($engine === self::ENGINE_OPENCODE) {
+            return self::decideOnCalls(OpencodeHistoryReader::fromFile((string) ($input['history'] ?? '')), $config, $kind, $skipReason);
+        }
+
+        return self::decide(self::transcriptLines((string) ($input['transcript_path'] ?? '')), $config, $kind, $skipReason);
+    }
+
+    /**
+     * The Bash command of a hook input, in either shape: the Claude Code PreToolUse event
+     * (`tool_name` + `tool_input.command`) or the neutral input (`command` + `engine`). An input
+     * with a `tool_input` and no `engine` is the Claude Code shape, where a missing `tool_name`
+     * still means `Bash`; the neutral shape is recognised by its `engine` key (or the absence of
+     * `tool_input`). null when the input does not carry a Bash command to gate.
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function toolCommand(array $input): ?string
+    {
+        if (!array_key_exists('engine', $input) && array_key_exists('tool_input', $input)) {
+            if (($input['tool_name'] ?? 'Bash') !== 'Bash') {
+                return null;
+            }
+            $command = $input['tool_input']['command'] ?? null;
+
+            return is_string($command) ? $command : null;
+        }
+        $command = $input['command'] ?? null;
+
+        return is_string($command) ? $command : null;
+    }
+
+    /**
+     * The JSONL lines of a Claude Code transcript file.
+     *
+     * @return list<string>
+     *
+     * @throws \RuntimeException when the transcript is not available or cannot be read
+     */
+    private static function transcriptLines(string $path): array
+    {
+        if ($path === '' || !is_file($path)) {
+            throw new \RuntimeException('transcript is not available');
+        }
+        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if ($lines === false) {
+            throw new \RuntimeException('transcript cannot be read');
+        }
+
+        return $lines;
     }
 
     /** JSON the hook prints to deny the command. */
