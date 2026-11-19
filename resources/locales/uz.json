@@ -187,7 +187,6 @@
     "mode.session_warning": "\n⚠️ Sessiya tiklanmadi: yangi rejim keyingi xabardan boshlab amal qiladi, suhbat konteksti saqlanadi.",
     "mode.switched": "Rejim almashtirildi: {mode}.",
     "mode.unknown": "Noma'lum rejim: {mode}\nMavjud: {available}",
-    "mode.opencode_unsupported": "{mode} rejimi OpenCode'da hozircha qo'llab-quvvatlanmaydi. /mode arch bilan almashtiring.",
     "model.busy": "Bu mavzuda ish davom etmoqda — modelni javobdan keyin almashtiring yoki /cancel dan foydalaning.",
     "model.current": "Model: {model}\nBu mavzu: {topic}\nBarcha mavzular: {all}",
     "model.unset": "o‘rnatilmagan",

@@ -359,7 +359,7 @@ final class Config
 
     /**
      * Whether the instance runs OpenCode ({@see self::ENGINE_OPENCODE}): the factory then builds an
-     * {@see OpencodeRunner}, gated modes are refused, epics are unavailable and `/model` is read-only.
+     * {@see OpencodeRunner}, epics are unavailable and `/model` is read-only.
      */
     public function isOpencode(): bool
     {

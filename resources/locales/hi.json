@@ -187,7 +187,6 @@
     "mode.session_warning": "\n⚠️ सत्र रीसेट नहीं हुआ: नया मोड अगले संदेश से लागू होगा, बातचीत का संदर्भ बना रहता है।",
     "mode.switched": "मोड बदला गया: {mode}।",
     "mode.unknown": "अज्ञात मोड: {mode}\nउपलब्ध: {available}",
-    "mode.opencode_unsupported": "मोड {mode} OpenCode पर अभी समर्थित नहीं है। /mode arch से बदलें।",
     "model.busy": "इस टॉपिक में काम चल रहा है — जवाब के बाद मॉडल बदलें या /cancel इस्तेमाल करें।",
     "model.current": "मॉडल: {model}\nयह टॉपिक: {topic}\nसभी टॉपिक: {all}",
     "model.unset": "सेट नहीं",

@@ -159,8 +159,10 @@ What differs from a Claude instance:
   the model of your OpenCode configuration applies. `/model` is read-only and `MODEL_EPIC_*`, `CLAUDE_MODELS`
   and a `--model` in `CLAUDE_EXTRA_ARGS` do not apply. Changing `OPENCODE_MODEL` starts a new session, like
   changing `ENGINE`.
-- Gated modes (`pm`, `review`) are refused, as is every epic command: the PM gate and the review hooks around
-  them are not wired for OpenCode yet.
+- Every mode works; every epic command is refused (epics are not wired for OpenCode yet). OpenCode has no
+  command hooks, so a gated run (`pm`, `review`) carries the PM gate and the review commit hook through the
+  gate plugin (`opencode-plugin/`) listed in the `plugins` of the run's own configuration. The plugin starts
+  the same PHP hooks Claude Code would, so the gate logic is not duplicated.
 - **Every run is approved automatically.** The bot passes `--auto` on every `opencode run` and OpenCode then
   approves every action its configuration does not explicitly deny. `OPENCODE_EXTRA_ARGS` cannot make that
   stricter, so the installer's warning has no "set a safer value" option: run the bot as a dedicated
