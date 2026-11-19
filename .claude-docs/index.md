@@ -15,7 +15,7 @@ Which file to read for which task. Start here when unsure.
 | Unfamiliar term, or unsure about entity names (Bot, Orchestrator, epic)  | [glossary.md](glossary.md)       |
 | Who calls the bot, the threat model, deliberate design decisions         | [context.md](context.md)         |
 | Epics: `/epic`, plan, journal, orchestrator, merge/release gates         | [../EPICS.md](../EPICS.md)       |
-| PHP version, composer commands, MUST / MUST NOT                          | [../CLAUDE.md](../CLAUDE.md)     |
+| PHP version, composer commands, MUST / MUST NOT                          | [../AGENTS.md](../AGENTS.md)     |
 | User-facing description, bot commands                                    | [../README.md](../README.md)     |
 | Installation, configuration (`.env` keys), running as a service          | [../INSTALL.md](../INSTALL.md)   |
 | Working out a task: PM runbook, built-in agents, pipeline config, gate   | [../TASKS.md](../TASKS.md)       |

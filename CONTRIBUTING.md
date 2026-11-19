@@ -1,7 +1,7 @@
 # Contributing
 
 Pull requests are welcome. This page lists what a change has to satisfy before it can be merged.
-[CLAUDE.md](CLAUDE.md) is the authoritative rule list (it is written for coding agents, but it applies to
+[AGENTS.md](AGENTS.md) is the authoritative rule list (it is written for coding agents, but it applies to
 everyone); this file explains the same rules from a contributor's side.
 
 ## Language
