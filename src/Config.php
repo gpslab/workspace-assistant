@@ -67,13 +67,13 @@ final class Config
         public readonly bool $autoCommit = true,
         public readonly string $forge = self::FORGE_GITHUB,
         public readonly string $forgeHost = 'github.com',
-        /** Agent engine the bot runs: `claude` for now; anything else is rejected at startup. */
+        /** Agent engine the bot runs: `claude` or `opencode`; anything else is rejected at startup. */
         public readonly string $engine = self::DEFAULT_ENGINE_FINGERPRINT,
-        /** Path to the `opencode` binary. Not parsed from `.env` yet: it comes with the ENGINE=opencode task. */
+        /** Path to the `opencode` binary (`OPENCODE_BIN`). */
         public readonly string $opencodeBin = 'opencode',
-        /** Model of an OpenCode instance (`provider/model`); '' = the default model of OpenCode. Not parsed from `.env` yet. */
+        /** Model of an OpenCode instance (`provider/model`, `OPENCODE_MODEL`); '' = the default model of OpenCode. */
         public readonly string $opencodeModel = '',
-        /** @var list<string> extra argv for the OpenCode runner. Not parsed from `.env` yet. */
+        /** @var list<string> extra argv for the OpenCode runner (`OPENCODE_EXTRA_ARGS`) */
         public readonly array $opencodeExtraArgs = [],
         public readonly array $configWarnings = [],
         /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
@@ -180,9 +180,9 @@ final class Config
         // The engine is a property of the instance, set once in .env, never switched from chat.
         $engine = trim((string) $env->get('ENGINE', ''));
         if ($engine === '') {
-            $engine = 'claude';
-        } elseif ($engine !== 'claude') {
-            throw new \RuntimeException("Invalid ENGINE={$engine} in .env: expected claude.");
+            $engine = self::DEFAULT_ENGINE_FINGERPRINT;
+        } elseif ($engine !== self::DEFAULT_ENGINE_FINGERPRINT && $engine !== self::ENGINE_OPENCODE) {
+            throw new \RuntimeException("Invalid ENGINE={$engine} in .env: expected ".self::DEFAULT_ENGINE_FINGERPRINT.' or '.self::ENGINE_OPENCODE.'.');
         }
 
         $configWarnings = [];
@@ -215,7 +215,7 @@ final class Config
             allowedUserIds: $allowed,
             repoPath: rtrim($repoPath, '/'),
             forgeRepo: trim($forgeRepo, '/'),
-            claudeBin: (string) $env->get('CLAUDE_BIN', 'claude'),
+            claudeBin: trim((string) $env->get('CLAUDE_BIN', 'claude')) ?: 'claude',
             claudeTimeout: (int) $env->get('CLAUDE_TIMEOUT', '0'),
             claudeStallTimeout: (int) $env->get('CLAUDE_STALL_TIMEOUT', '900'),
             claudeExtraArgs: $claudeExtraArgs,
@@ -243,6 +243,9 @@ final class Config
             forge: $forge,
             forgeHost: $forgeHost,
             engine: $engine,
+            opencodeBin: trim((string) $env->get('OPENCODE_BIN', 'opencode')) ?: 'opencode',
+            opencodeModel: trim((string) $env->get('OPENCODE_MODEL', '')),
+            opencodeExtraArgs: array_values($env->list('OPENCODE_EXTRA_ARGS')),
             configWarnings: $configWarnings,
             claudeModels: $claudeModels,
             modelEpicTick: $modelEpicTick,
@@ -285,9 +288,21 @@ final class Config
      * is appended only when the base URL points to a non-Anthropic host, because there a model switch
      * is a provider switch. `$model` is the `--model` the run passes (null when none), otherwise
      * `ANTHROPIC_MODEL` is used.
+     *
+     * An OpenCode instance has no `ANTHROPIC_BASE_URL` fingerprint: its model is pinned by the instance
+     * in `OPENCODE_MODEL`, so the fingerprint is `opencode:<OPENCODE_MODEL>`, or `opencode:default`
+     * when the key is empty. Changing `OPENCODE_MODEL` therefore starts a new session with the
+     * {@see Locale} notice, like changing the engine. `$model` is a Claude Code alias and is ignored
+     * here — the model of an OpenCode run comes from the instance, not from the topic.
      */
     public function engineFingerprint(?string $model = null): string
     {
+        if ($this->isOpencode()) {
+            return $this->opencodeModel !== ''
+                ? self::ENGINE_OPENCODE.':'.$this->opencodeModel
+                : self::ENGINE_OPENCODE.':default';
+        }
+
         $host = $this->anthropicBaseHost();
         if ($host === null) {
             return $this->engine;
@@ -342,7 +357,10 @@ final class Config
         return !$this->isAnthropicBaseUrl();
     }
 
-    /** Whether the instance runs OpenCode. The factory still rejects the value; this is read by tests and the gates. */
+    /**
+     * Whether the instance runs OpenCode ({@see self::ENGINE_OPENCODE}): the factory then builds an
+     * {@see OpencodeRunner}, gated modes are refused, epics are unavailable and `/model` is read-only.
+     */
     public function isOpencode(): bool
     {
         return $this->engine === self::ENGINE_OPENCODE;

@@ -52,7 +52,8 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
   into the outbox are sent back to the chat.
 - Modes (`arch`, `review`, `pm`) with replaceable personas, interface locales, and *epics*: sets of
   GitHub tasks with dependencies that the bot's `Orchestrator` drives to completion — independent
-  tasks run in parallel, dependent ones start once everything they depend on is merged.
+  tasks run in parallel, dependent ones start once everything they depend on is merged. With
+  `ENGINE=opencode` only the `arch` mode runs and epics are off ([OpenCode](#opencode)).
 
 ## How it works
 
@@ -130,13 +131,33 @@ In an epic it runs as a step of the final check, on the merged PR diffs.
 ## Requirements
 
 - PHP 8.4+ with the extensions `curl`, `pdo_sqlite`, `pcntl` (and `posix`).
-- Claude Code CLI, authenticated for the account you want to use.
+- Claude Code CLI, authenticated for the account you want to use. With `ENGINE=opencode` the
+  [OpenCode CLI](https://opencode.ai) is used instead, see [OpenCode](#opencode).
 - git with access to the workspace's remote (for example an SSH key).
 - [GitHub CLI](https://cli.github.com/) (`gh`), authenticated with `gh auth login` as the user that
   runs the bot. Both Claude (issues, pull requests) and the bot itself (epic polling) call it.
   With `FORGE=gitlab` the [GitLab CLI](https://gitlab.com/gitlab-org/cli) (`glab`) is used instead,
   see [GitLab](#gitlab).
 - Composer, for development tooling only. The runtime has no Composer dependencies.
+
+### OpenCode
+
+`ENGINE=opencode` runs every request through the [OpenCode CLI](https://opencode.ai) instead of Claude
+Code. The engine is chosen in `.env` and needs a bot restart; with the default `ENGINE=claude` the
+OpenCode keys are ignored. Verified against OpenCode **2.3.0**.
+
+- `OPENCODE_MODEL` (`provider/model`) is the model of every run. `/model` is read-only and `MODEL_EPIC_*`
+  does not apply.
+- Only the `arch` mode works. `pm` and `review` are refused: OpenCode has no PM gate and no review commit
+  hook, and a run without its gate is worse than no run. The default mode is `pm`, so a new topic needs
+  `/mode arch` first.
+- Epics are not available: `/epic` says so and the bot starts no `Orchestrator`.
+- Every run is approved automatically (OpenCode's `--auto`), with no equivalent of a stricter
+  `CLAUDE_EXTRA_ARGS`. See [Security](#security).
+- Changing `OPENCODE_MODEL` starts a new session, like changing `ENGINE`.
+
+The keys, the installer questions and the checks are in [INSTALL.md](INSTALL.md#opencode); how the prompt
+is assembled on OpenCode is in [PROMPTS.md](PROMPTS.md).
 
 ### Recommended
 
@@ -211,10 +232,10 @@ the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.
 | `/queue` | Show the request queue |
 | `/stats` | Session statistics: messages and Claude's totals for the whole session (input, cache read, cache write, output tokens, estimated cost) |
 | `/verbose` | Show the token usage and cost of this run under every reply, plus the sync profile sent before "Thinking…" |
-| `/mode` | Switch the mode: `arch`, `review` or `pm` |
-| `/model` | Choose the Claude model (`--model`) from `CLAUDE_MODELS`: `/model <name>` for this topic, `/model <name> all` for all topics, `default` clears a level; without an argument — buttons. The topic choice is sticky like `/mode`; `/stats` shows the model. A `--model` in `CLAUDE_EXTRA_ARGS` pins it and `/model` becomes read-only |
+| `/mode` | Switch the mode: `arch`, `review` or `pm` (with `ENGINE=opencode` only `arch`, see [OpenCode](#opencode)) |
+| `/model` | Choose the Claude model (`--model`) from `CLAUDE_MODELS`: `/model <name>` for this topic, `/model <name> all` for all topics, `default` clears a level; without an argument — buttons. The topic choice is sticky like `/mode`; `/stats` shows the model. A `--model` in `CLAUDE_EXTRA_ARGS` pins it and `/model` becomes read-only. With `ENGINE=opencode` it is read-only too: the model comes from `OPENCODE_MODEL` |
 | `/lang` | Language of Claude's replies in the chat |
-| `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation) |
+| `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation). Not available with `ENGINE=opencode` |
 | `/restart` | Restart the bot to pick up new code |
 | `/help` | Help |
 
@@ -319,6 +340,8 @@ remote shell for everyone in `ALLOWED_USER_IDS`.
 - **`--dangerously-skip-permissions` is the default** of `CLAUDE_EXTRA_ARGS`. Claude can run any command
   as the bot's system user and use that user's `gh` token and git credentials. Content Claude reads
   (files, issues, PR text) can steer it too (prompt injection).
+- **With `ENGINE=opencode` the same holds by construction**: OpenCode runs with `--auto` unconditionally,
+  so every run is approved automatically and no `OPENCODE_EXTRA_ARGS` value makes it stricter.
 - With the default `AUTO_COMMIT=1` every successful run is committed and pushed to the current branch
   automatically with no review (see [How it works](#how-it-works)), including edits to persona and
   locale files. With `AUTO_COMMIT=0` nothing is committed or pushed by the bot.

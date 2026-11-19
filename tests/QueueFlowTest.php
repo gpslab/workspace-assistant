@@ -71,6 +71,10 @@ final class QueueFlowTest extends TestCase
         file_put_contents($this->root.'/claude', "#!/bin/sh\necho x >> \"$(dirname \"\$0\")/calls.log\"\n[ -f \"$(dirname \"\$0\")/hook.sh\" ] && sh \"$(dirname \"\$0\")/hook.sh\"\ncat \"$(dirname \"\$0\")/out.json\"\n");
         chmod($this->root.'/claude', 0755);
         $this->claudeOutput('{"type":"result","is_error":false,"result":"done","session_id":"s-1","usage":{}}');
+        // The fake `opencode` writes to the same call log (an instance runs one engine) but replays NDJSON.
+        file_put_contents($this->root.'/opencode', "#!/bin/sh\necho x >> \"$(dirname \"\$0\")/calls.log\"\ncat \"$(dirname \"\$0\")/out.ndjson\"\n");
+        chmod($this->root.'/opencode', 0755);
+        $this->opencodeOutput('{"type":"text","sessionID":"s-oc","part":{"text":"done"}}');
 
         $this->db = new Database($this->root.'/state');
         $this->tg = new FakeTelegram();
@@ -92,6 +96,22 @@ final class QueueFlowTest extends TestCase
         file_put_contents($this->root.'/out.json', $json."\n");
     }
 
+    /** The NDJSON line(s) the fake `opencode` replays for every launch. */
+    private function opencodeOutput(string $ndjson): void
+    {
+        file_put_contents($this->root.'/out.ndjson', $ndjson."\n");
+    }
+
+    /**
+     * The argv of one launch of the fake `opencode`, with the script path excluded.
+     *
+     * @return list<string>
+     */
+    private function opencodeArgv(int $launch): array
+    {
+        return explode("\0", (string) file_get_contents($this->root.'/argv.'.$launch));
+    }
+
     private function launches(): int
     {
         $log = $this->root.'/calls.log';
@@ -99,7 +119,7 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $opencodeModel = ''): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -107,6 +127,8 @@ final class QueueFlowTest extends TestCase
             'repoPath' => $this->work,
             'forgeRepo' => '',
             'claudeBin' => $this->root.'/claude',
+            'opencodeBin' => $this->root.'/opencode',
+            'opencodeModel' => $opencodeModel,
             'claudeTimeout' => 0,
             'claudeStallTimeout' => 900,
             'claudeExtraArgs' => [],
@@ -138,9 +160,10 @@ final class QueueFlowTest extends TestCase
     }
 
     /**
-     * A factory that builds a ClaudeRunner for a non-default engine name: the engine name is what the
-     * stored-session fingerprint tracks, but only `claude` has a runner implementation, so the fingerprint
-     * tests run Claude while asserting the configured engine name is what gets written.
+     * A factory that builds a ClaudeRunner for an engine name the factory itself rejects: the engine
+     * name is what the stored-session fingerprint tracks, so such a fingerprint test runs Claude while
+     * asserting the configured engine name is what gets written. The two real engines go through the
+     * real factory.
      */
     private function runnerFactoryFor(Config $config): RunnerFactory
     {
@@ -160,7 +183,7 @@ final class QueueFlowTest extends TestCase
             };
         }
 
-        if ($config->engine === Config::DEFAULT_ENGINE_FINGERPRINT) {
+        if (in_array($config->engine, [Config::DEFAULT_ENGINE_FINGERPRINT, Config::ENGINE_OPENCODE], true)) {
             return new RunnerFactory($config, Locale::fromConfig($config));
         }
 
@@ -330,6 +353,13 @@ final class QueueFlowTest extends TestCase
     {
         file_put_contents($this->root.'/claude', "#!/bin/sh\nd=\"$(dirname \"\$0\")\"\nn=\$(ls \"\$d\"/argv.* 2>/dev/null | wc -l)\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$d/argv.\$n\"\ncat \"\$d/out.json\"\n");
         chmod($this->root.'/claude', 0755);
+    }
+
+    /** Replaces the fake opencode with one that dumps the argv of every launch to argv.<n>. */
+    private function recordOpencodeArgv(): void
+    {
+        file_put_contents($this->root.'/opencode', "#!/bin/sh\nd=\"$(dirname \"\$0\")\"\nn=\$(ls \"\$d\"/argv.* 2>/dev/null | wc -l)\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$d/argv.\$n\"\ncat \"\$d/out.ndjson\"\n");
+        chmod($this->root.'/opencode', 0755);
     }
 
     private function appendedPrompt(int $launch): string
@@ -2186,12 +2216,71 @@ final class QueueFlowTest extends TestCase
         self::assertSame(1, $this->launches());
     }
 
+    public function testOpencodeRunTakesTheModelFromTheInstance(): void
+    {
+        $this->recordOpencodeArgv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
+        // Stored on the topic, but on OpenCode /model is read-only: the instance pins the model.
+        $this->db->setTopicModel(100, 1, 'opus');
+        $this->db->setMode(100, 1, 'arch');
+        $this->runChat('hi', 10);
+
+        $argv = $this->opencodeArgv(0);
+        $modelAt = array_search('--model', $argv, true);
+        self::assertIsInt($modelAt);
+        self::assertSame('anthropic/sonnet', $argv[$modelAt + 1]);
+        self::assertNotContains('opus', $argv);
+        // The Claude Code prompt plumbing stays out of an OpenCode run.
+        self::assertNotContains('-p', $argv);
+        self::assertNotContains('--append-system-prompt', $argv);
+        self::assertNotContains('--agents', $argv);
+    }
+
+    public function testOpencodeRunWithoutAnInstanceModelPassesNoModel(): void
+    {
+        $this->recordOpencodeArgv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->setMode(100, 1, 'arch');
+        $this->runChat('hi', 10);
+
+        self::assertNotContains('--model', $this->opencodeArgv(0));
+    }
+
+    public function testOpencodeResumesTheSessionOfTheSameInstanceModel(): void
+    {
+        $this->recordOpencodeArgv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
+        $this->db->recordRun(100, 1, 's-oc', null, null, 'opencode:anthropic/sonnet');
+        $this->db->setMode(100, 1, 'arch');
+
+        $this->runChat('hi', 10);
+
+        $argv = $this->opencodeArgv(0);
+        $sessionAt = array_search('--session', $argv, true);
+        self::assertIsInt($sessionAt);
+        self::assertSame('s-oc', $argv[$sessionAt + 1]);
+    }
+
+    public function testChangingTheInstanceModelStartsANewSessionWithANotice(): void
+    {
+        $this->recordOpencodeArgv();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/opus');
+        $this->db->recordRun(100, 1, 's-oc', null, null, 'opencode:anthropic/sonnet');
+        $this->db->setMode(100, 1, 'arch');
+
+        $this->runChat('hi', 10);
+
+        self::assertNotContains('--session', $this->opencodeArgv(0));
+        self::assertStringContainsString('new session was started', implode("\n", $this->tg->textsTo(100, 1)));
+        self::assertSame('opencode:anthropic/opus', $this->db->getEngineFingerprint(100, 1));
+    }
+
     public function testOpencodeCompactStillWorks(): void
     {
         $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
-        $this->db->recordRun(100, 1, 's-old', null, null, 'opencode');
+        $this->db->recordRun(100, 1, 's-old', null, null, 'opencode:default');
         $this->command(100, 1, '/compact', 30);
-        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+        $this->opencodeOutput('{"type":"text","sessionID":"s-new","part":{"text":"summary"}}');
 
         $this->call('startQueueHead');
         $this->finishJob(); // summarize

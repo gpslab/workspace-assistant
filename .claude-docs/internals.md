@@ -182,6 +182,39 @@ output — and `total_cost_usd`; `null` without `modelUsage`), `session_id` (emp
 
 ---
 
+## `OpencodeRunner` — asynchronous opencode
+
+The other engine (`ENGINE=opencode`): a second implementation of the same `AgentRunner` contract, so
+`JobRunner` and `QueueScheduler` stay engine-neutral. `RunnerFactory` builds it from
+`OPENCODE_BIN` / `OPENCODE_MODEL` / `OPENCODE_EXTRA_ARGS`; the `$model` of a job is a Claude Code alias and
+is deliberately dropped. `Config::engineFingerprint()` is `opencode:<OPENCODE_MODEL>` or `opencode:default`:
+a change of the model (or of the engine) resets the session and adds the usual notice.
+
+- argv: `[OPENCODE_BIN, run, --format, json, --standalone, --auto, (--session <id>), (--model <m>),
+  ...OPENCODE_EXTRA_ARGS, --, <prompt>]`. The prompt is the last argument, after the end-of-options marker,
+  so a message starting with `-` is never parsed as a flag.
+- The system prompt is a file, not argv: the per-run directory `<STATE_DIR>/opencode-<runId>/` (0700, files
+  0600) holds `system-prompt.md`, `opencode.json` (its `instructions` list, plus the repository `CLAUDE.md`
+  when there is no `AGENTS.md`), `explicit.json` (agent permissions) and `agents/<name>.md`. The run
+  environment adds `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_CONFIG_DIR=<dir>` and
+  `OPENCODE_CONFIG=<dir>/explicit.json`, so a project `opencode.json` of the managed repository cannot
+  override the Bot's config. `XDG_CONFIG_HOME` is left alone on purpose: it would also move the configs of
+  `gh` / `glab`. Redirection of the config differs from a resume: OpenCode applies a changed `instructions`
+  file itself, so no `session_update` block is sent.
+- Run files and lifecycle are the same as for claude: stdout/stderr go to `<STATE_DIR>/runs/<id>.out` and
+  `.err`, `poll()` / `kill()` behave the same, and `OpencodeNdjsonParser` turns the NDJSON into progress
+  lines, the session id (`sessionID`) and the `RunAnswer` (totals from `step_finish`). `actualModel()` is
+  always `null`: OpenCode reports no model.
+- The stall timer is suspended after the first sub-agent of a run: OpenCode runs every sub-agent in the
+  background and stdout stays silent while it works, so silence stops meaning "hung".
+- `Bot::run()` calls `OpencodeRunner::purgeRunDirs()` next to `ClaudeRunner::purgeRunFiles()`; a run
+  directory whose bot PID is still alive is kept.
+- No gate: `QueueScheduler` refuses a non-`arch` mode both at enqueue and at the head of the queue (a chat
+  item queued under claude survives a restart into OpenCode), `ChatSurface::cmdEpic()` answers
+  `epic.unavailable_on_opencode`, `Bot` wires no `Orchestrator`, and `ModelChoice::isPinned()` is always true.
+
+---
+
 ## System prompt
 
 `SystemPrompt::build($mode, $promptsDir)` returns the text passed by `ClaudeRunner` through one
@@ -275,14 +308,17 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `FORGE_HOST`            | Forge host | `github.com` / `gitlab.com` |
 | `FORGE_OWNERS`          | Owners (alias `GITHUB_OWNERS`; the new key wins, a warning is logged when both are set); the first is the default for `repo#N`; namespace paths allowed with `FORGE=gitlab`; epics and PR links in `review` need it | empty |
 | `OPENRONIN_LOGINS`      | logins allowed to author the `<!-- openronin:bot -->` marker   | empty (any author + warning)     |
-| `ENGINE`                | agent engine that runs the jobs: only `claude` (any other value fails startup) | `claude`                |
+| `ENGINE`                | agent engine that runs the jobs: `claude` or `opencode` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner`, `/model` is read-only and the gated modes and epics are refused | `claude` |
 | `CLAUDE_BIN`            | path to the claude binary                                      | `claude`                         |
+| `OPENCODE_BIN`          | path to the opencode binary (`ENGINE=opencode`; the installer checks this one instead of `CLAUDE_BIN`) | `opencode` |
+| `OPENCODE_MODEL`        | model of every run, `provider/model`; empty = the OpenCode default; changing it starts a new session | empty      |
+| `OPENCODE_EXTRA_ARGS`   | extra opencode arguments, comma-separated, after the bot's own flags | empty                        |
 | `CLAUDE_TIMEOUT`        | overall call timeout, seconds (`0` = off)                      | `0`                              |
 | `CLAUDE_STALL_TIMEOUT`  | no output for N seconds → hung, kill (`0` = off)               | `900`                            |
 | `CLAUDE_EXTRA_ARGS`     | extra claude arguments, comma-separated                        | `--dangerously-skip-permissions` |
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | text appended to the system prompt (not split on commas) | empty                            |
 | `PROMPTS_DIR`           | persona files, relative to `REPO_PATH`                         | empty (texts from `prompts/`)    |
-| `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/`       | `./state`                        |
+| `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/` and `agents/`, the per-run `opencode-<runId>/` config directories | `./state` |
 | `POLL_TIMEOUT`          | idle long-poll timeout, seconds                                | `30`                             |
 | `GIT_TIMEOUT`           | network git timeout, seconds                                   | `120`                            |
 | `AUTO_COMMIT`           | `1` pull/commit/push around runs; `0` the bot does not touch git in the managed repository | `1`                              |
@@ -323,8 +359,9 @@ queues an isolated `claude -p` run (`kind = epic`, no `--resume`, a signal file 
 
 ## OpenCode (verified facts)
 
-Verified on OpenCode **2.3.0** (`@opencode/cli`); the fixtures are in `tests/fixtures/opencode/`. Nothing in the Bot
-uses OpenCode yet; these facts are the contract for the OpenCode engine.
+Verified on OpenCode **2.3.0** (`@opencode/cli`); the fixtures are in `tests/fixtures/opencode/`. The engine
+is wired (`OpencodeRunner`, selected by `RunnerFactory` when `ENGINE=opencode`); these facts are the contract
+its parser and its environment rely on.
 
 - **`opencode run` flags:** `--format json`, `--session <id>` (creates the session when it does not exist),
   `--model provider/model[#variant]`, `--auto`, `--agent`, `--title`, `--archived`. `--standalone` is a global flag

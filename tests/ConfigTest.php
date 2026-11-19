@@ -179,11 +179,17 @@ final class ConfigTest extends TestCase
         self::assertSame('claude', Config::load($this->envFile)->engine);
     }
 
-    public function testInvalidEngineFailsTheStart(): void
+    public function testEngineOpencodeIsAccepted(): void
     {
         $this->writeEnv('ENGINE=opencode');
+        self::assertSame('opencode', Config::load($this->envFile)->engine);
+    }
+
+    public function testUnknownEngineFailsTheStart(): void
+    {
+        $this->writeEnv('ENGINE=gemini');
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Invalid ENGINE=opencode');
+        $this->expectExceptionMessage('Invalid ENGINE=gemini in .env: expected claude or opencode.');
         Config::load($this->envFile);
     }
 
@@ -514,7 +520,7 @@ final class ConfigTest extends TestCase
     }
 
     /** A minimal Config for the fingerprint helpers, with the provider-relevant fields overridden. */
-    private function fingerprintConfig(?string $anthropicBaseUrl = null, ?string $anthropicModel = null): Config
+    private function fingerprintConfig(?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, string $opencodeModel = ''): Config
     {
         return new Config(
             botToken: 't',
@@ -533,6 +539,8 @@ final class ConfigTest extends TestCase
             gitTimeout: 30,
             anthropicBaseUrl: $anthropicBaseUrl,
             anthropicModel: $anthropicModel,
+            engine: $engine,
+            opencodeModel: $opencodeModel,
         );
     }
 
@@ -596,17 +604,72 @@ final class ConfigTest extends TestCase
         self::assertTrue($this->fingerprintConfig('https://openrouter.ai')->usesForeignProvider());
     }
 
-    public function testOpencodeFieldsDefaultAndAreNotParsedFromEnv(): void
+    public function testOpencodeKeysKeepTheirDefaultsWhenUnset(): void
     {
-        // The OPENCODE_* keys belong to the future ENGINE=opencode task: they are not read yet,
-        // so even when present they must not move the defaults (and the engine stays claude).
-        $this->writeEnv("OPENCODE_BIN=/usr/bin/opencode\nOPENCODE_MODEL=anthropic/sonnet\nOPENCODE_EXTRA_ARGS=--foo\n");
+        $this->writeEnv();
         $config = Config::load($this->envFile);
 
         self::assertSame('opencode', $config->opencodeBin);
         self::assertSame('', $config->opencodeModel);
         self::assertSame([], $config->opencodeExtraArgs);
         self::assertFalse($config->isOpencode());
+        self::assertSame('claude', $config->engine);
+    }
+
+    public function testOpencodeKeysAreParsedFromEnv(): void
+    {
+        $this->writeEnv("OPENCODE_BIN=/usr/bin/opencode\nOPENCODE_MODEL=anthropic/sonnet\nOPENCODE_EXTRA_ARGS=--foo, bar\n");
+        $config = Config::load($this->envFile);
+
+        self::assertSame('/usr/bin/opencode', $config->opencodeBin);
+        self::assertSame('anthropic/sonnet', $config->opencodeModel);
+        self::assertSame(['--foo', 'bar'], $config->opencodeExtraArgs);
+    }
+
+    public function testEmptyOpencodeBinFallsBackToTheDefaultBinary(): void
+    {
+        // An empty OPENCODE_BIN must resolve to `opencode` exactly as the installer probes it:
+        // otherwise the installer check passes but every run starts an empty argv[0].
+        $this->writeEnv("ENGINE=opencode\nOPENCODE_BIN=\n");
+
+        self::assertSame('opencode', Config::load($this->envFile)->opencodeBin);
+    }
+
+    public function testEmptyClaudeBinFallsBackToTheDefaultBinary(): void
+    {
+        $this->writeEnv("CLAUDE_BIN=\n");
+
+        self::assertSame('claude', Config::load($this->envFile)->claudeBin);
+    }
+
+    public function testOpencodeEngineIsAcceptedFromEnv(): void
+    {
+        $this->writeEnv("ENGINE=opencode\nOPENCODE_MODEL=anthropic/sonnet\n");
+        $config = Config::load($this->envFile);
+
+        self::assertTrue($config->isOpencode());
+        self::assertSame(Config::ENGINE_OPENCODE, $config->engine);
+        self::assertSame('anthropic/sonnet', $config->opencodeModel);
+    }
+
+    public function testOpencodeFingerprintCarriesTheInstanceModel(): void
+    {
+        $config = $this->fingerprintConfig(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
+
+        // A Claude Code alias never reaches the fingerprint: the model of the instance does.
+        self::assertSame('opencode:anthropic/sonnet', $config->engineFingerprint());
+        self::assertSame('opencode:anthropic/sonnet', $config->engineFingerprint('opus'));
+    }
+
+    public function testOpencodeFingerprintWithoutAModelIsTheDefault(): void
+    {
+        $config = $this->fingerprintConfig(engine: Config::ENGINE_OPENCODE);
+
+        self::assertSame('opencode:default', $config->engineFingerprint());
+        self::assertNotSame(
+            $config->engineFingerprint(),
+            $this->fingerprintConfig(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/opus')->engineFingerprint(),
+        );
     }
 
     public function testOpencodeEngineSetsTheGateAndKeepsTheConfiguredFields(): void

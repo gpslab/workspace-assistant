@@ -445,6 +445,29 @@ final class InstallerTest extends TestCase
         self::assertStringContainsString('Warnings:', $out);
     }
 
+    public function testOpencodeInstanceIsWarnedAboutAutomaticApprovalInstead(): void
+    {
+        [$code, $out, $err] = $this->install([...$this->required(), '--engine=opencode']);
+
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString('OpenCode always runs with --auto', $out);
+        self::assertStringContainsString('OpenCode always runs with --auto', $err);
+        // The CLAUDE_EXTRA_ARGS warning is Claude-specific: on OpenCode it would contradict the engine.
+        self::assertStringNotContainsString('is in CLAUDE_EXTRA_ARGS', $out.$err);
+    }
+
+    public function testInteractiveOpencodeAnswersAddTheOpencodeQuestions(): void
+    {
+        // 3 required keys + 13 optional ones: the engine is opencode, so the OPENCODE_* questions are asked too.
+        [$code, $out, $err] = $this->install([...$this->required(), '--engine=opencode'], [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 16)));
+
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString('OPENCODE_BIN: ', $out);
+        self::assertStringContainsString('OPENCODE_MODEL: ', $out);
+        self::assertStringContainsString('OpenCode always runs with --auto', $out);
+        self::assertSame('opencode', Env::load($this->root.'/.env', true)->get('ENGINE'));
+    }
+
     public function testNoWarningForStricterValue(): void
     {
         [$code, $out, $err] = $this->install([...$this->required(), '--claude-extra-args=--permission-mode,acceptEdits']);
@@ -475,7 +498,7 @@ final class InstallerTest extends TestCase
 
     public function testPromptsOnlyWithTtyAndWithoutNonInteractive(): void
     {
-        [$code, $out] = $this->install($this->required(), [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 12)));
+        [$code, $out] = $this->install($this->required(), [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 13)));
         self::assertSame(0, $code);
         self::assertStringContainsString('ALLOWED_USER_IDS [1001,1002]: ', $out);
 
@@ -495,7 +518,7 @@ final class InstallerTest extends TestCase
     {
         $this->writeEnv('BOT_TOKEN='.self::TOKEN."\nALLOWED_USER_IDS=77\nREPO_PATH={$this->repo}\nBOT_LOCALE=ru\nSTATE_DIR={$this->state}\n");
 
-        [$code, $out] = $this->install([], [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 12)));
+        [$code, $out] = $this->install([], [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 13)));
 
         self::assertSame(0, $code);
         self::assertStringContainsString('BOT_TOKEN [***WxYz]: ', $out);
@@ -507,7 +530,7 @@ final class InstallerTest extends TestCase
 
     public function testInteractiveRepeatsQuestionOnInvalidAnswer(): void
     {
-        $input = self::TOKEN."\nabc\n1001\n{$this->repo}\n\n\n\n\n\nxx\nde\nNot/AZone\nEurope/Berlin\n\n\n";
+        $input = self::TOKEN."\nabc\n1001\n{$this->repo}\n\n\n\n\n\n\nxx\nde\nNot/AZone\nEurope/Berlin\n\n\n";
         [$code, $out, $err] = $this->install([], [], 1000, 'tester', $this->services(tty: true, input: $input));
 
         self::assertSame(0, $code, $err);
@@ -523,7 +546,7 @@ final class InstallerTest extends TestCase
 
     public function testExtraArgsHasItsOwnQuestionWithWarning(): void
     {
-        $input = self::TOKEN."\n1001\n{$this->repo}\n\n\n\n\n\n\n\n\n--permission-mode,acceptEdits\n";
+        $input = self::TOKEN."\n1001\n{$this->repo}\n\n\n\n\n\n\n\n\n\n--permission-mode,acceptEdits\n";
         [$code, $out] = $this->install([], [], 1000, 'tester', $this->services(tty: true, input: $input));
 
         self::assertSame(0, $code);
@@ -540,7 +563,7 @@ final class InstallerTest extends TestCase
 
             return [0, '', ''];
         };
-        $input = self::TOKEN."\n1001\n{$this->repo}\n\n\n\n\n\n\n\n\n\n";
+        $input = self::TOKEN."\n1001\n{$this->repo}\n\n\n\n\n\n\n\n\n\n\n";
         [$code, $out] = $this->install([], [], 1000, 'tester', $this->services(run: $run, tty: true, input: $input));
 
         self::assertSame(0, $code);
@@ -673,6 +696,15 @@ final class InstallerTest extends TestCase
 
         self::assertNotSame(0, $code);
         self::assertStringContainsString('FORGE=bitbucket is not supported (expected github or gitlab)', $err);
+        self::assertFileDoesNotExist($this->root.'/.env');
+    }
+
+    public function testRejectsUnknownEngine(): void
+    {
+        [$code, , $err] = $this->install([...$this->required(), '--engine=opencod']);
+
+        self::assertNotSame(0, $code);
+        self::assertStringContainsString('ENGINE=opencod is not supported (expected claude or opencode)', $err);
         self::assertFileDoesNotExist($this->root.'/.env');
     }
 
@@ -809,6 +841,45 @@ final class InstallerTest extends TestCase
 
         self::assertContains('/opt/tools/claude-x', $probed);
         self::assertNotContains('claude', $probed);
+    }
+
+    public function testOpencodeInstanceProbesItsOwnBinaryInsteadOfClaude(): void
+    {
+        $probed = [];
+        $run = static function (array $c) use (&$probed): array {
+            $probed[] = $c[0];
+
+            return [0, '', ''];
+        };
+        $this->install([...$this->required(), '--engine=opencode', '--opencode-bin=/opt/tools/opencode-x'], [], 1000, 'tester', $this->services(run: $run));
+
+        self::assertContains('/opt/tools/opencode-x', $probed);
+        self::assertNotContains('claude', $probed);
+    }
+
+    public function testOpencodeInstanceWithoutABinProbesTheOpencodeName(): void
+    {
+        $probed = [];
+        $run = static function (array $c) use (&$probed): array {
+            $probed[] = $c[0];
+
+            return [0, '', ''];
+        };
+        $this->install([...$this->required(), '--engine=opencode'], [], 1000, 'tester', $this->services(run: $run));
+
+        self::assertContains('opencode', $probed);
+        self::assertNotContains('claude', $probed);
+    }
+
+    public function testMissingOpencodeBinIsReportedUnderItsOwnKey(): void
+    {
+        $run = static fn (array $c): array => $c[0] === 'opencode' ? [1, '', 'boom'] : [0, '', ''];
+        [$code, , $err] = $this->install([...$this->required(), '--engine=opencode'], [], 1000, 'tester', $this->services(run: $run));
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('OPENCODE_BIN=opencode was not found', $err);
+        self::assertStringNotContainsString('CLAUDE_BIN', $err);
+        self::assertFileDoesNotExist($this->root.'/.env');
     }
 
     public function testExternalCallsHaveTimeoutsAndGitIsNonInteractive(): void
