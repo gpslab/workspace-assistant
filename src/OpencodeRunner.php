@@ -348,6 +348,8 @@ final class OpencodeRunner implements AgentRunner
             $this->promptsDir !== '' ? $this->repoPath.'/'.$this->promptsDir : null,
             $this->promptsDir !== '' ? $this->promptsDir : null,
             $this->forge,
+            // This runner IS the OpenCode engine: the engine tokens of the prompt take its wording.
+            Config::ENGINE_OPENCODE,
         );
         $this->promptWarnings = $built['warnings'];
         $systemPrompt = $built['text'];

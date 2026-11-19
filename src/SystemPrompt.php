@@ -26,6 +26,12 @@ namespace GpsLab\WorkspaceAssistant;
  * contract (+ common_limits outside arch, + review contract in review), common
  * persona, mode role persona, `forge_gitlab` when FORGE=gitlab. An optional instance addition
  * (`CLAUDE_APPEND_SYSTEM_PROMPT` in `.env`) is appended AFTER that text.
+ *
+ * Engine tokens: the assembled text passes through ONE substitution step
+ * ({@see engineTokens()}), which fills the tokens of the engine the instance runs (`ENGINE`).
+ * `common` and `contract_review` are `load`-ed, not rendered, so no other step would fill a
+ * placeholder in them. On Claude Code the values are the text as it was before the tokens, byte
+ * for byte; on OpenCode they name the mechanics of that engine (see PROMPTS.md).
  */
 final class SystemPrompt
 {
@@ -51,12 +57,13 @@ final class SystemPrompt
      *
      * @param string|null $promptsDir absolute path to the persona files, or null to use the shipped personas
      * @param string      $forge      `FORGE` setting, see {@see build()}
+     * @param string      $engine     `ENGINE` setting: the engine tokens take the wording of that engine
      *
      * @throws \RuntimeException when a shipped `.dist` file is missing
      */
-    public static function forMode(string $mode, ?string $promptsDir = null, string $forge = Config::FORGE_GITHUB): string
+    public static function forMode(string $mode, ?string $promptsDir = null, string $forge = Config::FORGE_GITHUB, string $engine = Config::DEFAULT_ENGINE_FINGERPRINT): string
     {
-        return self::build($mode, $promptsDir, null, $forge)['text'];
+        return self::build($mode, $promptsDir, null, $forge, $engine)['text'];
     }
 
     /**
@@ -67,12 +74,13 @@ final class SystemPrompt
      *
      * @param string|null $displayDir directory name shown in warnings instead of the absolute path
      * @param string      $forge      `FORGE` setting: with `gitlab` the `forge_gitlab` fragment is appended to every mode
+     * @param string      $engine     `ENGINE` setting: the engine tokens are filled with the wording of that engine
      *
      * @return array{text: string, warnings: list<string>}
      *
      * @throws \RuntimeException when a shipped `.dist` file is missing
      */
-    public static function build(string $mode, ?string $promptsDir = null, ?string $displayDir = null, string $forge = Config::FORGE_GITHUB): array
+    public static function build(string $mode, ?string $promptsDir = null, ?string $displayDir = null, string $forge = Config::FORGE_GITHUB, string $engine = Config::DEFAULT_ENGINE_FINGERPRINT): array
     {
         $mode = self::isValidMode($mode) ? $mode : self::MODE_ARCH;
 
@@ -96,8 +104,33 @@ final class SystemPrompt
         }
 
         return [
-            'text' => implode("\n\n", $parts),
+            'text' => strtr(implode("\n\n", $parts), self::engineTokens($engine)),
             'warnings' => $warnings,
+        ];
+    }
+
+    /**
+     * The values of the engine tokens of the system prompt, per engine ({@see build()}).
+     *
+     * `{engine_session}` identifies the session to the model; `{engine_review_check}` is what enforces
+     * that the ids of the cold findings are in the published review body. Both are replaced in one
+     * substitution step over the assembled text, so a persona file may use them as well. The Claude
+     * Code values are the text as it was before the tokens, byte for byte.
+     *
+     * @return array<string, string> token (braces included) => text
+     */
+    public static function engineTokens(string $engine): array
+    {
+        if ($engine === Config::ENGINE_OPENCODE) {
+            return [
+                '{engine_session}' => 'an OpenCode session',
+                '{engine_review_check}' => 'the bot reads the published review after the run and does not see a body from a file (`-F body=@file`, `--input`): it repeats the turn once when an id is missing from the body',
+            ];
+        }
+
+        return [
+            '{engine_session}' => 'a Claude Code session',
+            '{engine_review_check}' => 'the Stop hook does not read a body from a file (`-F body=@file`, `--input`) and blocks the turn until every id is in the body',
         ];
     }
 

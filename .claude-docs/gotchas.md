@@ -183,6 +183,12 @@ The rules Claude follows are split in two (see [internals.md](internals.md) for 
   restart, while the Stop hook and the prompt files are read from disk at once, so renaming or removing a
   placeholder in a `.dist` ships together with a bot restart. A `.dist` must exist for every name in the
   closed list (a test checks it); a missing one fails the run with the file name, not the bot loop.
+- **A `load`-ed text is never rendered, so no `PromptFiles::render` fills its placeholders.** `common` and
+  `contract_review` are the two such texts of the system prompt: their `{engine_session}` /
+  `{engine_review_check}` tokens are replaced by the ONE engine-token step of `SystemPrompt::build`
+  (`SystemPrompt::engineTokens`, per `ENGINE`). A new placeholder in one of them goes into that map, the
+  catalog `Placeholders` column of [PROMPTS.md](../PROMPTS.md) and the engine-token section there at once —
+  `PromptFilesTest::testEveryDistPlaceholderIsFilled` and `PromptsDocTest` fail otherwise.
 - **The Stop hook never fails open on a block.** If the reason texts cannot be loaded, the hook still
   returns `block` with the hardcoded `ReviewStatusHook::FALLBACK_REASON`.
 

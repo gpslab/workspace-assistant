@@ -540,10 +540,11 @@ final class PmGateHook
      *
      * @param list<array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool}> $calls
      * @param array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>}             $config
+     * @param string                                                                                                               $engine engine of the run, which the deny reason names ({@see runMissingStages()})
      *
      * @return array{decision: self::ALLOW|self::DENY, reason: string, skipped: bool}
      */
-    public static function decideOnCalls(array $calls, array $config, string $kind, string $skipReason): array
+    public static function decideOnCalls(array $calls, array $config, string $kind, string $skipReason, string $engine = self::ENGINE_CLAUDE): array
     {
         $missing = self::missingStagesFromCalls($calls, $config['stages']);
         if ($missing === []) {
@@ -555,13 +556,29 @@ final class PmGateHook
         }
 
         $reason = 'Issue creation blocked: these required stages of the PM pipeline have not completed since the last author message: '
-            .implode('; ', $missing).'. Run each missing stage as a synchronous Agent call (run_in_background: false) in the order of the runbook, then create the issue.';
+            .implode('; ', $missing).'. '.self::runMissingStages($engine).' then create the issue.';
         if ($skipAllowed) {
             $reason .= ' This kind of run allows skipping: write the reason for skipping into the file named by the environment variable '
                 .self::SKIP_ENV.' and repeat the command.';
         }
 
         return ['decision' => self::DENY, 'reason' => $reason, 'skipped' => false];
+    }
+
+    /**
+     * How the model is told to run the missing stages so that the gate counts them, per engine.
+     *
+     * A stage counts only on a call whose result returned to the main session before the next stage
+     * started ({@see counts()}). On Claude Code that is the `Agent` call's `run_in_background: false`;
+     * OpenCode runs every sub-agent in the background whatever the caller does and reports its result
+     * as a later synthetic message ({@see OpencodeHistoryReader}), so there the wording asks for the
+     * `subagent` call and its report instead of a parameter that engine does not have.
+     */
+    private static function runMissingStages(string $engine): string
+    {
+        return $engine === self::ENGINE_OPENCODE
+            ? 'Run each missing stage as a `subagent` call and wait for its report before starting the next one, in the order of the runbook,'
+            : 'Run each missing stage as a synchronous Agent call (run_in_background: false) in the order of the runbook,';
     }
 
     /**
@@ -580,7 +597,7 @@ final class PmGateHook
     {
         $engine = $input['engine'] ?? self::ENGINE_CLAUDE;
         if ($engine === self::ENGINE_OPENCODE) {
-            return self::decideOnCalls(OpencodeHistoryReader::fromFile((string) ($input['history'] ?? '')), $config, $kind, $skipReason);
+            return self::decideOnCalls(OpencodeHistoryReader::fromFile((string) ($input['history'] ?? '')), $config, $kind, $skipReason, self::ENGINE_OPENCODE);
         }
 
         return self::decide(self::transcriptLines((string) ($input['transcript_path'] ?? '')), $config, $kind, $skipReason);

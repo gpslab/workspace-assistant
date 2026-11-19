@@ -408,6 +408,51 @@ final class PmGateHookTest extends TestCase
         self::assertStringContainsString('stage_a (agent stage_a)', $decision['reason']);
     }
 
+    /**
+     * The Claude Code deny reason is byte for byte what it was before the engine wording: the
+     * engine-aware branch must not move it.
+     */
+    public function testClaudeDenyReasonIsPinnedByteForByte(): void
+    {
+        $decision = PmGateHook::decide([self::user('x')], self::config(), 'pm', '');
+
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertSame(
+            'Issue creation blocked: these required stages of the PM pipeline have not completed since the last author message: '
+            .'critique (agent critic); verify (agent verifier). Run each missing stage as a synchronous Agent call '
+            .'(run_in_background: false) in the order of the runbook, then create the issue.',
+            $decision['reason'],
+        );
+    }
+
+    /**
+     * The deny reason names the parameter of the engine the run goes to: OpenCode has no
+     * `run_in_background`, its sub-agent is asked for and waited on instead.
+     */
+    public function testDenyReasonFollowsTheEngine(): void
+    {
+        $calls = [['agent' => 'critic', 'callAt' => 1, 'resultAt' => 2, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => false]];
+
+        $claude = PmGateHook::decideOnCalls($calls, self::config(), 'pm', '', PmGateHook::ENGINE_CLAUDE);
+        self::assertStringContainsString('Run each missing stage as a synchronous Agent call (run_in_background: false) in the order of the runbook, then create the issue.', $claude['reason']);
+
+        $opencode = PmGateHook::decideOnCalls($calls, self::config(), 'pm', '', PmGateHook::ENGINE_OPENCODE);
+        self::assertStringContainsString('Run each missing stage as a `subagent` call and wait for its report before starting the next one, in the order of the runbook, then create the issue.', $opencode['reason']);
+        self::assertStringNotContainsString('run_in_background', $opencode['reason']);
+    }
+
+    public function testOpencodeDenyReasonReachesTheModelThroughTheHookInput(): void
+    {
+        $input = ['command' => self::CREATE, 'history' => self::opencodeFixture('stage-parallel'), 'engine' => PmGateHook::ENGINE_OPENCODE];
+
+        $decision = PmGateHook::decideFromInput($input, self::opencodeConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('stage_b (agent stage_b)', $decision['reason']);
+        self::assertStringContainsString('`subagent` call', $decision['reason']);
+        self::assertStringNotContainsString('run_in_background', $decision['reason']);
+    }
+
     public function testToolCommandReadsBothInputShapes(): void
     {
         self::assertSame('gh issue create', PmGateHook::toolCommand(['tool_name' => 'Bash', 'tool_input' => ['command' => 'gh issue create']]));

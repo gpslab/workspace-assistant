@@ -141,6 +141,67 @@ final class SystemPromptTest extends TestCase
         self::assertFalse(SystemPrompt::isValidMode(''));
     }
 
+    /**
+     * The engine tokens keep the Claude Code text exactly as it was before them: their Claude values
+     * are those literals, and no token reaches the model.
+     */
+    public function testClaudeCodeWordingIsPinnedByteForByte(): void
+    {
+        self::assertStringStartsWith(
+            'You are running as Workspace Assistant: a Claude Code session driven through a Telegram bot. Follow these rules.',
+            SystemPrompt::forMode(SystemPrompt::MODE_ARCH),
+        );
+        self::assertStringContainsString(
+            'Pass the body in the command itself (`-f body="…"`, or a heredoc): the Stop hook does not read a body from a file (`-F body=@file`, `--input`) and blocks the turn until every id is in the body.',
+            SystemPrompt::forMode(SystemPrompt::MODE_REVIEW),
+        );
+
+        foreach (SystemPrompt::MODES as $mode) {
+            self::assertStringNotContainsString('{engine_', SystemPrompt::forMode($mode), $mode);
+        }
+    }
+
+    public function testOpencodeWordingReplacesBothEngineTokens(): void
+    {
+        $arch = SystemPrompt::forMode(SystemPrompt::MODE_ARCH, null, Config::FORGE_GITHUB, Config::ENGINE_OPENCODE);
+        self::assertStringStartsWith(
+            'You are running as Workspace Assistant: an OpenCode session driven through a Telegram bot. Follow these rules.',
+            $arch,
+        );
+        self::assertStringNotContainsString('Claude Code', $arch);
+
+        $review = SystemPrompt::forMode(SystemPrompt::MODE_REVIEW, null, Config::FORGE_GITHUB, Config::ENGINE_OPENCODE);
+        self::assertStringContainsString(
+            'Pass the body in the command itself (`-f body="…"`, or a heredoc): the bot reads the published review after the run and does not see a body from a file (`-F body=@file`, `--input`): it repeats the turn once when an id is missing from the body.',
+            $review,
+        );
+        self::assertStringNotContainsString('Stop hook', $review);
+        self::assertStringNotContainsString('Claude Code', $review);
+
+        foreach (SystemPrompt::MODES as $mode) {
+            self::assertStringNotContainsString('{engine_', SystemPrompt::forMode($mode, null, Config::FORGE_GITHUB, Config::ENGINE_OPENCODE), $mode);
+        }
+    }
+
+    /**
+     * The engines differ only in the token values: replacing the OpenCode values with the Claude ones
+     * in the OpenCode text gives the Claude text back, for every mode.
+     */
+    public function testEnginesDifferOnlyInTheEngineTokens(): void
+    {
+        $opencode = SystemPrompt::engineTokens(Config::ENGINE_OPENCODE);
+        $claude = SystemPrompt::engineTokens(Config::DEFAULT_ENGINE_FINGERPRINT);
+        $back = [];
+        foreach ($opencode as $token => $value) {
+            $back[$value] = $claude[$token];
+        }
+
+        foreach (SystemPrompt::MODES as $mode) {
+            $text = SystemPrompt::forMode($mode, null, Config::FORGE_GITHUB, Config::ENGINE_OPENCODE);
+            self::assertSame(SystemPrompt::forMode($mode), strtr($text, $back), $mode);
+        }
+    }
+
     public function testGithubForgeAddsNothing(): void
     {
         $fragment = PromptFiles::loadDist('forge_gitlab');
