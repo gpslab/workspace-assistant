@@ -167,9 +167,16 @@ final class OpencodeHistoryReader
         if ($path === '' || !is_file($path)) {
             throw new \RuntimeException('history is not available');
         }
-        $history = json_decode((string) file_get_contents($path), true);
+        $raw = (string) file_get_contents($path);
+        $history = json_decode($raw, true);
         if (!is_array($history)) {
             throw new \RuntimeException('history is not valid JSON');
+        }
+        // `{}` and `[]` both decode to `[]` with `assoc`; only the non-associative decode keeps them
+        // apart (an empty object vs an empty list). An empty object is a history of neither shape, so
+        // it throws here instead of silently reading "no messages yet".
+        if ($history === [] && json_decode($raw) instanceof \stdClass) {
+            throw new \RuntimeException('history holds no messages list');
         }
 
         return self::agentCalls($history);

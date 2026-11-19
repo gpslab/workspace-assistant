@@ -70,6 +70,32 @@ final class OpencodeHistoryReaderTest extends TestCase
         OpencodeHistoryReader::agentCalls(['sessionID' => 'ses_test', 'command' => 'echo GATE']);
     }
 
+    /** An empty bare list is a valid "no messages yet" history, not an error. */
+    public function testAnEmptyBareListIsAccepted(): void
+    {
+        self::assertSame([], OpencodeHistoryReader::agentCalls([]));
+    }
+
+    /**
+     * `{}` and `[]` both decode to `[]` with `assoc`; `fromFile()` must tell them apart, because the
+     * shim writes `{}` when `context()` returns an empty object. An empty object is a history of
+     * neither shape, so it throws instead of silently reading "no messages yet".
+     */
+    public function testFromFileOnAnEmptyObjectThrows(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'opencode-history-');
+        self::assertIsString($path);
+        file_put_contents($path, '{}');
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('history holds no messages list');
+
+            OpencodeHistoryReader::fromFile($path);
+        } finally {
+            unlink($path);
+        }
+    }
+
     public function testStageSingleReturnsCallAndResultPositions(): void
     {
         self::assertSame(

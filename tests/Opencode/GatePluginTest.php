@@ -182,6 +182,18 @@ final class GatePluginTest extends TestCase
         self::assertStringContainsString(PmGateHook::FAILURE_REASON, (string) $result['message']);
     }
 
+    /**
+     * An empty object `{}` from `context()` is written to the file as `{}`, which the reader rejects:
+     * it must not be read as "no messages yet". `[]` (a real empty history) stays a valid bare list.
+     */
+    public function testAnEmptyObjectHistoryDenies(): void
+    {
+        $result = $this->evaluate(self::ISSUE_CREATE, null, context: 'empty-object');
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString(PmGateHook::FAILURE_REASON, (string) $result['message']);
+    }
+
     public function testAFailingSessionContextDenies(): void
     {
         $result = $this->evaluate(self::ISSUE_CREATE, null, context: 'throw');
@@ -355,6 +367,11 @@ final class GatePluginTest extends TestCase
                         if (process.env.STUB_CONTEXT === "unknown-shape") {
                             // Neither a list of messages nor an object with a `messages` list.
                             return {sessionID: "ses_test", command: "echo GATE"};
+                        }
+                        if (process.env.STUB_CONTEXT === "empty-object") {
+                            // `context()` returning an empty object: the shim writes `{}`, which the
+                            // reader must reject, not read as "no messages yet".
+                            return {};
                         }
                         // The bare message array `context()` returns on real OpenCode: the wrapper of
                         // the fixture file holds it under `messages`.
