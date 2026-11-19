@@ -110,7 +110,7 @@ final class Plan
         foreach ($rawTasks as $i => $raw) {
             $ref = is_array($raw) ? ($raw['task'] ?? null) : null;
             if (!is_string($ref) || !self::isTaskRef($ref, $owners->isNested())) {
-                throw new \InvalidArgumentException("tasks[{$i}]: a task must look like repo#N or owner/repo#N");
+                throw new \InvalidArgumentException("tasks[{$i}]: a task must look like owner/repo#N or repo#N");
             }
             $ref = $norm($ref);
             if (isset($tasks[$ref])) {
@@ -169,11 +169,11 @@ final class Plan
     private static function refList(mixed $value, string $where, \Closure $norm, bool $nested): array
     {
         if (!is_array($value) || !array_is_list($value)) {
-            throw new \InvalidArgumentException("{$where} must be a list of tasks repo#N or owner/repo#N");
+            throw new \InvalidArgumentException("{$where} must be a list of tasks owner/repo#N or repo#N");
         }
         foreach ($value as $ref) {
             if (!is_string($ref) || !self::isTaskRef($ref, $nested)) {
-                throw new \InvalidArgumentException("{$where}: an element must look like repo#N or owner/repo#N");
+                throw new \InvalidArgumentException("{$where}: an element must look like owner/repo#N or repo#N");
             }
         }
 

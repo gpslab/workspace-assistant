@@ -226,8 +226,8 @@ field — no change); an empty `{}` is valid:
 
 | Field           | Format | What the bot does |
 |-----------------|--------|-------------------|
-| `added`         | `[{"task": "repo#N", "after": ["repo#M"]}]` | tasks are added to the epic set (existing ones are untouched) |
-| `hold`          | `["repo#N"]` — the full current list | marks the tasks (clears the others); `[]` clears all |
+| `added`         | `[{"task": "owner/repo#N", "after": ["owner/repo#M"]}]` | tasks are added to the epic set (existing ones are untouched) |
+| `hold`          | `["owner/repo#N"]` — the full current list | marks the tasks (clears the others); `[]` clears all |
 | `message`       | string | sent to the epic topic |
 | `blocked`       | string — the reason | the epic becomes `blocked` (see below); stronger than `done` |
 | `done`          | `true` | the epic becomes `done`; the outbox report is already in the topic |
