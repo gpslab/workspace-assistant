@@ -25,10 +25,7 @@ final readonly class ModelChoice
     /** What `/stats` and `/model` show instead of an empty OPENCODE_MODEL: OpenCode falls back to its own default. */
     private const string OPENCODE_DEFAULT_MODEL = 'default model of OpenCode';
 
-    /** The source phrase of the pin for `model.pinned` (a `--model` in CLAUDE_EXTRA_ARGS). */
-    private const string SOURCE_PIN_EXTRA_ARGS = '--model in CLAUDE_EXTRA_ARGS';
-
-    /** The source phrase of the pin for `model.level_pinned` (a `--model` in CLAUDE_EXTRA_ARGS). */
+    /** The source phrase of the pin for `model.level_pinned` on a Claude instance (a `--model` in CLAUDE_EXTRA_ARGS). */
     private const string SOURCE_LEVEL_EXTRA_ARGS = 'CLAUDE_EXTRA_ARGS';
 
     /** The source phrase of the pin for both texts on an OpenCode instance. */
@@ -198,12 +195,14 @@ final readonly class ModelChoice
 
     /**
      * The refusal text of a pinned model (`/model` with an argument, or a `model:` callback): names the
-     * source of the pin and the pinned model (or the engine's default when the value is empty).
+     * source of the pin and the pinned model (or the engine's default when the value is empty). The two
+     * pins are separate keys: `model.pinned` keeps the translated "--model in CLAUDE_EXTRA_ARGS" phrase of
+     * a Claude instance, while `model.pinned_opencode` names the language-neutral OPENCODE_MODEL variable.
      */
     public function pinnedRefusalText(Locale $locale): string
     {
         if ($this->config->isOpencode()) {
-            return $locale->t('model.pinned', [
+            return $locale->t('model.pinned_opencode', [
                 'model' => $this->opencodeModel(),
                 'source' => self::SOURCE_OPENCODE,
             ]);
@@ -212,7 +211,6 @@ final readonly class ModelChoice
 
         return $locale->t('model.pinned', [
             'model' => $pinned !== '' ? $pinned : '--model',
-            'source' => self::SOURCE_PIN_EXTRA_ARGS,
         ]);
     }
 

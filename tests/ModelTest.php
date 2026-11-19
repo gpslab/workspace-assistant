@@ -481,6 +481,29 @@ final class ModelTest extends TestCase
         );
     }
 
+    public function testTranslatedPinsStayInTheLocaleLanguage(): void
+    {
+        $ru = new Locale('ru');
+
+        // --model in CLAUDE_EXTRA_ARGS: the English "in" must not leak into a translated text.
+        $this->bot = $this->makeBot(['--model=haiku']);
+        $choice = new ModelChoice($this->config(), $this->db);
+        self::assertSame(
+            'Модель закреплена флагом --model в CLAUDE_EXTRA_ARGS (haiku): бот не передаёт свою модель, поэтому /model её не меняет.',
+            $choice->pinnedRefusalText($ru),
+        );
+        self::assertSame('haiku (закреплена в CLAUDE_EXTRA_ARGS)', $choice->describe($ru, 100, 1));
+
+        // OPENCODE_MODEL is a language-neutral variable name: the surrounding words stay translated.
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
+        $choice = new ModelChoice($this->config(), $this->db);
+        self::assertSame(
+            'Модель закреплена в OPENCODE_MODEL (anthropic/sonnet): бот не передаёт свою модель, поэтому /model её не меняет.',
+            $choice->pinnedRefusalText($ru),
+        );
+        self::assertSame('anthropic/sonnet (закреплена в OPENCODE_MODEL)', $choice->describe($ru, 100, 1));
+    }
+
     public function testOpencodeMakesModelReadOnly(): void
     {
         $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
