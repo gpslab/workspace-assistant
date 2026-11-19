@@ -8,17 +8,27 @@ use GpsLab\WorkspaceAssistant\GhClient;
 
 /**
  * The epic orchestrator's access to GitHub. Implemented by {@see GhClient}; replaced in tests.
- * Network and `gh` errors are \RuntimeException (the epic poll is skipped this time).
+ * Network and `gh` errors are \RuntimeException (the epic poll is skipped this time); a missing
+ * task or repository is {@see ForgeNotFound}.
  */
 interface Forge
 {
     /** Snapshot of the task `owner/repo#N` (or `repo#N` of the default owner); $marker is the epic marker `<!-- epic:<slug> -->`;
-     * $coverageHead is the task's `coverage_head`, the base of the "only master merge" check. */
+     * $coverageHead is the task's `coverage_head`, the base of the "only master merge" check.
+     * A task or repository that does not exist is a {@see ForgeNotFound}. */
     public function taskState(string $task, string $marker, ?string $coverageHead = null): TaskState;
+
+    /**
+     * Whether the task `owner/repo#N` (or `repo#N` of the default owner) exists as an issue.
+     * A number that belongs to a PR, like an issue of a missing repository, is "does not exist".
+     * A check that could not be done (network, rate limit, token) is a \RuntimeException.
+     */
+    public function taskExists(string $task): bool;
 
     /**
      * CI result of a repository's default branch (short name): state — SUCCESS | FAILURE | PENDING | NONE,
      * oid — the SHA of the branch head, branch — the default branch name.
+     * A repository that does not exist is a {@see ForgeNotFound}.
      *
      * @return array{state: string, oid: string, branch: string}
      */

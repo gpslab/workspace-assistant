@@ -981,6 +981,53 @@ final class FlowTest extends TestCase
         self::assertFalse($tasks['a#1']['hold']);
     }
 
+    public function testSignalWithShortRefIsResolvedToTheEpicOwner(): void
+    {
+        require_once __DIR__.'/OrchestratorTest.php';
+        $this->startEpic();
+        $this->buildBot(0, '', null, new FakeGitHub());
+
+        $this->signal('{"added":[{"task":"gpslab/r#4"}]}');
+        $this->runEpic();
+        $this->signal('{"added":[{"task":"r#5"}]}');
+        $this->runEpic();
+
+        self::assertSame(['a#1', 'a#2', 'gpslab/r#4', 'gpslab/r#5'], array_column($this->db->epicTasks('demo'), 'task'));
+    }
+
+    public function testSignalWithMissingTaskFailsTheRunAndAppliesNothing(): void
+    {
+        require_once __DIR__.'/OrchestratorTest.php';
+        $this->startEpic();
+        $gh = new FakeGitHub();
+        $gh->missing = ['b#9'];
+        $this->buildBot(0, '', null, $gh);
+        $this->signal('{"added":[{"task":"b#9"}],"hold":["a#1"]}');
+
+        $this->runEpic();
+
+        self::assertStringContainsString('Epic run demo failed', $this->allText());
+        self::assertStringContainsString('does not exist', $this->allText());
+        $tasks = array_column($this->db->epicTasks('demo'), null, 'task');
+        self::assertSame(['a#1', 'a#2'], array_keys($tasks));
+        self::assertFalse($tasks['a#1']['hold']);
+    }
+
+    public function testSignalWithUncheckedTaskIsStoredAnyway(): void
+    {
+        require_once __DIR__.'/OrchestratorTest.php';
+        $this->startEpic();
+        $gh = new FakeGitHub();
+        $gh->unchecked = ['b#9'];
+        $this->buildBot(0, '', null, $gh);
+        $this->signal('{"added":[{"task":"b#9"}]}');
+
+        $this->runEpic();
+
+        self::assertStringNotContainsString('Epic run demo failed', $this->allText());
+        self::assertSame(['a#1', 'a#2', 'b#9'], array_column($this->db->epicTasks('demo'), 'task'));
+    }
+
     /**
      * @return iterable<string, array{?string}>
      */

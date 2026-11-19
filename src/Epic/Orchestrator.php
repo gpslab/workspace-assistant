@@ -90,6 +90,11 @@ final class Orchestrator
                 $now = ($this->now ?? time(...))();
                 $this->db->epicPolled($slug, $now);
                 $this->card?->update($slug, $states, true, $now);
+            } catch (ForgeNotFound $e) {
+                // A task or a repository of the epic does not exist (or is not visible to the token):
+                // polling the rest of the tasks would be a guess, so the epic is blocked instead.
+                Log::line("epic {$slug}: {$e->getMessage()}");
+                ($this->block)($slug, $this->locale->t('orchestrator.task_not_found', ['task' => $e->ref, 'repo' => $e->repo]));
             } catch (\Throwable $e) {
                 Log::line("epic {$slug}: GitHub poll failed — ".$e->getMessage());
                 $this->failures[$slug] = ($this->failures[$slug] ?? 0) + 1;

@@ -6,6 +6,7 @@ namespace GpsLab\WorkspaceAssistant;
 
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Forge;
+use GpsLab\WorkspaceAssistant\Epic\ForgeNotFound;
 use GpsLab\WorkspaceAssistant\Epic\TaskState;
 
 /**
@@ -48,6 +49,15 @@ final class GhClient implements Forge
         query($owner:String!,$name:String!){
           repository(owner:$owner,name:$name){
             defaultBranchRef{name target{oid ... on Commit{statusCheckRollup{state}}}}
+          }
+        }
+        GQL;
+
+    /** Existence only: an issue number that belongs to a PR gives `issue: null`. */
+    private const string EXISTS_QUERY = <<<'GQL'
+        query($owner:String!,$name:String!,$number:Int!){
+          repository(owner:$owner,name:$name){
+            issue(number:$number){number}
           }
         }
         GQL;
@@ -145,13 +155,28 @@ final class GhClient implements Forge
         return $names;
     }
 
+    public function taskExists(string $task): bool
+    {
+        [$owner, $repo, $number] = $this->split($task);
+        try {
+            $data = $this->graphql(self::EXISTS_QUERY, ['owner' => $owner, 'name' => $repo, 'number' => $number], $task, "{$owner}/{$repo}");
+        } catch (ForgeNotFound) {
+            // The repository is missing (or not visible): the task does not exist either.
+            return false;
+        }
+        $issue = $data['data']['repository']['issue'] ?? null;
+
+        return is_array($issue);
+    }
+
     public function taskState(string $task, string $marker, ?string $coverageHead = null): TaskState
     {
         [$owner, $repo, $number] = $this->split($task);
-        $data = $this->graphql(self::ISSUE_QUERY, ['owner' => $owner, 'name' => $repo, 'number' => $number]);
+        $data = $this->graphql(self::ISSUE_QUERY, ['owner' => $owner, 'name' => $repo, 'number' => $number], $task, "{$owner}/{$repo}");
         $issue = $data['data']['repository']['issue'] ?? null;
         if (!is_array($issue)) {
-            throw new \RuntimeException("issue {$owner}/{$repo}#{$number} not found");
+            // The number belongs to a PR, or there is no such issue.
+            throw new ForgeNotFound($task, "{$owner}/{$repo}", "issue {$owner}/{$repo}#{$number} not found");
         }
 
         $issueOpen = ($issue['state'] ?? 'OPEN') === 'OPEN';
@@ -663,7 +688,7 @@ final class GhClient implements Forge
     public function masterCi(string $repo): array
     {
         [$owner, $name] = $this->split($repo);
-        $data = $this->graphql(self::MASTER_QUERY, ['owner' => $owner, 'name' => $name]);
+        $data = $this->graphql(self::MASTER_QUERY, ['owner' => $owner, 'name' => $name], $repo, "{$owner}/{$name}");
         $ref = $data['data']['repository']['defaultBranchRef'] ?? [];
         $state = $ref['target']['statusCheckRollup']['state'] ?? null;
         $oid = $ref['target']['oid'] ?? null;
@@ -847,22 +872,57 @@ final class GhClient implements Forge
 
     /**
      * @param array<string, string|int> $vars
+     * @param string                    $ref  what is asked about (a task `owner/repo#N` or a repository): for the "not found" answer
+     * @param string                    $repo the repository (`owner/repo`) of $ref
      *
      * @return array<string, mixed>
+     *
+     * @throws ForgeNotFound when the forge answers NOT_FOUND for the repository or the issue
      */
-    private function graphql(string $query, array $vars): array
+    private function graphql(string $query, array $vars, string $ref = '', string $repo = ''): array
     {
         $args = ['api', 'graphql', '-f', 'query='.$query];
         foreach ($vars as $k => $v) {
             $args[] = is_int($v) ? '-F' : '-f';
             $args[] = "{$k}={$v}";
         }
-        $out = json_decode($this->gh($args), true);
-        if (!is_array($out) || isset($out['errors'])) {
-            throw new \RuntimeException('gh graphql: '.json_encode($out['errors'] ?? $out, JSON_UNESCAPED_UNICODE));
+        $res = $this->run(['gh', ...$args]);
+        $out = json_decode($res['stdout'], true);
+        // A NOT_FOUND answer may come with a non-zero exit code: it is still a normal response, not a failure.
+        if (is_array($out) && isset($out['errors'])) {
+            $message = 'gh graphql: '.json_encode($out['errors'], JSON_UNESCAPED_UNICODE);
+            if (self::onlyNotFound($out['errors'])) {
+                throw new ForgeNotFound($ref, $repo, $message);
+            }
+
+            throw new \RuntimeException($message);
+        }
+        if ($res['exit'] !== 0) {
+            throw new \RuntimeException('gh api: '.trim($res['stderr']));
+        }
+        if (!is_array($out)) {
+            throw new \RuntimeException('gh graphql: '.json_encode($out, JSON_UNESCAPED_UNICODE));
         }
 
         return $out;
+    }
+
+    /**
+     * Every error is NOT_FOUND (a missing repository, a missing issue, a number that belongs to a PR).
+     * Anything else (rate limit, forbidden, a bad query) is a transient or an operator problem.
+     */
+    private static function onlyNotFound(mixed $errors): bool
+    {
+        if (!is_array($errors) || $errors === []) {
+            return false;
+        }
+        foreach ($errors as $err) {
+            if (!is_array($err) || ($err['type'] ?? null) !== 'NOT_FOUND') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

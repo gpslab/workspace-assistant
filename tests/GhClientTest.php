@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests;
 
+use GpsLab\WorkspaceAssistant\Epic\ForgeNotFound;
 use GpsLab\WorkspaceAssistant\Epic\TaskState;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GhClient;
@@ -1028,6 +1029,94 @@ final class GhClientTest extends TestCase
             self::fail('merge error must propagate');
         } catch (\RuntimeException) {
             self::assertCount(1, $calls);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private static function graphqlClient(array $payload, int $exit = 0): GhClient
+    {
+        return new GhClient(new ForgeOwners(['o']), 5, static fn (array $cmd): array => [
+            'exit' => $exit, 'stdout' => (string) json_encode($payload), 'stderr' => '',
+        ]);
+    }
+
+    public function testTaskExistsTrueWhenTheIssueIsThere(): void
+    {
+        $gh = self::graphqlClient(['data' => ['repository' => ['issue' => ['number' => 5]]]]);
+
+        self::assertTrue($gh->taskExists('r#5'));
+    }
+
+    public function testTaskExistsFalseWhenTheIssueIsMissing(): void
+    {
+        // A number that belongs to a PR: `issue(number:)` answers null, exactly like a missing number.
+        $gh = self::graphqlClient(['data' => ['repository' => ['issue' => null]]]);
+
+        self::assertFalse($gh->taskExists('r#5'));
+    }
+
+    public function testTaskExistsFalseWhenTheRepositoryIsMissing(): void
+    {
+        $gh = self::graphqlClient([
+            'data' => ['repository' => null],
+            'errors' => [['type' => 'NOT_FOUND', 'path' => ['repository'], 'message' => 'Could not resolve to a Repository']],
+        ], 1);
+
+        self::assertFalse($gh->taskExists('r#5'));
+    }
+
+    public function testTaskExistsFailsOnATransientError(): void
+    {
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static fn (array $cmd): array => ['exit' => 1, 'stdout' => '', 'stderr' => 'network down']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('network down');
+        $gh->taskExists('r#5');
+    }
+
+    public function testTaskStateReportsAMissingIssueAsNotFound(): void
+    {
+        $gh = self::graphqlClient([
+            'data' => ['repository' => null],
+            'errors' => [['type' => 'NOT_FOUND', 'path' => ['repository'], 'message' => 'Could not resolve to a Repository']],
+        ], 1);
+
+        try {
+            $gh->taskState('r#5', self::MARKER);
+            self::fail('a missing repository must be a ForgeNotFound');
+        } catch (ForgeNotFound $e) {
+            self::assertSame('r#5', $e->ref);
+            self::assertSame('o/r', $e->repo);
+        }
+    }
+
+    public function testMasterCiReportsAMissingRepositoryAsNotFound(): void
+    {
+        $gh = self::graphqlClient([
+            'data' => ['repository' => null],
+            'errors' => [['type' => 'NOT_FOUND', 'path' => ['repository'], 'message' => 'Could not resolve to a Repository']],
+        ]);
+
+        $this->expectException(ForgeNotFound::class);
+        $gh->masterCi('r');
+    }
+
+    public function testGraphqlErrorsOtherThanNotFoundStayRuntimeExceptions(): void
+    {
+        $gh = self::graphqlClient([
+            'data' => null,
+            'errors' => [['type' => 'RATE_LIMITED', 'path' => [], 'message' => 'API rate limit exceeded']],
+        ]);
+
+        try {
+            $gh->taskState('r#5', self::MARKER);
+            self::fail('a rate limit must not be a ForgeNotFound');
+        } catch (ForgeNotFound) {
+            self::fail('a rate limit must not be a ForgeNotFound');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('RATE_LIMITED', $e->getMessage());
         }
     }
 }

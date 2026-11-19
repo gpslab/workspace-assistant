@@ -210,6 +210,7 @@
     "orchestrator.no_movement": "aucun mouvement : {ticks} cycles du minuteur de suite sans changement sur {forge}",
     "orchestrator.poll_failing": "L'interrogation de {forge} a échoué {count} fois de suite (vérifiez `{cli} auth status` avec l'utilisateur du bot) : {error}",
     "orchestrator.stalled_in_progress": "openronin:in-progress reste sans activité sur {forge} depuis plus de {minutes} min",
+    "orchestrator.task_not_found": "{task} n'est pas visible sur {forge} : la référence est erronée, ou le jeton du bot n'a pas accès au dépôt {repo}. Vérifiez `{cli} auth status` avec l'utilisateur du bot.",
     "outbox.notes_header": "📎 Remarques sur l'outbox :",
     "outbox.over_limit": "• {count} fichier(s) ignoré(s) au-delà de la limite de {limit} par exécution",
     "outbox.send_failed": "• {name} : erreur d'envoi — {error}",

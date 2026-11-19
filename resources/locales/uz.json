@@ -210,6 +210,7 @@
     "orchestrator.no_movement": "harakat yo'q: {forge}'da o'zgarishlarsiz ketma-ket {ticks} ta taymer tiki",
     "orchestrator.poll_failing": "{forge} so'rovi ketma-ket {count} marta muvaffaqiyatsiz bo'ldi (bot foydalanuvchisi nomidan `{cli} auth status` ni tekshiring): {error}",
     "orchestrator.stalled_in_progress": "openronin:in-progress {forge}'da {minutes} daqiqadan ortiq faolliksiz turibdi",
+    "orchestrator.task_not_found": "{task} {forge}'da ko'rinmaydi: havola noto'g'ri yoki bot tokenining {repo} repozitoriyiga ruxsati yo'q. Bot foydalanuvchisi nomidan `{cli} auth status` ni tekshiring.",
     "outbox.notes_header": "📎 Outbox, izohlar:",
     "outbox.over_limit": "• bitta ishga tushirish uchun {limit} chegarasidan oshgan {count} ta fayl o'tkazib yuborildi",
     "outbox.send_failed": "• {name}: yuborish xatosi — {error}",

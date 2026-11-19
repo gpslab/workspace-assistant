@@ -210,6 +210,7 @@
     "orchestrator.no_movement": "немає руху на {forge} за таймером (тіків поспіль без змін: {ticks})",
     "orchestrator.poll_failing": "опитування {forge} не вдається (невдач поспіль: {count}; перевір `{cli} auth status` під користувачем бота): {error}",
     "orchestrator.stalled_in_progress": "openronin:in-progress висить без активності на {forge} понад {minutes} хв",
+    "orchestrator.task_not_found": "{task} не видно на {forge}: посилання хибне або токен бота не має доступу до репозиторію {repo}. Перевір `{cli} auth status` під користувачем бота.",
     "outbox.notes_header": "📎 Outbox, зауваження:",
     "outbox.over_limit": "• пропущено файлів: {count}, понад ліміт {limit} за запуск",
     "outbox.send_failed": "• {name}: помилка надсилання — {error}",

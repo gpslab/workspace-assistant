@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\EditStatus;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Forge;
+use GpsLab\WorkspaceAssistant\Epic\ForgeNotFound;
 use GpsLab\WorkspaceAssistant\Epic\Gates;
 use GpsLab\WorkspaceAssistant\Epic\Orchestrator;
 use GpsLab\WorkspaceAssistant\Epic\TaskState;
@@ -59,6 +60,15 @@ final class FakeGitHub implements Forge
     public bool $fail = false;
     public bool $mergeFails = false;
 
+    /** @var list<string> tasks whose taskState() reports "not found" */
+    public array $notFoundTasks = [];
+    /** @var list<string> repositories whose masterCi() reports "not found" */
+    public array $notFoundRepos = [];
+    /** @var list<string> tasks whose existence check is "not found" */
+    public array $missing = [];
+    /** @var list<string> tasks whose existence check could not be done */
+    public array $unchecked = [];
+
     /** @var list<string> */
     public array $failCold = [];
     /** @var list<string> */
@@ -102,11 +112,23 @@ final class FakeGitHub implements Forge
         return $this->cold[$pr] ?? [];
     }
 
+    public function taskExists(string $task): bool
+    {
+        if (in_array($task, $this->unchecked, true)) {
+            throw new \RuntimeException('gh: network');
+        }
+
+        return !in_array($task, $this->missing, true);
+    }
+
     public function taskState(string $task, string $marker, ?string $coverageHead = null): TaskState
     {
         $this->coverageHeads[$task] = $coverageHead;
         if ($this->fail) {
             throw new \RuntimeException('gh: bad credentials');
+        }
+        if (in_array($task, $this->notFoundTasks, true)) {
+            throw new ForgeNotFound($task, $task, "issue {$task} not found");
         }
 
         return $this->states[$task] ?? new TaskState($task);
@@ -114,6 +136,10 @@ final class FakeGitHub implements Forge
 
     public function masterCi(string $repo): array
     {
+        if (in_array($repo, $this->notFoundRepos, true)) {
+            throw new ForgeNotFound($repo, $repo, "repository {$repo} not found");
+        }
+
         return ['state' => $this->master[$repo] ?? 'SUCCESS', 'oid' => $this->masterOid[$repo] ?? 'sha-'.$repo, 'branch' => 'master'];
     }
 
@@ -1335,5 +1361,35 @@ final class OrchestratorTest extends TestCase
         self::assertSame([], $this->notified);
         self::assertSame($this->now - 60, $this->epic()['last_poll_at']);
         self::assertNotSame([], $this->enqueued);
+    }
+
+    public function testTaskThatDoesNotExistBlocksTheEpicWithBothCauses(): void
+    {
+        $this->gh->notFoundTasks = ['b#2'];
+        $c = $this->orchestrator();
+
+        $c->poll();
+
+        self::assertSame(1, $this->blockedCount());
+        self::assertStringContainsString('b#2', $this->blockedReason());
+        self::assertStringContainsString('auth status', $this->blockedReason());
+        self::assertSame('blocked', $this->db->epicGet('epic')['status'] ?? null);
+        // A blocked epic is not polled: no repeated block and no poll-failure notice.
+        $c->poll();
+        self::assertSame(1, $this->blockedCount());
+        self::assertSame([], $this->notified);
+    }
+
+    public function testRepositoryThatDoesNotExistBlocksTheEpicWithBothCauses(): void
+    {
+        $this->gh->notFoundRepos = ['b'];
+        $c = $this->orchestrator();
+
+        $c->poll();
+
+        self::assertSame(1, $this->blockedCount());
+        self::assertStringContainsString('b', $this->blockedReason());
+        self::assertStringContainsString('auth status', $this->blockedReason());
+        self::assertSame('blocked', $this->db->epicGet('epic')['status'] ?? null);
     }
 }

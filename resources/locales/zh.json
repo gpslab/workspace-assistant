@@ -210,6 +210,7 @@
     "orchestrator.no_movement": "没有进展：连续 {ticks} 次定时触发，{forge} 上均无变化",
     "orchestrator.poll_failing": "{forge} 轮询已连续失败 {count} 次（请以机器人用户身份检查 `{cli} auth status`）：{error}",
     "orchestrator.stalled_in_progress": "openronin:in-progress 已超过 {minutes} 分钟在 {forge} 上没有活动",
+    "orchestrator.task_not_found": "{task} 在 {forge} 上不可见：引用有误，或机器人的令牌无权访问仓库 {repo}。请以机器人用户身份检查 `{cli} auth status`。",
     "outbox.notes_header": "📎 Outbox 备注：",
     "outbox.over_limit": "• 已跳过 {count} 个文件，超出每次运行 {limit} 个的上限",
     "outbox.send_failed": "• {name}：发送错误 — {error}",
