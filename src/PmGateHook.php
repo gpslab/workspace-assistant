@@ -52,6 +52,16 @@ final class PmGateHook
 {
     public const string SKIP_ENV = 'WORKSPACE_ASSISTANT_PM_SKIP';
 
+    /**
+     * Environment of a gated run: the arguments the OpenCode gate shim (`opencode-plugin/`) passes to
+     * bin/pm-gate-hook.php (Claude Code gets them in the hook command instead) and the PHP binary the
+     * shim starts.
+     */
+    public const string STATE_ENV = 'WORKSPACE_ASSISTANT_GATE_STATE_DIR';
+    public const string KIND_ENV = 'WORKSPACE_ASSISTANT_GATE_KIND';
+    public const string RUN_ENV = 'WORKSPACE_ASSISTANT_GATE_RUN_ID';
+    public const string PHP_ENV = 'WORKSPACE_ASSISTANT_GATE_PHP';
+
     /** What the model sees when the hook itself fails. */
     public const string FAILURE_REASON = 'issue creation blocked: the gate failed, see state/pm-gate.log';
 

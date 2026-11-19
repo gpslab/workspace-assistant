@@ -41,6 +41,13 @@ final class ReviewCommitHook
     /** Environment variable: the path to the JSON file with the recorded SHAs of the run. */
     public const string SHAS_ENV = 'WORKSPACE_ASSISTANT_REVIEW_SHAS';
 
+    /**
+     * Environment variable: `1` when this run has the commit hook. Claude Code gets the hook in its
+     * `--settings`; the OpenCode gate shim (`opencode-plugin/`) reads this flag, so it does not check
+     * review commands of a run that is not a review.
+     */
+    public const string ENABLED_ENV = 'WORKSPACE_ASSISTANT_REVIEW_COMMIT_GATE';
+
     private const string GH_PR_REVIEW_RE = '/^gh\s+pr\s+review\b/';
     private const string GLAB_APPROVE_RE = '/^glab\s+mr\s+approve\b/';
     private const string GLAB_APPROVE_SHA_RE = '/(?:^|\s)(?:--sha(?:=|\s+)|-s(?:=|\s+)?)(?<sha>\S*)/';
