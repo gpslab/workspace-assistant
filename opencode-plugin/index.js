@@ -187,7 +187,13 @@ function evaluate(ctx, event) {
         const history = ctx.session.context({sessionID: event.sessionID});
         if (history !== null && typeof history === "object" && typeof history.then === "function") {
             return history.then(
-                (value) => apply(event, decide(event, value)),
+                (value) => {
+                    try {
+                        apply(event, decide(event, value));
+                    } catch (error) {
+                        apply(event, {deny: true, reason: FAILURE_REASON + " " + messageOf(error)});
+                    }
+                },
                 (error) => apply(event, {deny: true, reason: FAILURE_REASON + " " + messageOf(error)}),
             );
         }

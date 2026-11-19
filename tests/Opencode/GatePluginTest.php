@@ -119,6 +119,16 @@ final class GatePluginTest extends TestCase
         self::assertSame('deny', $single['effect']);
     }
 
+    public function testAHistoryThatCannotBeSerialisedDeniesOnThePromisePath(): void
+    {
+        // The history resolves to an object holding a BigInt: JSON.stringify inside `decide()` throws
+        // after the promise has resolved, so only the try/catch around the fulfilled callback denies.
+        $result = $this->evaluate(self::ISSUE_CREATE, null, context: 'promise-unserializable');
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString('The command was blocked: the gate failed.', (string) $result['message']);
+    }
+
     public function testTheReviewCommitGateRunsOnlyOnAReviewRun(): void
     {
         $review = $this->evaluate(self::APPROVE, self::fixture('stage-single'), kind: 'review', review: true);
@@ -226,6 +236,12 @@ final class GatePluginTest extends TestCase
                     context() {
                         if (process.env.STUB_CONTEXT === "throw") {
                             throw new Error("session context failed");
+                        }
+                        if (process.env.STUB_CONTEXT === "promise-unserializable") {
+                            // JSON.parse never yields a BigInt, so this history only exists where the
+                            // stub builds it: resolved in a promise, it makes the shim's
+                            // JSON.stringify throw inside the fulfilled callback.
+                            return Promise.resolve({note: 1n});
                         }
                         const history = process.env.STUB_HISTORY_FILE === ""
                             ? null
