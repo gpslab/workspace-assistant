@@ -210,6 +210,7 @@
     "orchestrator.no_movement": "कोई प्रगति नहीं: लगातार {ticks} टाइमर टिक में {forge} पर कोई बदलाव नहीं",
     "orchestrator.poll_failing": "{forge} की जाँच लगातार {count} बार विफल रही (बॉट उपयोगकर्ता के रूप में `{cli} auth status` जाँचें): {error}",
     "orchestrator.stalled_in_progress": "openronin:in-progress {forge} पर {minutes} मिनट से अधिक समय से बिना गतिविधि के अटका है",
+    "orchestrator.task_not_found": "{task} {forge} पर दिखाई नहीं देता: संदर्भ गलत है, या बॉट के टोकन को रिपॉज़िटरी {repo} तक पहुँच नहीं है। बॉट उपयोगकर्ता के रूप में `{cli} auth status` जाँचें।",
     "outbox.notes_header": "📎 Outbox टिप्पणियाँ:",
     "outbox.over_limit": "• प्रति रन {limit} की सीमा से अधिक होने पर {count} फ़ाइल(ें) छोड़ी गईं",
     "outbox.send_failed": "• {name}: भेजने में त्रुटि — {error}",

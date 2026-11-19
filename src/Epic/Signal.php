@@ -21,6 +21,9 @@ use GpsLab\WorkspaceAssistant\ForgeOwners;
  *              a verdict on each cold reviewer finding (review run only).
  *
  * An invalid signal is an \InvalidArgumentException (the run failed).
+ *
+ * A short `repo#N` in `added[].task`, `added[].after` and `hold` is resolved against the epic's tasks
+ * before canonicalisation: see {@see resolve()}.
  */
 final class Signal
 {
@@ -47,12 +50,16 @@ final class Signal
     ) {
     }
 
-    public static function parse(string $json, ForgeOwners $owners): self
+    /**
+     * @param list<string> $epicTasks the tasks the epic already holds, as stored: the owner of a short
+     *                                `repo#N` is looked up among them
+     */
+    public static function parse(string $json, ForgeOwners $owners, array $epicTasks = []): self
     {
         if ($owners->isEmpty()) {
             throw new \InvalidArgumentException(ForgeOwners::NOT_SET);
         }
-        $norm = static fn (string $ref): string => $owners->canonical($ref);
+        $norm = static fn (string $ref, string $where): string => $owners->canonical(self::resolve($ref, $owners, $epicTasks, $where));
         try {
             $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
@@ -72,7 +79,7 @@ final class Signal
             if (!is_string($ref) || !Plan::isTaskRef($ref, $owners->isNested())) {
                 throw new \InvalidArgumentException("added[{$i}]: task must look like owner/repo#N or repo#N");
             }
-            $added[] = ['task' => $norm($ref), 'after' => self::refs($item['after'] ?? [], "added[{$i}].after", $norm, $owners->isNested())];
+            $added[] = ['task' => $norm($ref, "added[{$i}].task"), 'after' => self::refs($item['after'] ?? [], "added[{$i}].after", $norm, $owners->isNested())];
         }
 
         $hold = array_key_exists('hold', $data) ? self::refs($data['hold'], 'hold', $norm, $owners->isNested()) : null;
@@ -132,6 +139,42 @@ final class Signal
     }
 
     /**
+     * A short `repo#N` gets its owner from the epic: an explicit `owner/repo#N` is kept as written
+     * and is never re-resolved, and a short ref that already names a task of the epic stays as it is
+     * (task identity is the string: `owner/repo#N` and `repo#N` are two different rows). Otherwise the
+     * owner is chosen among the owners of the epic's tasks in repository `repo`: exactly one owner —
+     * that owner; several — the reference is ambiguous; none — the default owner, as before.
+     *
+     * @param list<string> $epicTasks
+     *
+     * @throws \InvalidArgumentException when the epic has tasks of several owners in that repository
+     */
+    private static function resolve(string $ref, ForgeOwners $owners, array $epicTasks, string $where): string
+    {
+        if (str_contains($ref, '/') || in_array($ref, $epicTasks, true)) {
+            return $ref;
+        }
+        [, $repo] = $owners->parse($ref);
+        $found = [];
+        foreach ($epicTasks as $task) {
+            try {
+                [$owner, $taskRepo] = $owners->parse($task);
+            } catch (\InvalidArgumentException) {
+                // A stored task whose owner is no longer in FORGE_OWNERS is not a candidate.
+                continue;
+            }
+            if ($taskRepo === $repo) {
+                $found[$owner] = true;
+            }
+        }
+        if (count($found) > 1) {
+            throw new \InvalidArgumentException("{$where}: {$ref} is ambiguous — the epic has tasks of several owners in {$repo}, write the full form owner/repo#N");
+        }
+
+        return ($found === [] ? $owners->default() : (string) array_key_first($found)).'/'.$ref;
+    }
+
+    /**
      * @return list<string>
      */
     private static function refs(mixed $value, string $where, \Closure $norm, bool $nested): array
@@ -139,13 +182,15 @@ final class Signal
         if (!is_array($value) || !array_is_list($value)) {
             throw new \InvalidArgumentException("{$where} must be a list of owner/repo#N or repo#N");
         }
-        foreach ($value as $ref) {
+        $out = [];
+        foreach ($value as $i => $ref) {
             if (!is_string($ref) || !Plan::isTaskRef($ref, $nested)) {
                 throw new \InvalidArgumentException("{$where}: an element must look like owner/repo#N or repo#N");
             }
+            $out[] = $norm($ref, "{$where}[{$i}]");
         }
 
-        return array_values(array_unique(array_map($norm, $value)));
+        return array_values(array_unique($out));
     }
 
     /**

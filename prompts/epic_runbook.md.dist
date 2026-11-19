@@ -43,9 +43,13 @@ Start order for every run:
 - **Signal — always.** Write the signal file at the end of the run even if there is
   nothing to report (`{}`). A missing file or invalid JSON makes the bot count the run as
   failed.
-- **Task refs in the signal are written in full.** In the signal a task ref is
-  `owner/repo#N`, with the owner. The short `repo#N` names a task of the default owner (the
-  first of `FORGE_OWNERS`) and is ambiguous when the epic's tasks live under another owner.
+- **Task refs in the signal are written in full.** In the signal always write a task ref
+  as `owner/repo#N`, with the owner, so the rewrite below never applies to a ref you wrote
+  yourself. A short `repo#N` is resolved against the epic's existing tasks before it is
+  stored: an explicit `owner/repo#N` is kept as written; a short ref that already names a
+  task of the epic stays as it is; otherwise the owner is the owner of the epic's tasks in
+  the repository `repo` (several such owners — the signal is rejected and you must write the
+  full form; none — the default owner, the first of `FORGE_OWNERS`).
 - **Language towards openronin** is directive: "must fix: X". No "nice to have", "not a
   blocker", "up to you": openronin skips such points. Severity calls and caveats go to the
   journal only.

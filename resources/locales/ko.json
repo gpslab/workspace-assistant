@@ -210,6 +210,7 @@
     "orchestrator.no_movement": "진행 없음: {forge}에 변화 없이 타이머 틱이 연속 {ticks}번 지났습니다",
     "orchestrator.poll_failing": "{forge} 폴링이 연속 {count}번 실패했습니다 (봇 사용자로 `{cli} auth status`를 확인하세요): {error}",
     "orchestrator.stalled_in_progress": "openronin:in-progress가 {forge}에서 {minutes}분 넘게 활동 없이 멈춰 있습니다",
+    "orchestrator.task_not_found": "{task}이(가) {forge}에서 보이지 않습니다: 참조가 잘못되었거나 봇 토큰에 {repo} 저장소에 대한 접근 권한이 없습니다. 봇 사용자로 `{cli} auth status`를 확인하세요.",
     "outbox.notes_header": "📎 Outbox 참고 사항:",
     "outbox.over_limit": "• 실행당 한도 {limit}개를 넘은 파일 {count}개를 건너뛰었습니다",
     "outbox.send_failed": "• {name}: 전송 오류 — {error}",

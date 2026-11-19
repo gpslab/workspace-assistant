@@ -210,6 +210,7 @@
     "orchestrator.no_movement": "қозғалыс жоқ: {forge}-та өзгерістерсіз қатарынан {ticks} таймер тигі",
     "orchestrator.poll_failing": "{forge} сұрауы қатарынан {count} рет сәтсіз болды (бот пайдаланушысынан `{cli} auth status` тексеріңіз): {error}",
     "orchestrator.stalled_in_progress": "openronin:in-progress {forge}-та {minutes} мин-тан астам белсенділіксіз тұр",
+    "orchestrator.task_not_found": "{task} {forge}-та көрінбейді: сілтеме қате, немесе боттың токенінің {repo} репозиторийіне қатынасы жоқ. Бот пайдаланушысынан `{cli} auth status` тексеріңіз.",
     "outbox.notes_header": "📎 Outbox, ескертулер:",
     "outbox.over_limit": "• бір жүргізілімге {limit} шегінен асқан {count} файл өткізіп жіберілді",
     "outbox.send_failed": "• {name}: жіберу қатесі — {error}",

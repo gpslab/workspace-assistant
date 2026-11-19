@@ -117,6 +117,14 @@ A task in the plan is `owner/repo#N` or the short `repo#N` (default owner); `rel
 `repo#N` values stay valid without migration. While `FORGE_OWNERS` is unset, epics and PR link
 recognition fail with "set FORGE_OWNERS".
 
+A short `repo#N` in an epic signal (`added[].task`, `added[].after`, `hold`) is resolved when the
+signal is accepted, before it is stored: an explicit `owner/repo#N` is kept as written and never
+re-resolved; a short ref that is already a task of the epic stays as it is (task identity is the
+string); otherwise the owner is the only owner of the epic's tasks in that repository, and with
+several such owners the signal is rejected as ambiguous (it asks for the full form `owner/repo#N`).
+No task of the epic in that repository means the default owner, as before. So a short ref of another
+owner's repository in `hold` or `after` is no longer rejected: it is rewritten to that owner.
+
 ## Marker authors
 
 The epic marker `<!-- epic:<slug> -->` counts only when it comes from the `gh` account the bot runs
@@ -239,6 +247,11 @@ invalid or missing signal is a **run failure**: the bot reports it in the topic 
 from the signal. The text reply of an epic run is not sent to the topic; the author receives only
 `message`, `blocked` and the report. Files in the run's `state/outbox` go to the epic topic as for a
 regular run.
+
+Every task in `added` is checked for existence when the signal is accepted: a missing issue —
+including a number that belongs to a PR — is an invalid signal (a run failure). A check that could
+not be done (network, rate limit, token) is not the author's error: the task is stored anyway and a
+warning goes to the log.
 
 ## Cold reviewer findings in the hot review
 
@@ -375,6 +388,13 @@ needed:
   epic is `blocked` (the common transition, see below).
 - **Hanging answer**: `openronin:awaiting-answer` stays longer than the timeout since the last
   comment with the epic marker in that issue → the task is `blocked` and the epic is `blocked`.
+- **A task or a repository that does not exist**: the poll asks the forge about every task and every
+  repository of the epic. "Not found" — a missing issue, a number that belongs to a PR, a repository
+  the bot's token cannot see — blocks the epic at once with a message naming the task and the
+  repository and both causes (a wrong reference, or the bot's token has no access). A blocked epic is
+  not polled, so the rest of its tasks are not polled either: blocking and a partial poll would
+  contradict each other. A failed repository also blocks the epic, because `masterCi` reports "not
+  found" for it the same way.
 
 | `.env` setting                | Default | Meaning |
 |-------------------------------|---------|---------|
@@ -534,8 +554,9 @@ Then:
 ## Stop, failure and completion
 
 - **Transition to `blocked`** is common to all stop reasons (the `blocked` signal, stall, red
-  `master`): the epic status is `blocked`, the reason is saved, and exactly one message "⛔ epic is
-  stopped, waiting for: <reason>" goes to the epic topic. `/epic resume` clears it.
+  `master`, a task or a repository the forge cannot find): the epic status is `blocked`, the reason is
+  saved, and exactly one message "⛔ epic is stopped, waiting for: <reason>" goes to the epic topic.
+  `/epic resume` clears it.
 - **Epic run failure** (the process crashed, was killed by timeout, returned an error, the signal is
   missing or invalid): with `AUTO_COMMIT=0` the bot does not patch and roll back the tree; the changes
   stay in the working tree. With `1`, if the tree is dirty, all of its content (modified, untracked and binary

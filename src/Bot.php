@@ -151,7 +151,7 @@ final class Bot implements LoopControl
             owners: $config->forgeOwners,
             locale: $this->locale,
         );
-        $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator, $this->secretBlocker);
+        $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator, $this->secretBlocker, $github);
         $this->compactFlow = new CompactFlow($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->dirtyTree, $this->runState, $this->jobRunner);
     }
 

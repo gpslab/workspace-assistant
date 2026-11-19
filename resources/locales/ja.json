@@ -210,6 +210,7 @@
     "orchestrator.no_movement": "動きなし：{forge} に変化がないままタイマーのティックが {ticks} 回続きました",
     "orchestrator.poll_failing": "{forge} のポーリングが {count} 回連続で失敗しています（ボットユーザーで `{cli} auth status` を確認してください）：{error}",
     "orchestrator.stalled_in_progress": "openronin:in-progress が {minutes} 分以上、{forge} 上で動きのないまま残っています",
+    "orchestrator.task_not_found": "{task} は {forge} で見つかりません：参照が誤っているか、ボットのトークンにリポジトリ {repo} へのアクセス権がありません。ボットユーザーで `{cli} auth status` を確認してください。",
     "outbox.notes_header": "📎 送信ボックスのメモ：",
     "outbox.over_limit": "• 1回の実行あたりの上限 {limit} を超えたため、{count} 件のファイルをスキップしました",
     "outbox.send_failed": "• {name}：送信エラー — {error}",
