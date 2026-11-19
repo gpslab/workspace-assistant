@@ -96,7 +96,7 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -120,6 +120,8 @@ final class QueueFlowTest extends TestCase
             'autoCommit' => $autoCommit,
             'subreposDir' => $subreposDir,
             'engine' => $engine,
+            'anthropicBaseUrl' => $anthropicBaseUrl,
+            'anthropicModel' => $anthropicModel,
         ] + ($locale === null ? [] : ['botLocale' => $locale]));
 
         return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github, runnerFactory: $this->runnerFactoryFor($config));
@@ -1517,6 +1519,82 @@ final class QueueFlowTest extends TestCase
 
         self::assertEqualsWithDelta(time() + 3600, $this->db->getLimitPauseUntil(), 5);
         self::assertCount(1, $this->db->queueWaiting());
+    }
+
+    public function testForeignProvider429PausesQueueForFallback(): void
+    {
+        $this->bot = $this->makeBot(anthropicBaseUrl: 'https://openrouter.ai');
+        $this->claudeOutput('{"type":"result","is_error":true,"result":"429 Too Many Requests","session_id":"s-1","usage":{}}');
+        $this->say(100, 1, 'will hit the rate limit', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertEqualsWithDelta(time() + 3600, $this->db->getLimitPauseUntil(), 5);
+        self::assertCount(1, $this->db->queueWaiting());
+    }
+
+    public function testForeignProviderRateLimitTextPausesQueueForFallback(): void
+    {
+        $this->bot = $this->makeBot(anthropicBaseUrl: 'https://openrouter.ai');
+        $this->claudeOutput('{"type":"result","is_error":true,"result":"rate limit exceeded","session_id":"s-1","usage":{}}');
+        $this->say(100, 1, 'will hit the rate limit', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertEqualsWithDelta(time() + 3600, $this->db->getLimitPauseUntil(), 5);
+        self::assertCount(1, $this->db->queueWaiting());
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function quotaTexts(): array
+    {
+        return [
+            'quota' => ['Your quota has been exceeded.'],
+            'balance' => ['Insufficient balance on the account.'],
+            'insufficient' => ['Insufficient credits.'],
+        ];
+    }
+
+    #[DataProvider('quotaTexts')]
+    public function testForeignProviderQuotaErrorDoesNotPause(string $result): void
+    {
+        $this->bot = $this->makeBot(anthropicBaseUrl: 'https://openrouter.ai');
+        $this->claudeOutput(json_encode(['type' => 'result', 'is_error' => true, 'result' => $result, 'session_id' => 's-1', 'usage' => new \stdClass()], JSON_THROW_ON_ERROR));
+        $this->say(100, 1, 'will hit the quota', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame(0, $this->db->getLimitPauseUntil());
+        self::assertCount(0, $this->db->queueWaiting());
+        self::assertStringContainsString($result, implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    public function testForeign429TextWithoutBaseUrlKeepsTodaysBehaviour(): void
+    {
+        $this->bot = $this->makeBot();
+        $this->claudeOutput('{"type":"result","is_error":true,"result":"429 Too Many Requests","session_id":"s-1","usage":{}}');
+        $this->say(100, 1, 'hello', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame(0, $this->db->getLimitPauseUntil());
+        self::assertCount(0, $this->db->queueWaiting());
+        self::assertStringContainsString('Claude error', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    public function testForeign429TextOnAnthropicHostKeepsTodaysBehaviour(): void
+    {
+        $this->bot = $this->makeBot(anthropicBaseUrl: 'https://api.anthropic.com');
+        $this->claudeOutput('{"type":"result","is_error":true,"result":"429 Too Many Requests","session_id":"s-1","usage":{}}');
+        $this->say(100, 1, 'hello', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame(0, $this->db->getLimitPauseUntil());
+        self::assertCount(0, $this->db->queueWaiting());
+        self::assertStringContainsString('Claude error', implode("\n", $this->tg->textsTo(100, 1)));
     }
 
     public function testLimitPauseSurvivesRestart(): void

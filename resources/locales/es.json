@@ -140,6 +140,7 @@
     "error.claude": "Error de Claude: {text}",
     "error.no_text": "sin texto",
     "error.session_expired": "⏳ La sesión caducó: Claude conserva las transcripciones unos 30 días y ya eliminó el contexto de este chat; el historial anterior no se puede continuar. Usa /new para iniciar una sesión nueva. La conversación sigue en Telegram (puedes verla), pero Claude no la recordará en la sesión nueva.",
+    "error.provider_quota": "⚠️ La cuota o el saldo del proveedor está agotado (esperar no ayuda): {text}",
     "file.download_failed": "No se pudo descargar el archivo: {error}",
     "file.download_too_big": "📎 El archivo es demasiado grande: el límite de descarga de la API de bots de Telegram es de 20 MB.",
     "file.too_big_named": "El archivo es demasiado grande: el límite de descarga de la API de bots de Telegram es de 20 MB ({name})",

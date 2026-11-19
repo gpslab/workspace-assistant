@@ -140,6 +140,7 @@
     "error.claude": "Claude エラー：{text}",
     "error.no_text": "テキストなし",
     "error.session_expired": "⏳ セッションの有効期限が切れました。Claude はトランスクリプトを約30日間保持しており、このチャットのコンテキストはすでに削除されたため、以前の履歴は続行できません。/new で新しいセッションを開始してください。会話は Telegram に残っています（閲覧できます）が、新しいセッションでは Claude はその内容を覚えていません。",
+    "error.provider_quota": "⚠️ プロバイダーのクォータまたは残高を使い切りました（待っても解決しません）: {text}",
     "file.download_failed": "ファイルをダウンロードできませんでした：{error}",
     "file.download_too_big": "📎 ファイルが大きすぎます。Telegram Bot API のダウンロード上限は 20 MB です。",
     "file.too_big_named": "ファイルが大きすぎます。Telegram Bot API のダウンロード上限は 20 MB です（{name}）",

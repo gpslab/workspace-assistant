@@ -74,6 +74,28 @@ final class ClaudeErrorText
     }
 
     /**
+     * Classification of a foreign-provider limit error. Only consulted when `ANTHROPIC_BASE_URL`
+     * points to a non-Anthropic host (see {@see Config::usesForeignProvider()}); Anthropic's own
+     * limit text stays in {@see parseLimit()}. `rate` pauses the queue, `quota` does not (waiting
+     * does not refill a balance); null means not a provider limit.
+     *
+     * @return 'rate'|'quota'|null
+     */
+    public function foreignLimit(string $text): ?string
+    {
+        // A quota/balance word wins over a bare 429: aggregators report "429 insufficient credits"
+        // for an exhausted balance, and pausing cannot refill it.
+        if (preg_match('/quota|balance|insufficient/i', $text) === 1) {
+            return 'quota';
+        }
+        if (preg_match('/\b429\b/', $text) === 1 || preg_match('/rate limit/i', $text) === 1) {
+            return 'rate';
+        }
+
+        return null;
+    }
+
+    /**
      * Nearest limit reset moment (unix) in the timezone from the error's
      * parentheses (defaults to the bot's timezone); null if it could not be parsed.
      * $nowTs is the "now" moment (unix), the current time by default.

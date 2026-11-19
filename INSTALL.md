@@ -156,6 +156,9 @@ GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab
 | `MODEL_EPIC_TICK` | empty | Model of the Orchestrator `tick` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
 | `MODEL_EPIC_FINAL` | empty | Model of the `final` (acceptance) epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
 | `MODEL_EPIC_REVIEW` | empty | Model of the `review` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
+| `ANTHROPIC_BASE_URL` | empty | Base URL of the Anthropic-compatible API; empty, `api.anthropic.com` and `*.anthropic.com` mean Anthropic, any other host switches on foreign-provider limit handling (see below) |
+| `ANTHROPIC_MODEL` | empty | Model recorded in the engine fingerprint of a stored session on a foreign provider, when the run has no pinned `--model`; empty = no model is appended to the fingerprint |
+| `ANTHROPIC_AUTH_TOKEN` | empty | Auth token for an external Anthropic-compatible provider; replaces the Claude Code subscription (see below) |
 | `SECRET_SCAN_EXCLUDE` | empty | Comma-separated path globs (relative to the repository root, `*` also matches `/`) where the commit gate does not apply **shape patterns**, for example `tests/fixtures/*`. Known values are checked in every path. See [README](README.md#commit-gate) |
 | `SECRET_ENV_FILES` | empty | Comma-separated dotenv files (`~` is expanded, an `export ` prefix is allowed) whose **values** are all masked in what the bot sends to Telegram. Listing a file is the statement that its values are secret. A missing file is a log line, not a failure. Values of `.env` and of the environment are masked by key name without this setting, see [README](README.md#secret-masking) |
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | empty | Text appended to the system prompt |
@@ -183,6 +186,32 @@ model for all topics (`/model <name> all`), and with all three empty only that m
 `model: inherit`, so an epic key also moves every built-in agent that run calls, unless
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is set. `opus` and `opus[1m]` are different context windows — pick the one
 your endpoint actually resolves.
+
+### Anthropic-compatible providers
+
+Every key in `.env` whose name starts with `ANTHROPIC_` or `CLAUDE_CODE_` is passed straight into the
+environment of every `claude` process the bot starts; the real process environment wins over the file, and
+keys without either prefix are not passed. This is how the bot is pointed at an Anthropic-compatible
+provider or given provider-specific options without touching `claude` itself:
+
+```dotenv
+ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1
+ANTHROPIC_AUTH_TOKEN=sk-or-v1-...
+ANTHROPIC_MODEL=anthropic/claude-sonnet-5.5
+CLAUDE_CODE_SUBAGENT_MODEL=anthropic/claude-haiku-4-5
+```
+
+`ANTHROPIC_AUTH_TOKEN` **replaces the subscription**: with it set, `claude` authenticates with this token
+against `ANTHROPIC_BASE_URL` instead of your Claude Code / API account. It is masked like any other
+`*TOKEN*` value in what the bot sends to Telegram.
+
+`ANTHROPIC_BASE_URL` also drives the engine fingerprint of stored sessions and the handling of provider
+errors. With it empty, or with a host `api.anthropic.com` / `*.anthropic.com`, the bot treats the endpoint
+as Anthropic and nothing changes. With any other host (a "foreign provider") a `429` / `rate limit` error
+pauses the queue for one hour, while a `quota` / `balance` / `insufficient` error is reported in the chat
+without a pause. On a foreign provider `ANTHROPIC_MODEL` is appended to the session engine fingerprint when
+the run has no pinned `--model`; built-in agents with `model: inherit` carry the inherited model through the
+same way, and a `--model` in `CLAUDE_EXTRA_ARGS` pins it.
 
 ### Sub-repositories and time zone
 

@@ -248,6 +248,7 @@ final class JobRunner implements JobLauncher, RunControl
             'mode' => $mode,
             'locale' => $localeCode,
             'queue_id' => $queueId,
+            'model' => $model,
             'epic_slug' => $epicSlug,
             'epic_run' => $epicRun,
             'pm_gate_run_id' => $gateRunId,
@@ -316,6 +317,8 @@ final class JobRunner implements JobLauncher, RunControl
         $promptHash = $this->runState->jobContext['prompt_hash'];
         $resumeSkipped = $this->runState->jobContext['resume_skipped'] ?? false;
         $actualModel = $this->runState->activeJob->actualModel();
+        // The fingerprint uses the model of THIS run; jobContext is reset by finishJobState() below.
+        $engineFingerprint = $this->config->engineFingerprint($this->runState->jobContext['model'] ?? null);
         // Capture BEFORE finishJobState(), which resets jobContext.
         $inboxFiles = $this->runState->jobContext['inbox_files'];
 
@@ -395,7 +398,7 @@ final class JobRunner implements JobLauncher, RunControl
         if ($claude->sessionId !== null && !in_array($kind, [RunKind::KIND_COMPACT_RESEED, RunKind::KIND_EPIC], true)) {
             // The prompt hash moves only after a successful run (a failed one leaves the update block due) and
             // never after the summarize phase, which runs under another prompt.
-            $runTotals = $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->totals, $claude->isError || $kind === RunKind::KIND_COMPACT_SUMMARIZE ? null : $promptHash, $this->config->engineFingerprint());
+            $runTotals = $this->db->recordRun($chatId, $threadId, $claude->sessionId, $claude->totals, $claude->isError || $kind === RunKind::KIND_COMPACT_SUMMARIZE ? null : $promptHash, $engineFingerprint);
         }
         // From here on the totals are the figure of this run (the verbose footer), not the snapshot.
         $claude = $claude->withTotals($runTotals);
@@ -413,6 +416,35 @@ final class JobRunner implements JobLauncher, RunControl
         // An epic run is judged by its signal file, not by the reply, so a clean exit
         // without a result event is not a failure there.
         if ($claude->isError && !($claude->exitedWithoutResult && $kind === RunKind::KIND_EPIC)) {
+            // A foreign provider has its own limit semantics: `429` / "rate limit" pauses the queue
+            // (like an unparseable Claude reset), a quota/balance error does not (waiting does not
+            // refill a balance). On the Anthropic subscription the Claude handling below is unchanged.
+            if ($this->config->usesForeignProvider()) {
+                $foreign = $this->claudeErrorText->foreignLimit($claude->text);
+                if ($foreign === 'rate' && $queueId > 0) {
+                    $until = min(time() + self::LIMIT_PAUSE_FALLBACK_SEC, time() + self::LIMIT_PAUSE_MAX_SEC);
+                    $this->db->setLimitPauseUntil($until);
+                    $this->db->queueRelease($queueId);
+
+                    return new RunOutcome(
+                        $kind, $chatId, $threadId, $queueId,
+                        $claude, true, 'Provider rate limit: '.$claude->text,
+                        $this->claudeErrorText->format($claude->text)."\n".$this->t('run.queue_paused_until', ['until' => date('H:i d.m', $until)]),
+                        $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
+                    );
+                }
+                if ($foreign === 'quota') {
+                    $this->delivery->deliver($chatId, $threadId, $this->t('error.provider_quota', ['text' => $claude->text]));
+
+                    return new RunOutcome(
+                        $kind, $chatId, $threadId, $queueId,
+                        $claude, false, 'Provider quota: '.$claude->text,
+                        null,
+                        $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
+                    );
+                }
+            }
+
             $limit = $this->claudeErrorText->parseLimit($claude->text);
             if ($limit !== null && $queueId > 0) {
                 // A Claude limit pauses the WHOLE queue until the reset time; the item
@@ -476,7 +508,7 @@ final class JobRunner implements JobLauncher, RunControl
         if ($sid === null) {
             return;
         }
-        $this->db->setSessionId($this->runState->jobContext['chat_id'], $this->runState->jobContext['thread_id'], $sid, $this->config->engineFingerprint());
+        $this->db->setSessionId($this->runState->jobContext['chat_id'], $this->runState->jobContext['thread_id'], $sid, $this->config->engineFingerprint($this->runState->jobContext['model'] ?? null));
         $this->runState->jobContext['session_saved'] = true;
     }
 

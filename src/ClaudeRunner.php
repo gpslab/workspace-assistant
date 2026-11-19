@@ -120,6 +120,8 @@ final class ClaudeRunner implements AgentRunner
         private readonly ?string $savedPromptHash = null,
         private readonly string $forge = Config::FORGE_GITHUB,
         private readonly ?string $model = null,
+        /** @var array<string, string> `.env` keys prefixed ANTHROPIC_/CLAUDE_CODE_ (real env wins over them) */
+        private readonly array $providerEnv = [],
     ) {
     }
 
@@ -449,11 +451,15 @@ final class ClaudeRunner implements AgentRunner
      * `core.hooksPath` of the bot's git hooks ({@see GitHooks}). It must be complete: with extra
      * variables `proc_open` does not inherit the rest.
      *
+     * Order of precedence: the `.env` provider keys ({@see Env::providerEnv()}) first, then the real
+     * environment (`getenv()`, so a variable set in the service environment wins over `.env`), then the
+     * run variables (`$extraEnv`, the hook variables) on top.
+     *
      * @return array<string, string>
      */
     public function processEnv(): array
     {
-        return GitHooks::apply(array_merge(getenv(), $this->extraEnv));
+        return GitHooks::apply(array_merge($this->providerEnv, getenv(), $this->extraEnv));
     }
 
     /**

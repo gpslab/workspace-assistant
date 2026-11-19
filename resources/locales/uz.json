@@ -140,6 +140,7 @@
     "error.claude": "Claude xatosi: {text}",
     "error.no_text": "matnsiz",
     "error.session_expired": "⏳ Sessiya muddati tugadi: Claude transkriptlarni ~30 kun saqlaydi va bu chatning kontekstini allaqachon o'chirgan — avvalgi tarix bilan davom etib bo'lmaydi. Yangi sessiya boshlash uchun /new buyrug'ini bering. Yozishma Telegram'da qoladi (uni siz ko'rasiz), lekin Claude yangi sessiyada uni eslamaydi.",
+    "error.provider_quota": "⚠️ Provayderning kvotasi yoki balansi tugagan (kutish yordam bermaydi): {text}",
     "file.download_failed": "Faylni yuklab bo'lmadi: {error}",
     "file.download_too_big": "📎 Fayl juda katta — Telegram Bot API yuklab olish limiti 20 MB.",
     "file.too_big_named": "Fayl juda katta — Telegram Bot API yuklab olish limiti 20 MB ({name})",

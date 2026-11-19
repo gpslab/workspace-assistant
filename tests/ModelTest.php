@@ -209,7 +209,7 @@ final class ModelTest extends TestCase
         $state->jobContext = [
             'kind' => 'chat', 'chat_id' => 100, 'thread_id' => $thread, 'thinking_id' => 0, 'prompt' => '', 'last_progress_at' => 0,
             'shown_count' => 0, 'compact_old_session_id' => null, 'session_saved' => false, 'mode' => 'pm', 'locale' => 'en',
-            'queue_id' => 0, 'epic_slug' => null, 'epic_run' => null, 'pm_gate_run_id' => null, 'prompt_hash' => null, 'inbox_files' => [],
+            'queue_id' => 0, 'model' => null, 'epic_slug' => null, 'epic_run' => null, 'pm_gate_run_id' => null, 'prompt_hash' => null, 'inbox_files' => [],
         ];
     }
 

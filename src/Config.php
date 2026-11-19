@@ -79,6 +79,12 @@ final class Config
         public readonly array $secretEnvFiles = [],
         /** @var list<string> path globs where the commit gate does not apply shape patterns (known values still apply) */
         public readonly array $secretScanExclude = [],
+        /** @var array<string, string> `.env` keys prefixed ANTHROPIC_/CLAUDE_CODE_, passed to the claude process env */
+        public readonly array $providerEnv = [],
+        /** `ANTHROPIC_BASE_URL` (real env over `.env`); null/'' = the default Anthropic endpoint */
+        public readonly ?string $anthropicBaseUrl = null,
+        /** `ANTHROPIC_MODEL` (real env over `.env`); null/'' = not set */
+        public readonly ?string $anthropicModel = null,
     ) {
     }
 
@@ -235,6 +241,9 @@ final class Config
             modelEpicReview: $modelEpicReview,
             secretEnvFiles: array_values($env->list('SECRET_ENV_FILES')),
             secretScanExclude: array_values($env->list('SECRET_SCAN_EXCLUDE')),
+            providerEnv: $env->providerEnv(),
+            anthropicBaseUrl: trim((string) $env->get('ANTHROPIC_BASE_URL', '')) !== '' ? trim((string) $env->get('ANTHROPIC_BASE_URL')) : null,
+            anthropicModel: trim((string) $env->get('ANTHROPIC_MODEL', '')) !== '' ? trim((string) $env->get('ANTHROPIC_MODEL')) : null,
         );
     }
 
@@ -263,11 +272,65 @@ final class Config
     /**
      * Engine fingerprint of the current configuration. A stored session is resumed only when its
      * `sessions.engine_fingerprint` (or `NULL`, meaning {@see self::DEFAULT_ENGINE_FINGERPRINT}) equals
-     * this. For now it is the engine name; provider-specific content comes with model substitution.
+     * this. It is the engine name plus the host of `ANTHROPIC_BASE_URL` (when that is set); the model
+     * is appended only when the base URL points to a non-Anthropic host, because there a model switch
+     * is a provider switch. `$model` is the `--model` the run passes (null when none), otherwise
+     * `ANTHROPIC_MODEL` is used.
      */
-    public function engineFingerprint(): string
+    public function engineFingerprint(?string $model = null): string
     {
-        return $this->engine;
+        $host = $this->anthropicBaseHost();
+        if ($host === null) {
+            return $this->engine;
+        }
+
+        $fingerprint = $this->engine.'|'.$host;
+        if (!$this->isAnthropicBaseUrl()) {
+            $effective = $model !== null && trim($model) !== '' ? $model : $this->anthropicModel;
+            if ($effective !== null && trim($effective) !== '') {
+                $fingerprint .= '|'.$effective;
+            }
+        }
+
+        return $fingerprint;
+    }
+
+    /**
+     * Host of `ANTHROPIC_BASE_URL`, lowercased; null when the URL is unset or its host cannot be
+     * parsed (both count as the default Anthropic endpoint).
+     */
+    public function anthropicBaseHost(): ?string
+    {
+        $url = trim((string) $this->anthropicBaseUrl);
+        if ($url === '') {
+            return null;
+        }
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($host) && $host !== '' ? strtolower($host) : null;
+    }
+
+    /**
+     * Whether the configured endpoint is Anthropic itself: `ANTHROPIC_BASE_URL` unset or unparseable
+     * (the default subscription), or its host is `api.anthropic.com` / `*.anthropic.com`.
+     */
+    public function isAnthropicBaseUrl(): bool
+    {
+        $host = $this->anthropicBaseHost();
+        if ($host === null) {
+            return true;
+        }
+
+        return $host === 'api.anthropic.com' || str_ends_with($host, '.anthropic.com');
+    }
+
+    /**
+     * Whether runs go to a foreign (non-Anthropic) endpoint: the base URL is set to a host that is
+     * neither `api.anthropic.com` nor `*.anthropic.com`. Only then do foreign-provider limits apply.
+     */
+    public function usesForeignProvider(): bool
+    {
+        return !$this->isAnthropicBaseUrl();
     }
 
     /** Command line client of the forge: gh or glab. */
