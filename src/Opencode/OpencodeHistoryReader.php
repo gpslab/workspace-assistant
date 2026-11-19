@@ -25,7 +25,8 @@ use GpsLab\WorkspaceAssistant\PmGateHook;
 final class OpencodeHistoryReader
 {
     /**
-     * @param array<string, mixed> $history a decoded OpenCode history (its `messages` list is read)
+     * @param array<mixed> $history a decoded OpenCode history ({@see messages()}: the bare `messages`
+     *                              list of `ctx.session.context()`, or an object holding it under `messages`)
      *
      * @return list<array{
      *     agent: string,
@@ -35,20 +36,19 @@ final class OpencodeHistoryReader
      *     asyncLaunched: bool,
      *     isSidechain: bool,
      * }>
+     *
+     * @throws \RuntimeException when the history is neither shape ({@see messages()})
      */
     public static function agentCalls(array $history): array
     {
-        $messages = $history['messages'] ?? null;
-        if (!is_array($messages)) {
-            return [];
-        }
+        $messages = self::messages($history);
 
         /** @var array<string, array{agent: string, callAt: int, resultAt: int|null, completed: bool, asyncLaunched: bool, isSidechain: bool}> $calls */
         $calls = [];
         $windowStart = -1;
         $lastCreate = null;
 
-        foreach (array_values($messages) as $at => $entry) {
+        foreach ($messages as $at => $entry) {
             if (!is_array($entry)) {
                 continue;
             }
@@ -120,7 +120,35 @@ final class OpencodeHistoryReader
     }
 
     /**
-     * Reads a history file and returns its agent-call list ({@see agentCalls()}).
+     * The `messages` list of a decoded history, of either shape it reaches this reader in:
+     * `ctx.session.context()` returns the bare list (`opencode-plugin/index.js` writes it out
+     * unchanged) and the fixtures of `tests/fixtures/opencode/history/` carry it under the probe's
+     * `{sessionID, command, messages}` wrapper. Any other shape is an error, never an empty list:
+     * `[]` means "no stage ran", which denies on `pm`/`tick`/`final` blaming the model and forces a
+     * skip with a false reason on `review`/`epic_review`.
+     *
+     * @param array<mixed> $history
+     *
+     * @return list<mixed>
+     *
+     * @throws \RuntimeException when the history is neither a list nor an object with a `messages` list
+     */
+    private static function messages(array $history): array
+    {
+        if (array_is_list($history)) {
+            return $history;
+        }
+        $messages = $history['messages'] ?? null;
+        if (!is_array($messages)) {
+            throw new \RuntimeException('history holds no messages list');
+        }
+
+        return array_values($messages);
+    }
+
+    /**
+     * Reads a history file and returns its agent-call list ({@see agentCalls()}). The file holds either
+     * shape of {@see messages()}: the bare list OpenCode returns, or the wrapper of the fixtures.
      *
      * @return list<array{
      *     agent: string,
@@ -131,16 +159,24 @@ final class OpencodeHistoryReader
      *     isSidechain: bool,
      * }>
      *
-     * @throws \RuntimeException when the file is missing or does not hold a valid JSON object
+     * @throws \RuntimeException when the file is missing, does not hold valid JSON, or holds a history
+     *                           of an unrecognised shape
      */
     public static function fromFile(string $path): array
     {
         if ($path === '' || !is_file($path)) {
             throw new \RuntimeException('history is not available');
         }
-        $history = json_decode((string) file_get_contents($path), true);
+        $raw = (string) file_get_contents($path);
+        $history = json_decode($raw, true);
         if (!is_array($history)) {
             throw new \RuntimeException('history is not valid JSON');
+        }
+        // `{}` and `[]` both decode to `[]` with `assoc`; only the non-associative decode keeps them
+        // apart (an empty object vs an empty list). An empty object is a history of neither shape, so
+        // it throws here instead of silently reading "no messages yet".
+        if ($history === [] && json_decode($raw) instanceof \stdClass) {
+            throw new \RuntimeException('history holds no messages list');
         }
 
         return self::agentCalls($history);

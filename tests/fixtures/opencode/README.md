@@ -31,7 +31,8 @@ A provider rate-limit (429) error could not be obtained; there is no fixture for
 ## `history/` — session history as a plugin sees it
 
 `ctx.session.context({ sessionID })`, dumped by a plugin from the `permission` `evaluate` hook of the shell command
-`echo GATE`. Each file is `{ sessionID, command, messages }`.
+`echo GATE`. `context()` returns the bare array of messages; the `{ sessionID, command, messages }` wrapper of each
+file is the probe's, not OpenCode's, so a reader takes both shapes (see `OpencodeHistoryReader`).
 
 | File                    | Scenario                                                                              |
 |-------------------------|---------------------------------------------------------------------------------------|
