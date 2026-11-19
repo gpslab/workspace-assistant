@@ -1997,4 +1997,109 @@ final class QueueFlowTest extends TestCase
             self::assertSame('15:00', (new \DateTimeImmutable('@'.$at))->setTimezone(new \DateTimeZone($zone))->format('H:i'), $text);
         }
     }
+
+    public function testOpencodeRefusesTheDefaultPmMode(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->say(100, 1, 'hi', 10);
+
+        self::assertSame(
+            ['Mode pm is not supported on OpenCode yet. Switch with /mode arch.'],
+            $this->tg->textsTo(100, 1),
+        );
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertSame(0, $this->launches());
+    }
+
+    public function testOpencodeRefusesTheReviewMode(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->setMode(100, 1, 'review');
+        $this->say(100, 1, 'hi', 11);
+
+        self::assertSame(
+            ['Mode review is not supported on OpenCode yet. Switch with /mode arch.'],
+            $this->tg->textsTo(100, 1),
+        );
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertSame(0, $this->launches());
+    }
+
+    public function testOpencodeRefusesAtTheHeadAChatItemQueuedUnderClaude(): void
+    {
+        // Queued while the instance still ran claude: the enqueue gate did not apply, the mode is pm.
+        $this->say(100, 1, 'queued under claude', 10);
+        self::assertCount(1, $this->db->queueWaiting());
+
+        // The instance restarts into ENGINE=opencode: the surviving chat item is refused at the head,
+        // not launched without its PM gate.
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->call('startQueueHead');
+
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertSame(0, $this->launches());
+        $texts = $this->tg->textsTo(100, 1);
+        self::assertSame(
+            'Mode pm is not supported on OpenCode yet. Switch with /mode arch.',
+            $texts[count($texts) - 1],
+        );
+    }
+
+    public function testOpencodeArchModeRuns(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->setMode(100, 1, 'arch');
+        $this->runChat('hi', 10);
+
+        self::assertSame(1, $this->launches());
+    }
+
+    public function testOpencodeCompactStillWorks(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->recordRun(100, 1, 's-old', null, null, 'opencode');
+        $this->command(100, 1, '/compact', 30);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $this->finishJob(); // summarize
+        $this->finishJob(); // reseed, launched by the summarize completion
+
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+    }
+
+    public function testOpencodeDropsAStrayEpicItemSilently(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::TICK));
+
+        $this->call('startQueueHead');
+
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertSame(0, $this->launches());
+        self::assertSame([], $this->tg->textsTo(100, 1));
+    }
+
+    public function testOpencodeRefusesTheEpicCommands(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->command(100, 1, '/epic start demo', 20);
+        $this->command(100, 1, '/epic', 21);
+
+        self::assertSame(
+            ['Epics are not available on OpenCode yet.', 'Epics are not available on OpenCode yet.'],
+            $this->tg->textsTo(100, 1),
+        );
+        self::assertSame(0, $this->launches());
+    }
+
+    public function testOpencodeDoesNotConnectTheOrchestrator(): void
+    {
+        $this->bot = $this->makeBot(new FakeGitHub(), engine: Config::ENGINE_OPENCODE);
+
+        $orchestrator = (new \ReflectionProperty(Bot::class, 'orchestrator'))->getValue($this->bot);
+        self::assertNull($orchestrator);
+    }
 }
