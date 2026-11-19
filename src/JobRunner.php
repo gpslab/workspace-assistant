@@ -510,7 +510,10 @@ final class JobRunner implements JobLauncher, RunControl
      * The post-run review status check of an engine that has no Stop hooks to attach it to (OpenCode):
      * the same {@see ReviewStatusHook} decision, taken by the Bot after the run, on the neutral record
      * of the finished turn ({@see TurnRecord}). A Claude Code review run needs none of this — its status
-     * is enforced by the Stop hook while the turn runs.
+     * is enforced by the Stop hook while the turn runs. The epic hot review
+     * ({@see RunKind::KIND_EPIC} + {@see SystemPrompt::MODE_REVIEW}) is checked the same way: its
+     * finding ids are null ({@see ReviewStatusHook} — the epic run's coverage is the signal, not the
+     * review body), and the repeat is a full epic run of the same slug and run kind.
      *
      * false — the run is over as usual: it is not the review run this check is about, the turn passed,
      * or its missing status was recorded by the marker of {@see ReviewStatusHook::markMissing()} (the
@@ -532,7 +535,7 @@ final class JobRunner implements JobLauncher, RunControl
         // to re-ask a session that did not answer.
         if ($context === null || $turn === null
             || !$this->config->isOpencode()
-            || $kind !== RunKind::KIND_CHAT
+            || ($kind !== RunKind::KIND_CHAT && $kind !== RunKind::KIND_EPIC)
             || $mode !== SystemPrompt::MODE_REVIEW
             || $claude->isError
             || $claude->sessionId === null) {
@@ -566,17 +569,21 @@ final class JobRunner implements JobLauncher, RunControl
         try {
             // The findings of this review are passed on: the repeat answers for the same list. The
             // outbox files of the finished run are kept (clearOutbox=false) and go out with the
-            // repeat's reply when it is delivered.
+            // repeat's reply when it is delivered. An epic review repeats as an epic run: the same
+            // kind, slug and run, so the repeat is a full epic run judged by its signal again.
+            $isEpic = $kind === RunKind::KIND_EPIC;
             $error = $this->launchJob(
                 $context['chat_id'],
                 $context['thread_id'],
-                RunKind::KIND_CHAT,
+                $kind,
                 $reason,
                 $claude->sessionId,
                 $context['thinking_id'],
                 null,
                 SystemPrompt::MODE_REVIEW,
                 $context['queue_id'],
+                $isEpic ? $context['epic_slug'] : null,
+                $isEpic ? $context['epic_run'] : null,
                 idsPath: $context['ids_path'] ?? null,
                 localeCode: $context['locale'],
                 model: $context['model'],

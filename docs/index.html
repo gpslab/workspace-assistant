@@ -87,7 +87,8 @@
     <h2>Epics: from an idea to merged pull requests</h2>
     <p>Besides chatting with a repository, the bot can carry a set of tasks to completion. Claude handles
       the steps that need judgement, the bot's <code>Orchestrator</code> handles the deterministic ones, an
-      external executor writes the code, and the author keeps the decisions that must stay human.</p>
+      external executor writes the code, and the author keeps the decisions that must stay human. Epics run
+      on either engine: Claude Code, or OpenCode with <code>ENGINE=opencode</code>.</p>
     <ol class="pipeline">
       <li><strong>Architect</strong><span>Claude in the <code>pm</code> mode designs the change, runs it
         through cold critique, verification, editing and a scope check, and opens the issues.</span></li>

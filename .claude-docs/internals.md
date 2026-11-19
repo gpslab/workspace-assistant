@@ -219,9 +219,11 @@ a change of the model (or of the engine) resets the session and adds the usual n
   (`PmGateHook::KIND_ENV` non-empty), so `arch` and `/compact` pay no hook call.
 - The review Stop hook has no OpenCode equivalent: no Stop hooks at all. `JobRunner::repeatReviewRun()`
   makes the same decision after the run (see [gotchas.md](gotchas.md)).
-- Epics are still off: `ChatSurface::cmdEpic()` answers `epic.unavailable_on_opencode`, `Bot` wires no
-  `Orchestrator`, `startEpicItem()` drops an epic item at the head of the queue, and `ModelChoice::isPinned()`
-  is always true.
+- Epics run here too: `Bot` wires the `Orchestrator`, `ChatSurface::cmdEpic()` and `startEpicItem()` have no
+  OpenCode branch, and `Run::modeFor()` gives an epic run the `pm` / `review` mode with the gate kind of its
+  run kind (`tick`, `final`, `epic_review`), so the shim of the plugin bullet above gates it like any other
+  run. `ModelChoice::isPinned()` is always true, so an epic run takes `OPENCODE_MODEL` and `MODEL_EPIC_*` is
+  never applied — `Config` names a set key in one startup warning.
 
 ---
 
@@ -318,7 +320,7 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `FORGE_HOST`            | Forge host | `github.com` / `gitlab.com` |
 | `FORGE_OWNERS`          | Owners (alias `GITHUB_OWNERS`; the new key wins, a warning is logged when both are set); the first is the default for `repo#N`; namespace paths allowed with `FORGE=gitlab`; epics and PR links in `review` need it | empty |
 | `OPENRONIN_LOGINS`      | logins allowed to author the `<!-- openronin:bot -->` marker   | empty (any author + warning)     |
-| `ENGINE`                | agent engine that runs the jobs: `claude` or `opencode` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner`, `/model` is read-only and the epics are refused | `claude` |
+| `ENGINE`                | agent engine that runs the jobs: `claude` or `opencode` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner` and `/model` is read-only | `claude` |
 | `CLAUDE_BIN`            | path to the claude binary                                      | `claude`                         |
 | `OPENCODE_BIN`          | path to the opencode binary (`ENGINE=opencode`; the installer checks this one instead of `CLAUDE_BIN`) | `opencode` |
 | `OPENCODE_MODEL`        | model of every run, `provider/model`; empty = the OpenCode default; changing it starts a new session | empty      |

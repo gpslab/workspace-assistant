@@ -156,13 +156,13 @@ What differs from a Claude instance:
 - The installer checks `OPENCODE_BIN` (`opencode` by default) instead of `CLAUDE_BIN` and warns about `--auto`
   instead of about `--dangerously-skip-permissions`.
 - The model of every run is `OPENCODE_MODEL` (`provider/model`, or `provider/model#variant`); with it empty
-  the model of your OpenCode configuration applies. `/model` is read-only and `MODEL_EPIC_*`, `CLAUDE_MODELS`
-  and a `--model` in `CLAUDE_EXTRA_ARGS` do not apply. Changing `OPENCODE_MODEL` starts a new session, like
-  changing `ENGINE`.
-- Every mode works; every epic command is refused (epics are not wired for OpenCode yet). OpenCode has no
-  command hooks, so a gated run (`pm`, `review`) carries the PM gate and the review commit hook through the
-  gate plugin (`opencode-plugin/`) listed in the `plugins` of the run's own configuration. The plugin starts
-  the same PHP hooks Claude Code would, so the gate logic is not duplicated.
+  the model of your OpenCode configuration applies, epic runs included. `/model` is read-only and
+  `MODEL_EPIC_*`, `CLAUDE_MODELS` and a `--model` in `CLAUDE_EXTRA_ARGS` do not apply; a set `MODEL_EPIC_*`
+  is named in one startup log line. Changing `OPENCODE_MODEL` starts a new session, like changing `ENGINE`.
+- Every mode and epics work. OpenCode has no command hooks, so a gated run (`pm`, `review` and the epic runs,
+  which are the same two modes with the gate kind of the run kind) carries the PM gate and the review commit
+  hook through the gate plugin (`opencode-plugin/`) listed in the `plugins` of the run's own configuration.
+  The plugin starts the same PHP hooks Claude Code would, so the gate logic is not duplicated.
 - **Every run is approved automatically.** The bot passes `--auto` on every `opencode run` and OpenCode then
   approves every action its configuration does not explicitly deny. `OPENCODE_EXTRA_ARGS` cannot make that
   stricter, so the installer's warning has no "set a safer value" option: run the bot as a dedicated
@@ -195,9 +195,9 @@ What differs from a Claude instance:
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |
 | `CLAUDE_EXTRA_ARGS` | `--dangerously-skip-permissions` | Extra `claude` arguments, comma-separated |
 | `CLAUDE_MODELS` | `fable,opus[1m],opus,sonnet,haiku` | Models selectable with `/model`, comma-separated; values are passed to `claude --model` as they are. A `--model` in `CLAUDE_EXTRA_ARGS` pins the model and `/model` becomes read-only |
-| `MODEL_EPIC_TICK` | empty | Model of the Orchestrator `tick` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
-| `MODEL_EPIC_FINAL` | empty | Model of the `final` (acceptance) epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
-| `MODEL_EPIC_REVIEW` | empty | Model of the `review` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS` |
+| `MODEL_EPIC_TICK` | empty | Model of the Orchestrator `tick` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode` |
+| `MODEL_EPIC_FINAL` | empty | Model of the `final` (acceptance) epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode` |
+| `MODEL_EPIC_REVIEW` | empty | Model of the `review` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode` |
 | `ANTHROPIC_BASE_URL` | empty | Base URL of the Anthropic-compatible API; empty, `api.anthropic.com` and `*.anthropic.com` mean Anthropic, any other host switches on foreign-provider limit handling (see below) |
 | `ANTHROPIC_MODEL` | empty | Model recorded in the engine fingerprint of a stored session on a foreign provider, when the run has no pinned `--model`; empty = no model is appended to the fingerprint |
 | `ANTHROPIC_AUTH_TOKEN` | empty | Auth token for an external Anthropic-compatible provider; replaces the Claude Code subscription (see below) |
@@ -224,7 +224,9 @@ What differs from a Claude instance:
 The three `MODEL_EPIC_*` keys choose the model of an epic run per run kind; each non-empty value must be a
 member of `CLAUDE_MODELS` (otherwise the bot fails at startup). With a key empty the run falls back to the
 model for all topics (`/model <name> all`), and with all three empty only that model applies. A `--model` in
-`CLAUDE_EXTRA_ARGS` overrides them all (one warning is logged at startup). Built-in agents of the bot declare
+`CLAUDE_EXTRA_ARGS` overrides them all (one warning is logged at startup). These are Claude Code keys: with
+`ENGINE=opencode` the model of every run, epic runs included, is `OPENCODE_MODEL`, and a set key is named in
+one startup log line. Built-in agents of the bot declare
 `model: inherit`, so an epic key also moves every built-in agent that run calls, unless
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is set. `opus` and `opus[1m]` are different context windows — pick the one
 your endpoint actually resolves.

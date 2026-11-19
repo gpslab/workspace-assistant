@@ -52,8 +52,8 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
   into the outbox are sent back to the chat.
 - Modes (`arch`, `review`, `pm`) with replaceable personas, interface locales, and *epics*: sets of
   GitHub tasks with dependencies that the bot's `Orchestrator` drives to completion — independent
-  tasks run in parallel, dependent ones start once everything they depend on is merged. With
-  `ENGINE=opencode` epics are off ([OpenCode](#opencode)).
+  tasks run in parallel, dependent ones start once everything they depend on is merged. Epics work on
+  both engines ([OpenCode](#opencode)).
 
 ## How it works
 
@@ -146,14 +146,14 @@ In an epic it runs as a step of the final check, on the merged PR diffs.
 Code. The engine is chosen in `.env` and needs a bot restart; with the default `ENGINE=claude` the
 OpenCode keys are ignored. Verified against OpenCode **2.3.0**.
 
-- `OPENCODE_MODEL` (`provider/model`) is the model of every run. `/model` is read-only and `MODEL_EPIC_*`
-  does not apply.
-- All three modes work. OpenCode has no command hooks, so a gated run (`pm`, `review`) carries the PM gate
-  and the review commit hook through a plugin listed in the run's own configuration. The gate logic itself
-  stays in the bot: the plugin starts the same PHP hooks Claude Code would, so a `pm` run still needs the
-  issue created and a `review` run still publishes only the reviewed commits. A run with no gate (`arch`,
-  `/compact`) gets no plugin.
-- Epics are not available: `/epic` says so and the bot starts no `Orchestrator`.
+- `OPENCODE_MODEL` (`provider/model`) is the model of every run, epics included. `/model` is read-only and
+  `MODEL_EPIC_*` does not apply: the bot logs one line at startup when such a key is set.
+- All three modes and epics work. OpenCode has no command hooks, so a gated run (`pm`, `review`, and the
+  epic runs, which are `pm` or `review` with their own gate kind) carries the PM gate and the review commit
+  hook through a plugin listed in the run's own configuration. The gate logic itself stays in the bot: the
+  plugin starts the same PHP hooks Claude Code would, so a `pm` run still needs the issue created and a
+  `review` run still publishes only the reviewed commits. A run with no gate (`arch`, `/compact`) gets no
+  plugin.
 - Every run is approved automatically (OpenCode's `--auto`), with no equivalent of a stricter
   `CLAUDE_EXTRA_ARGS`. See [Security](#security).
 - Changing `OPENCODE_MODEL` starts a new session, like changing `ENGINE`.
@@ -237,7 +237,7 @@ the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.
 | `/mode` | Switch the mode: `arch`, `review` or `pm` |
 | `/model` | Choose the Claude model (`--model`) from `CLAUDE_MODELS`: `/model <name>` for this topic, `/model <name> all` for all topics, `default` clears a level; without an argument — buttons. The topic choice is sticky like `/mode`; `/stats` shows the model. A `--model` in `CLAUDE_EXTRA_ARGS` pins it and `/model` becomes read-only. With `ENGINE=opencode` it is read-only too: the model comes from `OPENCODE_MODEL` |
 | `/lang` | Language of Claude's replies in the chat |
-| `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation). Not available with `ENGINE=opencode` |
+| `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation). Works on both engines |
 | `/restart` | Restart the bot to pick up new code |
 | `/help` | Help |
 

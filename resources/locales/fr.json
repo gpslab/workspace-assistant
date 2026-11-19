@@ -36,7 +36,6 @@
     "epic.status_reason": "Motif d'arrêt : {reason}",
     "epic.topic_has_epic": "Ce sujet a déjà l'epic {slug} ({status}).",
     "epic.unavailable_on_gitlab": "Les épopées ne sont pas encore disponibles sur GitLab.",
-    "epic.unavailable_on_opencode": "Les épopées ne sont pas encore disponibles sur OpenCode.",
     "epic.usage": "Utilisation : /epic start <slug> | pause | resume | status",
     "epicrun.coverage_incomplete": "⚠️ L'exécution de l'epic {slug} a échoué : la couverture des constats de {pr} est incomplète — {reason}",
     "coldfindings.no_verdict": "le signal n'a pas de verdict (approve | request_changes)",
