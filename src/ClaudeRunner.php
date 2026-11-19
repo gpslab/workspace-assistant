@@ -304,6 +304,16 @@ final class ClaudeRunner implements AgentRunner
         return $this->actualModel;
     }
 
+    /**
+     * Always null: a Claude Code run has no post-run check. Its review status is enforced during the
+     * run by the Stop hook the bot attaches in review mode (see {@see ReviewStatusHook}), which reads
+     * the transcript itself.
+     */
+    public function turnRecord(): ?TurnRecord
+    {
+        return null;
+    }
+
     public function pid(): int
     {
         return $this->pid;

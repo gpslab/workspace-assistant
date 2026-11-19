@@ -65,4 +65,13 @@ interface AgentRunner
 
     /** The model reported by the run's system/init event; null until it is seen. */
     public function actualModel(): ?string;
+
+    /**
+     * The neutral record of the finished turn, for a check the Bot runs after the run itself
+     * ({@see TurnRecord}, used by the review status check on an engine with no Stop hooks).
+     * Valid only after poll() === RunnerState::Done; null — the engine reports nothing the record
+     * needs, so the check is not available there (Claude Code: its review status is enforced by the
+     * Stop hook during the run, not afterwards).
+     */
+    public function turnRecord(): ?TurnRecord;
 }

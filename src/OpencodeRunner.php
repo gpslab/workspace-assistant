@@ -83,6 +83,9 @@ final class OpencodeRunner implements AgentRunner
 
     private ?string $promptHash = null;
 
+    /** The turn of the finished run, for a check the Bot runs after it ({@see AgentRunner::turnRecord()}). */
+    private ?TurnRecord $turnRecord = null;
+
     /**
      * @param string[]              $extraArgs     extra argv passed as flags before the prompt (`OPENCODE_EXTRA_ARGS`)
      * @param int                   $timeout       overall ceiling for a run (sec); 0 disables it
@@ -208,6 +211,12 @@ final class OpencodeRunner implements AgentRunner
     public function actualModel(): ?string
     {
         return null;
+    }
+
+    /** The turn of the finished run: its shell calls with the outcome of each and its final text. */
+    public function turnRecord(): ?TurnRecord
+    {
+        return $this->turnRecord;
     }
 
     public function pid(): int
@@ -435,6 +444,7 @@ final class OpencodeRunner implements AgentRunner
         $this->progressLines = [];
         $this->promptWarnings = [];
         $this->promptHash = null;
+        $this->turnRecord = null;
     }
 
     private function drain(): void
@@ -612,6 +622,9 @@ final class OpencodeRunner implements AgentRunner
     {
         $turn = OpencodeNdjsonParser::parse($this->lines);
         $limitClass = OpencodeLimit::classify($turn->error, new ClaudeErrorText($this->locale));
+        // The same turn in the neutral shape the Bot's post-run checks work on: OpenCode has no Stop
+        // hooks, so what the record carries (the shell calls and the final text) is all they get.
+        $this->turnRecord = TurnRecord::fromToolCalls($turn->toolCalls, $turn->finalText);
 
         $text = $turn->finalText;
         if ($text === '') {

@@ -7,6 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests;
 use GpsLab\WorkspaceAssistant\AgentRunner;
 use GpsLab\WorkspaceAssistant\RunAnswer;
 use GpsLab\WorkspaceAssistant\RunnerState;
+use GpsLab\WorkspaceAssistant\TurnRecord;
 
 /**
  * An {@see AgentRunner} that is already finished and returns a prepared answer on the first poll.
@@ -74,6 +75,11 @@ final class FixedRunner implements AgentRunner
     }
 
     public function actualModel(): ?string
+    {
+        return null;
+    }
+
+    public function turnRecord(): ?TurnRecord
     {
         return null;
     }

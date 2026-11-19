@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests;
 
+use GpsLab\WorkspaceAssistant\Opencode\OpencodeNdjsonParser;
 use GpsLab\WorkspaceAssistant\ReviewStatusHook;
+use GpsLab\WorkspaceAssistant\TurnRecord;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -29,6 +31,49 @@ final class ReviewStatusHookTest extends TestCase
         return (string) json_encode(['type' => 'user', 'message' => ['content' => [
             ['type' => 'tool_result', 'tool_use_id' => $id, 'content' => 'ok', 'is_error' => $isError],
         ]]]);
+    }
+
+    /**
+     * NDJSON events of successful shell calls, the first half of an OpenCode turn.
+     *
+     * @return list<string>
+     */
+    private static function opencodeEvents(string ...$commands): array
+    {
+        $lines = [];
+        foreach ($commands as $command) {
+            $lines[] = (string) json_encode(['type' => 'tool_use', 'sessionID' => 'ses-1', 'part' => [
+                'tool' => 'shell',
+                'state' => ['status' => 'completed', 'input' => ['command' => $command]],
+            ]]);
+        }
+
+        return $lines;
+    }
+
+    /** The event with the final text of an OpenCode turn; the parser keeps the last text it sees. */
+    private static function opencodeText(string $text): string
+    {
+        return (string) json_encode(['type' => 'text', 'sessionID' => 'ses-1', 'part' => ['text' => $text]]);
+    }
+
+    /**
+     * The turn record the Bot builds after an OpenCode run: the parser turns the events into the neutral
+     * tool calls, the record keeps the shell calls of the run and its final text.
+     *
+     * @param list<string> $lines
+     */
+    private static function opencodeRecord(array $lines): TurnRecord
+    {
+        $turn = OpencodeNdjsonParser::parse($lines);
+
+        return TurnRecord::fromToolCalls($turn->toolCalls, $turn->finalText);
+    }
+
+    /** The command that publishes a review status on PR 1, the one the check counts. */
+    private static function publishCommand(string $event = 'APPROVE', string $body = 'ok'): string
+    {
+        return 'gh api repos/o/r/pulls/1/reviews -f commit_id='.self::SHA." -f event={$event} -f body=\"{$body}\"";
     }
 
     /**
@@ -592,5 +637,100 @@ final class ReviewStatusHookTest extends TestCase
         self::assertStringContainsString('commit_id=<SHA>', ReviewStatusHook::FALLBACK_REASON);
         self::assertStringContainsString('only legitimate reasons to leave no status', ReviewStatusHook::FALLBACK_REASON);
         self::assertSame(ReviewStatusHook::MISSING, self::decide([self::user('x'), self::bash('t1', 'gh pr view 1'), self::toolResult('t1')], '🟢 ok', true));
+    }
+
+    public function testOpencodeTurnWithoutAStatusBlocksAndIsReleasedOnlyOnTheRepeat(): void
+    {
+        $turn = self::opencodeRecord([...self::opencodeEvents('gh pr view 1'), self::opencodeText('🟢 Merge — a#1')]);
+
+        self::assertSame(ReviewStatusHook::BLOCK, ReviewStatusHook::decideTurn($turn, false), 'the first pass asks for the status');
+        self::assertSame(ReviewStatusHook::MISSING, ReviewStatusHook::decideTurn($turn, true), 'the repeat releases the run');
+    }
+
+    public function testOpencodeTurnWithThePublishedStatusPasses(): void
+    {
+        $turn = self::opencodeRecord([...self::opencodeEvents('gh pr view 1', self::publishCommand()), self::opencodeText('🟢 Merge — a#1')]);
+
+        self::assertSame(ReviewStatusHook::PASS, ReviewStatusHook::decideTurn($turn, false));
+        self::assertSame(ReviewStatusHook::PASS, ReviewStatusHook::decideTurn($turn, true));
+    }
+
+    public function testOpencodeTurnWithTheOppositeStatusBlocks(): void
+    {
+        $turn = self::opencodeRecord([...self::opencodeEvents(self::publishCommand('REQUEST_CHANGES')), self::opencodeText('🟢 Merge — a#1')]);
+
+        self::assertSame(ReviewStatusHook::BLOCK, ReviewStatusHook::decideTurn($turn, false));
+    }
+
+    public function testOpencodeTurnWithNoPrWorkPasses(): void
+    {
+        $turn = self::opencodeRecord([...self::opencodeEvents('ls', 'git status'), self::opencodeText('🟢 As I said earlier, it merges')]);
+
+        self::assertSame(ReviewStatusHook::PASS, ReviewStatusHook::decideTurn($turn, false));
+    }
+
+    public function testOpencodeTurnIsCheckedAgainstTheColdFindingsToo(): void
+    {
+        $turn = self::opencodeRecord([...self::opencodeEvents(self::publishCommand('APPROVE', 'C1 — fixed')), self::opencodeText('🟢 Merge — a#1')]);
+
+        self::assertSame(ReviewStatusHook::PASS, ReviewStatusHook::decideTurn($turn, false, ['C1']));
+        self::assertSame(['C2'], ReviewStatusHook::missingIdsIn($turn, ['C1', 'C2']));
+        self::assertSame(ReviewStatusHook::BLOCK, ReviewStatusHook::decideTurn($turn, false, ['C1', 'C2']));
+        self::assertSame(ReviewStatusHook::MISSING, ReviewStatusHook::decideTurn($turn, true, ['C1', 'C2']));
+    }
+
+    public function testTheCommittedRunFixtureBecomesATurnTheCheckCanRead(): void
+    {
+        // The events of a real run (its own `ls` shell call and its answer) plus the publish of a review:
+        // this is exactly what the Bot feeds the check after an OpenCode run.
+        $lines = file(__DIR__.'/fixtures/opencode/run/plain.ndjson', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+        $publish = self::publishCommand();
+        $lines[] = self::opencodeEvents($publish)[0];
+        $lines[] = self::opencodeText('🟢 Merge — a#1');
+
+        $turn = self::opencodeRecord($lines);
+
+        self::assertSame(['ls', $publish], $turn->commands());
+        self::assertSame('🟢 Merge — a#1', $turn->finalText);
+        self::assertSame(ReviewStatusHook::PASS, ReviewStatusHook::decideTurn($turn, false));
+    }
+
+    public function testTheReasonOfARecordIsTheReasonOfTheTranscript(): void
+    {
+        // One logic for both ends: the record of a transcript turn and a recorded OpenCode turn that
+        // says the same thing are asked for the same requirement.
+        $lines = [self::user('Review PR #1005'), self::bash('t1', 'gh pr view 1005'), self::toolResult('t1')];
+        $input = ['last_assistant_message' => '🟢 Merge'];
+        $turn = self::opencodeRecord([...self::opencodeEvents('gh pr view 1005'), self::opencodeText('🟢 Merge')]);
+
+        self::assertSame(
+            ReviewStatusHook::reason($input, $lines),
+            ReviewStatusHook::reasonForTurn($turn),
+        );
+        self::assertSame(
+            ReviewStatusHook::turnRecord($lines, '🟢 Merge')->shellCalls,
+            $turn->shellCalls,
+        );
+    }
+
+    public function testMarkMissingLeavesTheMarkerTheReplyIsWarnedFrom(): void
+    {
+        $dir = sys_get_temp_dir().'/rsh-'.bin2hex(random_bytes(4));
+        mkdir($dir.'/empty', 0775, true);
+        $broken = self::opencodeRecord([...self::opencodeEvents('gh pr view 1'), self::opencodeText('🟢 Merge')]);
+        $covered = self::opencodeRecord([...self::opencodeEvents(self::publishCommand('APPROVE', 'C1 — fixed')), self::opencodeText('🟢 Merge')]);
+
+        // No status at all: the marker of the released turn (the same one the Stop hook leaves).
+        ReviewStatusHook::markMissing($dir, 'ses-1', $broken, null);
+        // The status is there but its body lacks an id: the marker carries the ids.
+        ReviewStatusHook::markMissing($dir, 'ses-2', $covered, ['C1', 'C2']);
+        // Nothing to mark, nowhere to leave it.
+        ReviewStatusHook::markMissing($dir.'/empty', '', $broken, ['C1']);
+
+        self::assertFileExists(ReviewStatusHook::markerPath($dir, 'ses-1'));
+        self::assertSame(['C2'], ReviewStatusHook::consumeIdsMarker($dir, 'ses-2'));
+        self::assertSame([], glob($dir.'/empty/*'));
+
+        exec('rm -rf '.escapeshellarg($dir));
     }
 }

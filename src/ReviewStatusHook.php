@@ -7,18 +7,22 @@ namespace GpsLab\WorkspaceAssistant;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 
 /**
- * Claude Code Stop hook for review mode: a turn that worked on a PR without a formal
+ * The review status check: a turn that worked on a PR without a formal
  * review status on the PR (`gh api repos/<o>/<r>/pulls/<N>/reviews -f commit_id=<SHA> -f event=…`,
  * see {@see ReviewCommitHook}) is not released — with a 🟢/🔴 verdict or without one.
  *
  * Why code rather than a prompt rule: the rule in the review role prompt lost three times in a row
  * to the habit of a warm session (the verdict in chat, remarks via
- * `gh pr comment`, no status). The hook does not set the status itself — the model does,
- * since it has the context (PR number, review body); the hook only keeps the
- * turn from ending without it. The bot attaches it via `--settings` only in review mode
- * (see ClaudeRunner, JobRunner::launchJob).
+ * `gh pr comment`, no status). The check does not set the status itself — the model does,
+ * since it has the context (PR number, review body); the check only keeps the
+ * turn from ending without it. On Claude Code the bot attaches it as a Stop hook via `--settings`,
+ * only in review mode (see ClaudeRunner, JobRunner::launchJob), with the transcript as its input
+ * (bin/review-stop-hook.php). On an engine with no hook to attach it to (OpenCode) the Bot runs the
+ * same check after the run instead, on the neutral record of the finished turn
+ * ({@see TurnRecord}, {@see JobRunner::repeatReviewRun()}); the "this turn is the repeat" flag, which
+ * a Claude Code hook reads from `stop_hook_active`, is then the history of the run itself.
  *
- * Decisions per turn (decide()):
+ * Decisions per turn (decide() / decideTurn()):
  *  - pass    — the turn did no PR work (a retelling of an old verdict) /
  *              a status matching the verdict was set successfully / the reply has no
  *              verdict but a status was set during the turn;
@@ -27,8 +31,9 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
  *              status, first attempt: the model receives reason() and continues
  *              the turn. Cost: a reference question about a PR in review mode costs
  *              an extra round;
- *  - missing — a repeated entry (stop_hook_active) and the needed status is still absent:
- *              the hook releases the turn (no loops) but leaves a marker, and the bot
+ *  - missing — a repeated entry (`stop_hook_active` on Claude Code, the run after the repeat on
+ *              OpenCode) and the needed status is still absent: the turn is released (no loops) but
+ *              a marker is left ({@see markMissing()}), and the bot
  *              appends a warning to the reply — the failure does not pass silently.
  *
  * Two cases legitimately end without a status and take this same path (block, then missing on the
@@ -98,30 +103,79 @@ final class ReviewStatusHook
      */
     public static function decide(array $input, array $transcriptLines, ?array $ids = null): string
     {
-        $turn = self::currentTurn($transcriptLines);
+        return self::decideTurn(
+            self::turnRecord($transcriptLines, self::replyOf($input)),
+            ($input['stop_hook_active'] ?? false) === true,
+            $ids,
+        );
+    }
+
+    /**
+     * The same decision on the neutral record of a turn ({@see TurnRecord}): the Bot takes it after the
+     * run on an engine that has no Stop hook to attach the check to (OpenCode).
+     *
+     * $repeated is what `stop_hook_active` is on Claude Code: this turn already ran once with this very
+     * requirement, so a missing status is released (with a marker) instead of blocking it again.
+     *
+     * @param list<string>|null $ids finding ids the review body must cover; null/[] — do not check
+     */
+    public static function decideTurn(TurnRecord $turn, bool $repeated, ?array $ids = null): string
+    {
         if (!self::hasPrActivity($turn)) {
             return self::PASS;
         }
 
-        if (self::statusSatisfied($input, $turn)) {
-            return $ids === null || $ids === [] || self::missingIds($transcriptLines, $ids) === []
+        if (self::statusSatisfied($turn)) {
+            return $ids === null || $ids === [] || self::missingIdsIn($turn, $ids) === []
                 ? self::PASS
-                : self::stopOrRelease($input);
+                : self::stopOrRelease($repeated);
         }
 
-        return self::stopOrRelease($input);
+        return self::stopOrRelease($repeated);
+    }
+
+    private static function stopOrRelease(bool $repeated): string
+    {
+        return $repeated ? self::MISSING : self::BLOCK;
     }
 
     /**
+     * The record of a turn of a Claude Code transcript ({@see TurnRecord::fromToolCalls()} is its
+     * OpenCode counterpart): its Bash calls with the outcome of each (the `is_error` of the tool
+     * result) and the final text.
+     *
+     * @param list<string> $transcriptLines
+     * @param string       $finalText       the reply of the turn: `last_assistant_message` of the hook input
+     */
+    public static function turnRecord(array $transcriptLines, string $finalText = ''): TurnRecord
+    {
+        $turn = self::currentTurn($transcriptLines);
+        $failed = self::failedToolUseIds($turn);
+        $calls = [];
+        foreach (self::bashCalls($turn) as $callId => $command) {
+            $calls[] = [
+                'command' => $command,
+                'status' => isset($failed[$callId]) ? TurnRecord::STATUS_ERROR : TurnRecord::STATUS_COMPLETED,
+            ];
+        }
+
+        return new TurnRecord($calls, $finalText);
+    }
+
+    /**
+     * The reply of the turn as the Stop hook input carries it; '' when it is absent or not a string.
+     *
      * @param array<string, mixed> $input
      */
-    private static function stopOrRelease(array $input): string
+    public static function replyOf(array $input): string
     {
-        return ($input['stop_hook_active'] ?? false) === true ? self::MISSING : self::BLOCK;
+        $last = $input['last_assistant_message'] ?? null;
+
+        return is_string($last) ? $last : '';
     }
 
     /**
-     * The requirement text for the model when decide() === BLOCK: which status is needed and
+     * The requirement text for the model when the decision is BLOCK: which status is needed and
      * what is wrong with the one that was set.
      *
      * @param array<string, mixed> $input
@@ -130,22 +184,31 @@ final class ReviewStatusHook
      */
     public static function reason(array $input, array $transcriptLines, ?array $ids = null, string $forge = Config::FORGE_GITHUB): string
     {
+        return self::reasonForTurn(self::turnRecord($transcriptLines, self::replyOf($input)), $ids, $forge);
+    }
+
+    /**
+     * {@see reason()} on the neutral record of a turn: the text of a block on Claude Code and the text
+     * of the repeat on OpenCode (the same requirement, said once more to a session that can act on it).
+     *
+     * @param list<string>|null $ids
+     */
+    public static function reasonForTurn(TurnRecord $turn, ?array $ids = null, string $forge = Config::FORGE_GITHUB): string
+    {
         $gitlab = $forge === Config::FORGE_GITLAB;
         $steps = $gitlab ? 'review_status_reason_steps_gitlab' : 'review_status_reason_steps';
-        $turn = self::currentTurn($transcriptLines);
-        if (self::statusSatisfied($input, $turn) && $ids !== null && $ids !== []) {
-            $missing = self::missingIds($transcriptLines, $ids);
+        if (self::statusSatisfied($turn) && $ids !== null && $ids !== []) {
+            $missing = self::missingIdsIn($turn, $ids);
             if ($missing !== []) {
                 return PromptFiles::render($gitlab ? 'review_status_reason_ids_gitlab' : 'review_status_reason_ids', ['ids' => implode(', ', $missing)]);
             }
         }
 
-        $last = $input['last_assistant_message'] ?? '';
-        $verdict = is_string($last) ? self::verdict($last) : null;
+        $verdict = self::verdict($turn->finalText);
         if ($verdict === null) {
             return PromptFiles::load('review_status_reason_no_verdict')."\n".PromptFiles::load($steps);
         }
-        $actual = self::statusSet(self::currentTurn($transcriptLines));
+        $actual = self::statusSet($turn);
 
         return PromptFiles::render('review_status_reason', [
             'verdict' => $verdict === self::APPROVE ? '🟢' : '🔴',
@@ -168,8 +231,20 @@ final class ReviewStatusHook
      */
     public static function reasonOrFallback(array $input, array $transcriptLines, ?array $ids = null, ?callable $onError = null, string $forge = Config::FORGE_GITHUB): string
     {
+        return self::reasonForTurnOrFallback(self::turnRecord($transcriptLines, self::replyOf($input)), $ids, $onError, $forge);
+    }
+
+    /**
+     * {@see reasonForTurn()}, but a failure to load the texts yields {@see FALLBACK_REASON}: a block
+     * decision must not turn into a pass.
+     *
+     * @param list<string>|null                  $ids
+     * @param (callable(\Throwable): mixed)|null $onError
+     */
+    public static function reasonForTurnOrFallback(TurnRecord $turn, ?array $ids = null, ?callable $onError = null, string $forge = Config::FORGE_GITHUB): string
+    {
         try {
-            return self::reason($input, $transcriptLines, $ids, $forge);
+            return self::reasonForTurn($turn, $ids, $forge);
         } catch (\Throwable $e) {
             if ($onError !== null) {
                 $onError($e);
@@ -180,29 +255,42 @@ final class ReviewStatusHook
     }
 
     /**
-     * The status in the turn already matches the reply's verdict (or there is no verdict and a status is set).
-     *
-     * @param array<string, mixed>       $input
-     * @param list<array<string, mixed>> $turn
+     * The status in the turn already matches the verdict of its final text (or there is no verdict
+     * and a status is set).
      */
-    private static function statusSatisfied(array $input, array $turn): bool
+    private static function statusSatisfied(TurnRecord $turn): bool
     {
-        $last = $input['last_assistant_message'] ?? '';
-        $verdict = is_string($last) ? self::verdict($last) : null;
+        $verdict = self::verdict($turn->finalText);
         $status = self::statusSet($turn);
 
         return $verdict === null ? $status !== null : $status === $verdict;
     }
 
     /**
-     * The status and ids the hook needs as a whole: for the hook script (the "ids not covered" marker).
+     * The marker of a turn released with a missing review status (decision MISSING): the status itself
+     * is missing, or — when the status is set — the review body does not cover the finding ids. Either
+     * becomes a warning in the reply of the run ({@see RunResult}); the Claude Code Stop hook script
+     * and the Bot's post-run check leave the same marker, so both ends of a review run are reported
+     * the same way.
      *
-     * @param array<string, mixed> $input
-     * @param list<string>         $transcriptLines
+     * Without a state directory or a session id there is nowhere to leave it: the check then says
+     * nothing, exactly as before this method existed.
+     *
+     * @param list<string>|null $ids finding ids the review body must cover; null/[] — do not check
      */
-    public static function statusOk(array $input, array $transcriptLines): bool
+    public static function markMissing(string $stateDir, string $sessionId, TurnRecord $turn, ?array $ids): void
     {
-        return self::statusSatisfied($input, self::currentTurn($transcriptLines));
+        if ($stateDir === '' || $sessionId === '') {
+            return;
+        }
+        if (self::statusSatisfied($turn)) {
+            self::writeIdsMarker($stateDir, $sessionId, self::missingIdsIn($turn, $ids ?? []));
+
+            return;
+        }
+        $marker = self::markerPath($stateDir, $sessionId);
+        @mkdir(dirname($marker), 0775, true);
+        @touch($marker);
     }
 
     /**
@@ -217,13 +305,21 @@ final class ReviewStatusHook
      */
     public static function missingIds(array $transcriptLines, array $ids): array
     {
-        $turn = self::currentTurn($transcriptLines);
-        $failed = self::failedToolUseIds($turn);
+        return self::missingIdsIn(self::turnRecord($transcriptLines), $ids);
+    }
+
+    /**
+     * {@see missingIds()} on the neutral record of a turn.
+     *
+     * @param list<string> $ids
+     *
+     * @return list<string>
+     */
+    public static function missingIdsIn(TurnRecord $turn, array $ids): array
+    {
         $body = '';
-        foreach (self::bashCalls($turn) as $callId => $command) {
-            if (!isset($failed[$callId])) {
-                $body .= "\n".self::reviewBody($command);
-            }
+        foreach ($turn->successfulCommands() as $command) {
+            $body .= "\n".self::reviewBody($command);
         }
 
         return array_values(array_filter($ids, static fn (string $id): bool => preg_match(
@@ -426,12 +522,9 @@ final class ReviewStatusHook
         return array_reverse($turn);
     }
 
-    /**
-     * @param list<array<string, mixed>> $turn
-     */
-    private static function hasPrActivity(array $turn): bool
+    private static function hasPrActivity(TurnRecord $turn): bool
     {
-        foreach (self::bashCalls($turn) as $command) {
+        foreach ($turn->commands() as $command) {
             if (preg_match(self::PR_ACTIVITY_RE, $command) === 1) {
                 return true;
             }
@@ -442,22 +535,16 @@ final class ReviewStatusHook
 
     /**
      * The status that stands after the turn: the last successful call
-     * (GitHub honours the latest review). Only a call whose
-     * tool_result is not marked as an error counts: an attempt that GitHub
+     * (GitHub honours the latest review). Only a call that did not fail counts
+     * ({@see TurnRecord::successfulCommands()}): an attempt that GitHub
      * rejected does not set a status.
-     *
-     * @param list<array<string, mixed>> $turn
      *
      * @return self::APPROVE|self::REQUEST_CHANGES|null
      */
-    private static function statusSet(array $turn): ?string
+    private static function statusSet(TurnRecord $turn): ?string
     {
-        $failed = self::failedToolUseIds($turn);
         $status = null;
-        foreach (self::bashCalls($turn) as $id => $command) {
-            if (isset($failed[$id])) {
-                continue;
-            }
+        foreach ($turn->successfulCommands() as $command) {
             foreach (self::gitlabNotes($command) as $note) {
                 if ($note['state'] !== null) {
                     $status = $note['state'];
