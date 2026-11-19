@@ -403,6 +403,12 @@ verdict.
 - The **model** sets the status; the hook only refuses to let go. The bot writes nothing to GitHub itself.
 - A verdict without PR work in the turn (a retelling of an old one) is skipped, otherwise it would force
   an approve of an unchecked head.
+- The decision itself is engine-neutral: `ReviewStatusHook` reads it off a `TurnRecord` (the shell calls of
+  the turn with their status plus the final text), which the Claude Code hook builds from its transcript and
+  `OpencodeRunner` from the run's stream. On an engine with no Stop hooks `JobRunner::repeatReviewRun()`
+  makes that decision after the run: the same reason text becomes the prompt of exactly one repeated run in
+  the same session, a second miss leaves the same marker as `stop_hook_active`. Unreachable so far —
+  `review` on `ENGINE=opencode` is still refused.
 - A second pass (`stop_hook_active`) without a status is released (no loops) but leaves a marker
   `STATE_DIR/review-status-missing/<session>`; the bot appends a warning to the reply. Decisions are in
   `STATE_DIR/review-hook.log`. The hook is fail-open: a script error releases the turn and is logged.

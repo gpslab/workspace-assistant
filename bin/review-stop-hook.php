@@ -64,19 +64,17 @@ try {
         $ids = is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : null;
     }
 
-    $decision = ReviewStatusHook::decide($input, $lines, $ids);
+    // The turn as the check reads it: the Bash calls of the last turn with the outcome of each and the
+    // reply. Shared with the Bot's post-run check of an engine without Stop hooks (see JobRunner).
+    $turn = ReviewStatusHook::turnRecord($lines, ReviewStatusHook::replyOf($input));
+
+    $decision = ReviewStatusHook::decideTurn($turn, ($input['stop_hook_active'] ?? false) === true, $ids);
     $log("{$sessionId} {$decision}");
 
     if ($decision === ReviewStatusHook::BLOCK) {
-        echo json_encode(['decision' => 'block', 'reason' => ReviewStatusHook::reasonOrFallback($input, $lines, $ids, static fn (\Throwable $e) => $log('reason error: '.$e->getMessage()), $forge)], JSON_UNESCAPED_UNICODE);
-    } elseif ($decision === ReviewStatusHook::MISSING && $stateDir !== '' && $sessionId !== '') {
-        if (ReviewStatusHook::statusOk($input, $lines)) {
-            ReviewStatusHook::writeIdsMarker($stateDir, $sessionId, ReviewStatusHook::missingIds($lines, $ids ?? []));
-        } else {
-            $marker = ReviewStatusHook::markerPath($stateDir, $sessionId);
-            @mkdir(dirname($marker), 0775, true);
-            @touch($marker);
-        }
+        echo json_encode(['decision' => 'block', 'reason' => ReviewStatusHook::reasonForTurnOrFallback($turn, $ids, static fn (\Throwable $e) => $log('reason error: '.$e->getMessage()), $forge)], JSON_UNESCAPED_UNICODE);
+    } elseif ($decision === ReviewStatusHook::MISSING) {
+        ReviewStatusHook::markMissing($stateDir, $sessionId, $turn, $ids);
     }
 } catch (\Throwable $e) {
     $log('error: '.$e->getMessage());

@@ -254,6 +254,10 @@ final class JobRunner implements JobLauncher, RunControl
             'pm_gate_run_id' => $gateRunId,
             'prompt_hash' => $runner->promptHash(),
             'resume_skipped' => $resumeSkipped,
+            // The finding ids of a manual review (see repeatReviewRun), and whether this run is the
+            // repeat of a review turn whose status was missing after the run before it.
+            'ids_path' => $idsPath,
+            'review_repeated' => false,
         ];
 
         // The topic of the last job that touched the tree owns the commit/discard decision.
@@ -360,6 +364,16 @@ final class JobRunner implements JobLauncher, RunControl
             } elseif ($kind === RunKind::KIND_CHAT) {
                 $claude = new RunAnswer(false, $claude->text."\n\n".$this->t('claude.recovered_note'), $claude->sessionId, $claude->totals, true, true);
             }
+        }
+        // Post-run review status check (see repeatReviewRun()): only an engine with no Stop hooks needs
+        // it, and when it asks for a repeat this run is not over — the caller must not finish the job
+        // state, deliver the reply or touch the thinking message.
+        if ($this->repeatReviewRun($claude, $kind, $mode, $inboxFiles)) {
+            // The warnings of this run are not tied to a reply that only the repeat will produce:
+            // they go out as their own messages now, so the repeat does not swallow them.
+            $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, true);
+
+            return null;
         }
         // sendResult() appends the warnings to a normal reply itself; every
         // other outcome (error, epic, compact) gets a separate message.
@@ -478,6 +492,141 @@ final class JobRunner implements JobLauncher, RunControl
             null,
             $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
         );
+    }
+
+    /**
+     * The post-run review status check of an engine that has no Stop hooks to attach it to (OpenCode):
+     * the same {@see ReviewStatusHook} decision, taken by the Bot after the run, on the neutral record
+     * of the finished turn ({@see TurnRecord}). A Claude Code review run needs none of this — its status
+     * is enforced by the Stop hook while the turn runs.
+     *
+     * false — the run is over as usual: it is not the review run this check is about, the turn passed,
+     * or its missing status was recorded by the marker of {@see ReviewStatusHook::markMissing()} (the
+     * outcome a repeated stop has on Claude Code) and the reply will carry the warning.
+     *
+     * true — one more run was launched into the same session with the requirement as its prompt, and
+     * the end of THIS run now belongs to that one: the caller returns without finishing the job state.
+     * The repeat carries the flag of a repeated turn, so its own missing status is recorded instead of
+     * starting a third run: exactly one repeat per review run.
+     *
+     * @param list<string> $inboxFiles inbox files of the finished run, to be restored onto the repeat
+     */
+    private function repeatReviewRun(RunAnswer $claude, string $kind, string $mode, array $inboxFiles): bool
+    {
+        $context = $this->runState->jobContext;
+        $turn = $this->runState->activeJob?->turnRecord();
+        // No record — no check: the engine reports nothing of what the check reads (Claude Code), or
+        // the run produced no turn at all. An error reply is never repeated either: there is nothing
+        // to re-ask a session that did not answer.
+        if ($context === null || $turn === null
+            || !$this->config->isOpencode()
+            || $kind !== RunKind::KIND_CHAT
+            || $mode !== SystemPrompt::MODE_REVIEW
+            || $claude->isError
+            || $claude->sessionId === null) {
+            return false;
+        }
+
+        $ids = $this->reviewFindingIds();
+        // Whether this is the run after the repeat: on Claude Code the same question is what
+        // `stop_hook_active` of the second stop answers.
+        $decision = ReviewStatusHook::decideTurn($turn, $context['review_repeated'] ?? false, $ids);
+        if ($decision === ReviewStatusHook::PASS) {
+            return false;
+        }
+        if ($decision === ReviewStatusHook::MISSING) {
+            // This turn IS the repeat and left the status missing too: release the run with the marker
+            // and let the reply carry the warning — a repeated turn is never asked a third time.
+            ReviewStatusHook::markMissing($this->config->stateDir, $claude->sessionId, $turn, $ids);
+            Log::line('review status check: the repeated turn released without a matching review status, session '.$claude->sessionId);
+
+            return false;
+        }
+
+        $reason = ReviewStatusHook::reasonForTurnOrFallback(
+            $turn,
+            $ids,
+            static fn (\Throwable $e) => Log::line('review status check: reason text not loaded: '.$e->getMessage()),
+            $this->config->forge,
+        );
+        $previous = $this->runState->activeJob;
+        Log::line('review status check: repeating the turn in session '.$claude->sessionId);
+        try {
+            // The findings of this review are passed on: the repeat answers for the same list.
+            // The outbox files of the finished run are dropped by launchJob (clearOutbox) — the reply
+            // they belong to is superseded by the repeat.
+            $error = $this->launchJob(
+                $context['chat_id'],
+                $context['thread_id'],
+                RunKind::KIND_CHAT,
+                $reason,
+                $claude->sessionId,
+                $context['thinking_id'],
+                null,
+                SystemPrompt::MODE_REVIEW,
+                $context['queue_id'],
+                idsPath: $context['ids_path'] ?? null,
+                localeCode: $context['locale'],
+                model: $context['model'],
+            );
+        } catch (\Throwable $e) {
+            // The process of the repeat may already be alive and tracked — then that run goes on, the
+            // same way a queue item does when the launch throws after the start (see QueueScheduler).
+            if ($this->runState->activeJob !== $previous) {
+                $this->handOverToRepeat($inboxFiles);
+
+                throw $e;
+            }
+
+            ReviewStatusHook::markMissing($this->config->stateDir, $claude->sessionId, $turn, $ids);
+            Log::line('review status check: the repeat did not start: '.$e->getMessage());
+
+            return false;
+        }
+
+        if ($error !== null) {
+            ReviewStatusHook::markMissing($this->config->stateDir, $claude->sessionId, $turn, $ids);
+            Log::line('review status check: the repeat did not start: '.$error);
+
+            return false;
+        }
+
+        $this->handOverToRepeat($inboxFiles);
+
+        return true;
+    }
+
+    /**
+     * The repeat runs the same job item as the run it repeats: it takes over the inbox files of that
+     * run (launchJob() starts a context without them) and is marked as the repeated turn, so it is
+     * released with a marker instead of starting a further run.
+     *
+     * @param list<string> $inboxFiles
+     */
+    private function handOverToRepeat(array $inboxFiles): void
+    {
+        if ($this->runState->jobContext === null) {
+            return;
+        }
+        $this->runState->jobContext['inbox_files'] = $inboxFiles;
+        $this->runState->jobContext['review_repeated'] = true;
+    }
+
+    /**
+     * The finding ids of this run's review ({@see ColdFindings}), as the Stop hook of a Claude Code
+     * review reads them from the file launchJob() points it at: null when the run had none to cover.
+     *
+     * @return list<string>|null
+     */
+    private function reviewFindingIds(): ?array
+    {
+        $path = $this->runState->jobContext['ids_path'] ?? null;
+        if ($path === null || !is_file($path)) {
+            return null;
+        }
+        $decoded = json_decode((string) @file_get_contents($path), true);
+
+        return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : null;
     }
 
     /** Hash of the system prompt the stored session was last run with; null if unknown. */

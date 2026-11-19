@@ -6,8 +6,10 @@ namespace GpsLab\WorkspaceAssistant\Opencode;
 
 /**
  * The engine-neutral record of one OpenCode run, parsed from its NDJSON stdout
- * ({@see OpencodeNdjsonParser::parse()}). Nothing consumes it yet: the runner task
- * wires it in and acts on the fields.
+ * ({@see OpencodeNdjsonParser::parse()}): the session, the answer, the error and the tool calls
+ * of the run. {@see OpencodeRunner} reads them off it, and the shell calls with the answer are
+ * also what the neutral turn of the run is built from ({@see TurnRecord}), for the checks the Bot
+ * runs after the run.
  */
 final class OpencodeTurn
 {

@@ -124,6 +124,10 @@ the forge from the `--forge=<FORGE>` argument after the state directory (it does
 or unknown value means github): with `--forge=gitlab` the `_gitlab` variants of `review_status_reason_steps` and
 `review_status_reason_ids` are used instead, and the hardcoded fallback names `glab mr note`.
 
+Whoever asks for the status — the Claude Code Stop hook during the turn, or the Bot after a review run on an
+engine that has no Stop hooks — asks with that same text; in the second case the text is the prompt of the one
+repeated run the Bot starts in the same session.
+
 ### Built-in agents
 
 `prompts/agents/*.md.dist` are passed with `--agents` to every run except `/compact`. On OpenCode the same
