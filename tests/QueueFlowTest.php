@@ -2650,6 +2650,20 @@ final class QueueFlowTest extends TestCase
     }
 
     /**
+     * {@see opencodeSessions()}, plus the epic-signal env of every launch to signal.<n>: an epic run
+     * carries `WORKSPACE_ASSISTANT_EPIC_SIGNAL`, a chat run does not, so the repeat of an epic review
+     * is told apart from a chat repeat by it.
+     */
+    private function opencodeEpicSessions(string ...$sets): void
+    {
+        foreach ($sets as $i => $ndjson) {
+            file_put_contents($this->root.'/out.'.$i.'.ndjson', $ndjson."\n");
+        }
+        file_put_contents($this->root.'/opencode', "#!/bin/sh\nd=\"$(dirname \"\$0\")\"\necho x >> \"\$d/calls.log\"\nn=\$(ls \"\$d\"/argv.* 2>/dev/null | wc -l)\nfor a in \"\$@\"; do printf '%s\\0' \"\$a\"; done > \"\$d/argv.\$n\"\nprintenv WORKSPACE_ASSISTANT_EPIC_SIGNAL > \"\$d/signal.\$n\"\ncat \"\$d/out.\$n.ndjson\"\n");
+        chmod($this->root.'/opencode', 0755);
+    }
+
+    /**
      * The events of one OpenCode turn: the shell calls it made and its answer.
      */
     private static function opencodeTurn(string ...$commands): string
@@ -2758,6 +2772,34 @@ final class QueueFlowTest extends TestCase
 
         self::assertSame(1, $this->launches());
         self::assertStringNotContainsString((new Locale('en'))->t('result.review_status_missing'), $this->textsOfTopic());
+    }
+
+    public function testOpencodeEpicReviewRunWithoutAStatusIsRepeatedOnce(): void
+    {
+        $this->opencodeEpicSessions(
+            self::opencodeTurn('gh pr view 1'),
+            self::opencodeTurn('gh pr view 1', self::opencodePublish()),
+        );
+        $this->startOpencodeEpicRun(Run::REVIEW);
+        $this->finishJob();
+
+        self::assertSame(2, $this->launches(), 'the epic review turn is repeated once when its review status is missing');
+        // The repeat is a full epic run again (the same signalled run, not a chat run): the second
+        // launch carries the epic signal env of the `demo` epic.
+        self::assertSame(
+            $this->root.'/state/epics/demo/signal.json',
+            trim((string) file_get_contents($this->root.'/signal.1')),
+        );
+    }
+
+    public function testOpencodeEpicReviewRunWithoutAStatusAgainIsReleasedWithAMarker(): void
+    {
+        $withoutStatus = self::opencodeTurn('gh pr view 1');
+        $this->opencodeSessions($withoutStatus, $withoutStatus);
+        $this->startOpencodeEpicRun(Run::REVIEW);
+        $this->finishJob();
+
+        self::assertSame(2, $this->launches(), 'a missing status again does not start a third epic run');
     }
 
     /**
