@@ -243,6 +243,14 @@ final class QueueScheduler implements QueueControl
         }
 
         $mode = $this->db->getMode($chatId, $threadId);
+        // OpenCode has no PM gate and no review commit hook, so the gated modes refuse outright instead
+        // of running without their gates. The default mode is pm: a new topic is refused until /mode arch.
+        if ($this->config->isOpencode() && $mode !== SystemPrompt::MODE_ARCH) {
+            $this->tg->sendText($chatId, $this->t('mode.opencode_unsupported', ['mode' => $mode]), null, $threadId);
+
+            return;
+        }
+
         $model = $this->models()->resolve($chatId, $threadId);
         $localeCode = $this->locales->userLocale($userId);
         $last = $this->db->queueLastWaiting($chatId, $threadId);
@@ -489,6 +497,16 @@ final class QueueScheduler implements QueueControl
         $chatId = $head['chat_id'];
         $threadId = $head['thread_id'];
 
+        // OpenCode has no PM gate and no review commit hook: the enqueue gate refuses the gated
+        // modes on a new message, but a chat item queued under claude survives a restart into
+        // ENGINE=opencode. Re-check the mode at the head so it is refused here, not launched
+        // without its gate (the epic head-start guard below does the same for epic items).
+        if ($head['kind'] === self::ITEM_CHAT && $this->config->isOpencode() && $head['mode'] !== SystemPrompt::MODE_ARCH) {
+            $this->dropItem($head, $this->t('mode.opencode_unsupported', ['mode' => $head['mode']]));
+
+            return;
+        }
+
         // 1. Placeholder: "no message/topic" -> the item is dropped, claude is not
         //    started and no quota is spent. The /new barrier without claude is not edited.
         if ($head['kind'] !== self::ITEM_NEW && $head['placeholder_id'] > 0 && $this->editedItemId !== $head['id']) {
@@ -662,6 +680,16 @@ final class QueueScheduler implements QueueControl
     {
         $slug = (string) ($head['parts'][0]['slug'] ?? '');
         $run = (string) ($head['parts'][0]['run'] ?? '');
+
+        // OpenCode has nobody home for the epic ticks: an item queued before a restart is dropped
+        // silently (no chat message) so the refusal does not repeat on every tick.
+        if ($this->config->isOpencode()) {
+            Log::line("queue: epic run {$slug} ({$run}) dropped - epics are not available on OpenCode");
+            $this->dropItem($head, null);
+
+            return;
+        }
+
         $pr = isset($head['parts'][0]['pr']) ? (string) $head['parts'][0]['pr'] : null;
 
         // The epic was paused in the meantime or the run is stale: the item is dropped silently.

@@ -35,7 +35,7 @@ final class ModelSwitcher
         $argument = trim($argument);
 
         if ($argument === '') {
-            $markup = $this->models->pinnedByExtraArgs() === null
+            $markup = !$this->models->isPinned()
                 ? Keyboards::model($this->models->allowed(), $this->models->effective($chatId, $threadId)[0], $threadId)->markup
                 : null;
             $this->tg->sendText($chatId, $this->stateText($chatId, $threadId), $markup, $threadId);
@@ -43,9 +43,8 @@ final class ModelSwitcher
             return;
         }
 
-        $pinned = $this->models->pinnedByExtraArgs();
-        if ($pinned !== null) {
-            $this->tg->sendText($chatId, $this->pinnedText($pinned), null, $threadId);
+        if ($this->models->isPinned()) {
+            $this->tg->sendText($chatId, $this->models->pinnedRefusalText($this->locale), null, $threadId);
 
             return;
         }
@@ -110,9 +109,8 @@ final class ModelSwitcher
             return;
         }
 
-        $pinned = $this->models->pinnedByExtraArgs();
-        if ($pinned !== null) {
-            $this->tg->answerCallback($callbackId, $this->pinnedText($pinned));
+        if ($this->models->isPinned()) {
+            $this->tg->answerCallback($callbackId, $this->models->pinnedRefusalText($this->locale));
 
             return;
         }
@@ -173,7 +171,6 @@ final class ModelSwitcher
 
     private function stateText(int $chatId, int $threadId): string
     {
-        $pinned = $this->models->pinnedByExtraArgs();
         $text = $this->locale->t('model.current', [
             'model' => $this->models->describe($this->locale, $chatId, $threadId, false),
             'topic' => $this->storedText($this->db->getTopicModel($chatId, $threadId)),
@@ -183,8 +180,8 @@ final class ModelSwitcher
         if ($last !== null) {
             $text .= "\n".$this->locale->t('stats.last_model', ['model' => $last]);
         }
-        if ($pinned !== null) {
-            $text .= "\n\n".$this->pinnedText($pinned);
+        if ($this->models->isPinned()) {
+            $text .= "\n\n".$this->models->pinnedRefusalText($this->locale);
         }
 
         return $text;
@@ -197,10 +194,5 @@ final class ModelSwitcher
         }
 
         return $this->models->isAllowed($stored) ? $stored : $this->locale->t('model.not_applied', ['model' => $stored]);
-    }
-
-    private function pinnedText(string $pinned): string
-    {
-        return $this->locale->t('model.pinned', ['model' => $pinned !== '' ? $pinned : '--model']);
     }
 }

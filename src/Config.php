@@ -21,6 +21,9 @@ final class Config
     /** @var list<string> */
     public const array DEFAULT_CLAUDE_MODELS = ['fable', 'opus[1m]', 'opus', 'sonnet', 'haiku'];
 
+    /** Engine name of an instance that runs OpenCode instead of Claude Code. */
+    public const string ENGINE_OPENCODE = 'opencode';
+
     public const array DEFAULT_HOSTS = [
         self::FORGE_GITHUB => 'github.com',
         self::FORGE_GITLAB => 'gitlab.com',
@@ -66,6 +69,12 @@ final class Config
         public readonly string $forgeHost = 'github.com',
         /** Agent engine the bot runs: `claude` for now; anything else is rejected at startup. */
         public readonly string $engine = self::DEFAULT_ENGINE_FINGERPRINT,
+        /** Path to the `opencode` binary. Not parsed from `.env` yet: it comes with the ENGINE=opencode task. */
+        public readonly string $opencodeBin = 'opencode',
+        /** Model of an OpenCode instance (`provider/model`); '' = the default model of OpenCode. Not parsed from `.env` yet. */
+        public readonly string $opencodeModel = '',
+        /** @var list<string> extra argv for the OpenCode runner. Not parsed from `.env` yet. */
+        public readonly array $opencodeExtraArgs = [],
         public readonly array $configWarnings = [],
         /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
         public readonly array $claudeModels = self::DEFAULT_CLAUDE_MODELS,
@@ -331,6 +340,12 @@ final class Config
     public function usesForeignProvider(): bool
     {
         return !$this->isAnthropicBaseUrl();
+    }
+
+    /** Whether the instance runs OpenCode. The factory still rejects the value; this is read by tests and the gates. */
+    public function isOpencode(): bool
+    {
+        return $this->engine === self::ENGINE_OPENCODE;
     }
 
     /** Command line client of the forge: gh or glab. */

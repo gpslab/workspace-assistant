@@ -11,6 +11,7 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
+use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\ModelChoice;
 use GpsLab\WorkspaceAssistant\ModelSwitcher;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
@@ -77,7 +78,7 @@ final class ModelTest extends TestCase
      * @param list<string>|null                                                                $models
      * @param array{modelEpicTick?: string, modelEpicFinal?: string, modelEpicReview?: string} $epicModels MODEL_EPIC_* values by their Config property name
      */
-    private function makeBot(array $extraArgs = [], ?array $models = null, array $epicModels = []): Bot
+    private function makeBot(array $extraArgs = [], ?array $models = null, array $epicModels = [], string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, string $opencodeModel = ''): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -95,6 +96,8 @@ final class ModelTest extends TestCase
             'pollTimeout' => 30,
             'gitTimeout' => 30,
             'forgeOwners' => new ForgeOwners(['gpslab']),
+            'engine' => $engine,
+            'opencodeModel' => $opencodeModel,
         ] + ($models === null ? [] : ['claudeModels' => $models])
           + $epicModels);
 
@@ -161,6 +164,14 @@ final class ModelTest extends TestCase
         self::assertInstanceOf(QueueScheduler::class, $scheduler);
 
         return $scheduler;
+    }
+
+    private function config(): Config
+    {
+        $config = (new \ReflectionProperty(Bot::class, 'config'))->getValue($this->bot);
+        self::assertInstanceOf(Config::class, $config);
+
+        return $config;
     }
 
     /** Enqueues an epic run, starts it and returns the model that reached argv. */
@@ -446,6 +457,81 @@ final class ModelTest extends TestCase
         self::assertIsArray($sent);
         self::assertNull($sent['markup'], 'no keyboard while --model pins the instance');
         self::assertStringContainsString('pinned by --model', $sent['text']);
+    }
+
+    public function testOpencodePinsEveryModelLevel(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
+        $this->db->setTopicModel(100, 1, 'haiku');
+        $this->db->setDefaultModel('sonnet');
+
+        $config = $this->config();
+        $choice = new ModelChoice($config, $this->db);
+        self::assertTrue($choice->isPinned());
+        self::assertNull($choice->resolve(100, 1));
+        self::assertNull($choice->resolveForAll());
+        self::assertNull($choice->resolveEpic(Run::TICK));
+        self::assertNull($choice->checkPinned('haiku'));
+
+        $locale = Locale::fromConfig($config);
+        self::assertSame('anthropic/sonnet (pinned by OPENCODE_MODEL)', $choice->describe($locale, 100, 1));
+        self::assertSame(
+            'The model is pinned by OPENCODE_MODEL (anthropic/sonnet): the bot passes no model of its own, so /model cannot change it.',
+            $choice->pinnedRefusalText($locale),
+        );
+    }
+
+    public function testTranslatedPinsStayInTheLocaleLanguage(): void
+    {
+        $ru = new Locale('ru');
+
+        // --model in CLAUDE_EXTRA_ARGS: the English "in" must not leak into a translated text.
+        $this->bot = $this->makeBot(['--model=haiku']);
+        $choice = new ModelChoice($this->config(), $this->db);
+        self::assertSame(
+            'Модель закреплена флагом --model в CLAUDE_EXTRA_ARGS (haiku): бот не передаёт свою модель, поэтому /model её не меняет.',
+            $choice->pinnedRefusalText($ru),
+        );
+        self::assertSame('haiku (закреплена в CLAUDE_EXTRA_ARGS)', $choice->describe($ru, 100, 1));
+
+        // OPENCODE_MODEL is a language-neutral variable name: the surrounding words stay translated.
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
+        $choice = new ModelChoice($this->config(), $this->db);
+        self::assertSame(
+            'Модель закреплена в OPENCODE_MODEL (anthropic/sonnet): бот не передаёт свою модель, поэтому /model её не меняет.',
+            $choice->pinnedRefusalText($ru),
+        );
+        self::assertSame('anthropic/sonnet (закреплена в OPENCODE_MODEL)', $choice->describe($ru, 100, 1));
+    }
+
+    public function testOpencodeMakesModelReadOnly(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
+
+        $this->command(1, '/model sonnet');
+        self::assertStringContainsString('pinned by OPENCODE_MODEL (anthropic/sonnet)', $this->lastText());
+        self::assertNull($this->db->getTopicModel(100, 1));
+
+        $this->tap('model:topic:1:sonnet');
+        self::assertNull($this->db->getTopicModel(100, 1));
+        self::assertStringContainsString('pinned by OPENCODE_MODEL', (string) end($this->tg->answers));
+
+        $this->command(1, '/model');
+        $sent = end($this->tg->sent);
+        self::assertIsArray($sent);
+        self::assertNull($sent['markup'], 'no keyboard while OPENCODE_MODEL pins the instance');
+        self::assertStringContainsString('anthropic/sonnet (pinned by OPENCODE_MODEL)', $sent['text']);
+    }
+
+    public function testOpencodeStatsShowsThePinnedModelAndTheEmptyModelBecomesTheDefault(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet');
+        $this->command(1, '/stats');
+        self::assertStringContainsString('Model: anthropic/sonnet (pinned by OPENCODE_MODEL)', $this->lastText());
+
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, opencodeModel: '');
+        $this->command(1, '/stats');
+        self::assertStringContainsString('Model: default model of OpenCode (pinned by OPENCODE_MODEL)', $this->lastText());
     }
 
     public function testStatsShowsTheModelLineWithAndWithoutASession(): void
