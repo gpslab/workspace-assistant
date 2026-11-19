@@ -20,7 +20,11 @@ final class Installer
         'FORGE_HOST',
         'FORGE_OWNERS',
         'FORGE_REPO',
+        'ENGINE',
         'CLAUDE_BIN',
+        'OPENCODE_BIN',
+        'OPENCODE_MODEL',
+        'OPENCODE_EXTRA_ARGS',
         'BOT_LOCALE',
         'TIMEZONE',
         'OPENRONIN_LOGINS',
@@ -42,6 +46,16 @@ final class Installer
     private const EXTRA_ARGS_WARNING = 'WARNING: with --dangerously-skip-permissions Claude runs WITHOUT permission prompts and executes '
         ."whatever a Telegram message makes it do, with the rights of the bot's system user and its forge CLI token. "
         .'Use a dedicated unprivileged user and a narrowly scoped forge token, or set a stricter value, e.g. --permission-mode,acceptEdits.';
+
+    /**
+     * The OpenCode counterpart of {@see self::EXTRA_ARGS_WARNING}: OpenCode always runs with `--auto`
+     * (it approves everything the configuration does not explicitly deny) and the bot has no switch for
+     * it, so there is no stricter `OPENCODE_EXTRA_ARGS` value to suggest.
+     */
+    private const OPENCODE_WARNING = 'WARNING: OpenCode always runs with --auto: it approves every action the per-run '
+        .'configuration does not explicitly deny and executes whatever a Telegram message makes it do, with the rights of the '
+        ."bot's system user and its forge CLI token. This is not configurable. Use a dedicated unprivileged user and a "
+        .'narrowly scoped forge token.';
 
     private const DANGEROUS_FLAG = '--dangerously-skip-permissions';
 
@@ -148,8 +162,8 @@ final class Installer
             $previous[$key] = $old;
 
             $value = $options[$key] ?? $old;
-            if ($interactive) {
-                $value = $this->ask($key, $value, $placeholders, $services, $out, $err);
+            if ($interactive && self::askedFor($key, $values)) {
+                $value = $this->ask($key, $value, $placeholders, $services, $out, $err, $values);
             }
             $problem = $this->validate($key, $value, $placeholders);
             if ($problem !== null) {
@@ -207,12 +221,18 @@ final class Installer
             }
         }
 
-        $extraArgs = $values['CLAUDE_EXTRA_ARGS'] ?? self::DANGEROUS_FLAG;
-        if (in_array(self::DANGEROUS_FLAG, array_map('trim', explode(',', $extraArgs)), true)) {
-            $warnings[] = self::DANGEROUS_FLAG.' is in CLAUDE_EXTRA_ARGS: Claude runs WITHOUT permission prompts and executes '
-                .'whatever a Telegram message makes it do, with the rights of the bot\'s system user and its forge CLI token. '
-                .'Run the bot as a dedicated unprivileged user with a narrowly scoped forge token, or set a stricter '
-                .'CLAUDE_EXTRA_ARGS (e.g. --permission-mode,acceptEdits).';
+        // On OpenCode the CLAUDE_EXTRA_ARGS warning does not apply: the engine runs with --auto whatever
+        // the key says, so the OpenCode warning replaces it instead of adding to it.
+        if (self::engineOf($values) === Config::ENGINE_OPENCODE) {
+            $warnings[] = self::OPENCODE_WARNING;
+        } else {
+            $extraArgs = $values['CLAUDE_EXTRA_ARGS'] ?? self::DANGEROUS_FLAG;
+            if (in_array(self::DANGEROUS_FLAG, array_map('trim', explode(',', $extraArgs)), true)) {
+                $warnings[] = self::DANGEROUS_FLAG.' is in CLAUDE_EXTRA_ARGS: Claude runs WITHOUT permission prompts and executes '
+                    .'whatever a Telegram message makes it do, with the rights of the bot\'s system user and its forge CLI token. '
+                    .'Run the bot as a dedicated unprivileged user with a narrowly scoped forge token, or set a stricter '
+                    .'CLAUDE_EXTRA_ARGS (e.g. --permission-mode,acceptEdits).';
+            }
         }
         if ($this->euid === 0) {
             $warnings[] = "Running as root: {$envPath}, its backup, and the state directories were created owned by root. "
@@ -304,13 +324,17 @@ final class Installer
      * Asks for the value of a key until the answer is valid. An empty answer keeps the default.
      *
      * @param array<string, string|null> $placeholders
+     * @param array<string, string>      $values       answers already given: the engine is asked before
+     *                                                 `CLAUDE_EXTRA_ARGS`, whose warning is Claude-specific
      * @param resource                   $out
      * @param resource                   $err
      */
-    private function ask(string $key, ?string $default, array $placeholders, InstallerServices $services, $out, $err): ?string
+    private function ask(string $key, ?string $default, array $placeholders, InstallerServices $services, $out, $err, array $values = []): ?string
     {
         $secret = in_array($key, self::SECRET_KEYS, true);
-        if ($key === 'CLAUDE_EXTRA_ARGS') {
+        // The Claude warning says nothing about an OpenCode instance, which runs with --auto regardless;
+        // there the warning of the engine is printed once, with the other warnings, after the write.
+        if ($key === 'CLAUDE_EXTRA_ARGS' && self::engineOf($values) !== Config::ENGINE_OPENCODE) {
             fwrite($out, self::EXTRA_ARGS_WARNING."\n");
         }
         $shown = $default !== null && $default !== '' && $secret ? self::mask($default) : $default;
@@ -368,6 +392,31 @@ final class Installer
     }
 
     /**
+     * Whether the interactive mode asks for this key. The OpenCode keys are asked only once the
+     * answers select the OpenCode engine (`ENGINE` is asked before them), so a Claude instance is
+     * not interrogated about a binary and a model it will never use.
+     *
+     * @param array<string, string> $values answers already given
+     */
+    private static function askedFor(string $key, array $values): bool
+    {
+        return !in_array($key, ['OPENCODE_BIN', 'OPENCODE_MODEL', 'OPENCODE_EXTRA_ARGS'], true)
+            || self::engineOf($values) === Config::ENGINE_OPENCODE;
+    }
+
+    /**
+     * The engine the values being written select; `claude` when `ENGINE` is absent or empty, exactly
+     * as {@see Config::fromEnv()} resolves it. Decides which agent binary is probed and which warning
+     * about the missing permission prompts applies.
+     *
+     * @param array<string, string> $values
+     */
+    private static function engineOf(array $values): string
+    {
+        return ($values['ENGINE'] ?? '') !== '' ? $values['ENGINE'] : Config::DEFAULT_ENGINE_FINGERPRINT;
+    }
+
+    /**
      * Environment and network checks. Errors block the write, warnings do not.
      *
      * @param array<string, string> $values
@@ -395,12 +444,15 @@ final class Installer
         }
 
         $env = array_filter($this->environment, 'is_string');
-        $claude = ($values['CLAUDE_BIN'] ?? '') !== '' ? $values['CLAUDE_BIN'] : 'claude';
+        // The engine decides which agent binary the instance starts, so the same key is probed.
+        $opencode = self::engineOf($values) === Config::ENGINE_OPENCODE;
+        $binKey = $opencode ? 'OPENCODE_BIN' : 'CLAUDE_BIN';
+        $agentBin = ($values[$binKey] ?? '') !== '' ? $values[$binKey] : ($opencode ? 'opencode' : 'claude');
         $forge = ($values['FORGE'] ?? '') !== '' ? $values['FORGE'] : Config::FORGE_GITHUB;
         $forgeHost = ($values['FORGE_HOST'] ?? '') !== '' ? $values['FORGE_HOST'] : (Config::DEFAULT_HOSTS[$forge] ?? 'github.com');
         $cli = $forge === Config::FORGE_GITLAB ? 'glab' : 'gh';
         $available = [];
-        foreach (['git' => 'git', $cli => $cli, $claude => 'CLAUDE_BIN='.$claude] as $binary => $label) {
+        foreach (['git' => 'git', $cli => $cli, $agentBin => $binKey.'='.$agentBin] as $binary => $label) {
             [$code] = ($services->run)([$binary, '--version'], $env, self::TIMEOUT_PROBE, null, false);
             $available[$binary] = $code === 0;
             if ($code !== 0) {

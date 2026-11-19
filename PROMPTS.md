@@ -22,7 +22,7 @@ There are three kinds of file:
 | `common_limits`                     | contract | System prompt of every mode except `arch` (`SystemPrompt`)          |                                 |
 | `contract_review`                   | contract | System prompt of the `review` mode (`SystemPrompt`)                 |                                 |
 | `language_line`                     | contract | End of the system prompt of every run (`SystemPrompt`)              | `{language}`                    |
-| `session_update`                    | contract | Resumed session whose system prompt changed (`ClaudeRunner`)        | `{prompt}`                      |
+| `session_update`                    | contract | Resumed session whose system prompt changed (`ClaudeRunner` only)   | `{prompt}`                      |
 | `secret_blocked`                    | contract | Chat run started while the commit is blocked by a secret (`QueueScheduler`) | `{findings}`                    |
 | `review_status_reason`              | contract | Stop hook of the `review` mode (`ReviewStatusHook`)                 | `{verdict}`, `{state}`, `{problem}` |
 | `review_status_reason_no_verdict`   | contract | Stop hook of the `review` mode, no verdict in the reply             |                                 |
@@ -50,14 +50,16 @@ There are three kinds of file:
 
 The agent files are passed with `--agents`; an error in an agent file is still reported in the reply. An
 agent also yields to an agent with the same `name:` in `.claude/agents/`, see
-[Built-in agents](TASKS.md#built-in-agents).
+[Built-in agents](TASKS.md#built-in-agents). On OpenCode the same files are rendered as
+`agents/<name>.md` in the per-run config directory; `model:` inside them is ignored, because that engine has
+one model for everything, `OPENCODE_MODEL`.
 
 ## Assembly
 
-### System prompt of every Claude run
+### System prompt of every run
 
-`SystemPrompt::build` assembles parts 1–6; `ClaudeRunner` appends 7 and 8 and passes the result with one
-`--append-system-prompt`. The parts, in order:
+`SystemPrompt::build` assembles parts 1–6; the runner appends 7 and 8 and hands the result to the CLI. The
+parts, in order:
 
 1. `common`;
 2. `common_limits` (all modes except `arch`);
@@ -69,12 +71,19 @@ agent also yields to an agent with the same `name:` in `.claude/agents/`, see
 7. `CLAUDE_APPEND_SYSTEM_PROMPT` from `.env`;
 8. `language_line`, always last, so it wins over a persona.
 
+`ClaudeRunner` passes the whole text with one `--append-system-prompt`. `OpencodeRunner` writes it to
+`system-prompt.md` in its per-run config directory (`state/opencode-<runId>/`) and lists that file in the
+`instructions` of the rendered `opencode.json`; it also adds the managed repository's `CLAUDE.md` to the
+same list, but only when there is no `AGENTS.md` (OpenCode reads `AGENTS.md` itself and never `CLAUDE.md`).
+The parts and the order are the same on both engines.
+
 ### Chat message
 
 In the `pm` mode the message is prefixed by the PM runbook line. It is built in code by `PmRunbook::line`:
 the path of `pm_runbook` plus `PROMPTS_DIR/pm_runbook.md` if it exists. No file overrides the line itself.
 A resumed session whose system prompt changed gets `session_update` (the whole new prompt is `{prompt}`) in
-front of the message.
+front of the message. On OpenCode it is never used: the runner renders the instructions anew on every run
+and OpenCode applies the change to a resumed session itself.
 While the bot's commit is blocked by a secret (see [README](README.md#commit-gate)), the next chat run gets
 `secret_blocked` in front of the message: the findings as `- file:line (type)` lines, without values (`{findings}`,
 built in code), and the instruction to remove the secret and rewrite an unpushed commit that holds it.
@@ -117,7 +126,8 @@ or unknown value means github): with `--forge=gitlab` the `_gitlab` variants of 
 
 ### Built-in agents
 
-`prompts/agents/*.md.dist` are passed with `--agents` to every run except `/compact`.
+`prompts/agents/*.md.dist` are passed with `--agents` to every run except `/compact`. On OpenCode the same
+files go into the per-run config directory (`agents/<name>.md`), not into the argv.
 
 ### Security review on demand
 

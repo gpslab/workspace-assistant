@@ -25,14 +25,15 @@ The list of changes between versions is on the
 ### Installer (`bin/install.php`)
 
 `bin/install.php` writes `.env`, checks the environment and the network and prints a systemd unit and a cron
-line. It installs no packages, does not log in to `claude` or `gh`, does not touch `/etc` or `systemctl`
-and does not start the bot. The output is in English.
+line. It installs no packages, does not log in to the agent CLI (`claude` or `opencode`) or `gh`, does not
+touch `/etc` or `systemctl` and does not start the bot. The output is in English.
 
 - **Modes.** With `--non-interactive`, or when stdin is not a terminal, nothing is asked: values come from the
   options and the existing `.env`. Otherwise the installer is interactive: it asks for every key (except
-  `STATE_DIR`) with the current value as the default (an empty answer keeps it) and repeats a question on an
-  invalid answer. `CLAUDE_EXTRA_ARGS` is a separate question preceded by the security warning. The bot token
-  is typed without echo; the terminal echo is restored even on Ctrl+C.
+  `STATE_DIR`, and except the `OPENCODE_*` keys unless `ENGINE=opencode`) with the current value as the
+  default (an empty answer keeps it) and repeats a question on an invalid answer. `CLAUDE_EXTRA_ARGS` is a
+  separate question preceded by the security warning. The bot token is typed without echo; the terminal echo
+  is restored even on Ctrl+C.
 
 | Option                      | Key                                                                |
 |-----------------------------|--------------------------------------------------------------------|
@@ -40,7 +41,7 @@ and does not start the bot. The output is in English.
 | `--bot-token-file=PATH`     | read `BOT_TOKEN` from a file (a trailing line break is trimmed)    |
 | `--allowed-user-ids`        | `ALLOWED_USER_IDS` (required; digits separated by commas)          |
 | `--repo-path`               | `REPO_PATH` (required)                                             |
-| `--forge`, `--forge-host`, `--forge-owners`, `--forge-repo` (`--github-owners` and `--github-repo` are accepted as aliases), `--claude-bin`, `--bot-locale`, `--timezone`, `--openronin-logins`, `--claude-extra-args` | the key of the same name (optional) |
+| `--forge`, `--forge-host`, `--forge-owners`, `--forge-repo` (`--github-owners` and `--github-repo` are accepted as aliases), `--engine`, `--claude-bin`, `--opencode-bin`, `--opencode-model`, `--opencode-extra-args`, `--bot-locale`, `--timezone`, `--openronin-logins`, `--claude-extra-args` | the key of the same name (optional) |
 | `--non-interactive`         | never ask questions (implied when stdin is not a terminal)         |
 | `--skip-network-checks`     | report a failed `getMe` / `git ls-remote` as a warning, not an error |
 | `--unit-file=PATH`          | also write the systemd unit to `PATH` (the directory must exist)   |
@@ -59,7 +60,9 @@ and does not start the bot. The output is in English.
   the previous `.env` is copied to `.env.bak` (one backup, overwritten on every run) and the new file is
   renamed over `.env`. Files get mode 0600.
 - With `--dangerously-skip-permissions` in `CLAUDE_EXTRA_ARGS` (the default) the installer always warns on
-  stderr and in the summary; see [Security](README.md#security).
+  stderr and in the summary; see [Security](README.md#security). With `ENGINE=opencode` that warning does not
+  apply (there is no `OPENCODE_EXTRA_ARGS` value that makes OpenCode stricter) and is replaced by the
+  `--auto` warning described in [OpenCode](#opencode).
 - The installer refuses to run as root unless `--allow-root` is given; files it creates then belong to root,
   so `chown` them to the bot's user if that is a different one.
 - `REPO_PATH` must be an absolute path to a git repository.
@@ -70,7 +73,7 @@ and does not start the bot. The output is in English.
   |-------------------------------------------------------------------------|-------------------------------------------------|
   | PHP version from `composer.json`; extensions `curl`, `pdo_sqlite`, `pcntl`, `posix` | error                           |
   | `FORGE` is `github` or `gitlab`                                         | error                                           |
-  | `git`, the forge CLI (`gh`, or `glab` for `FORGE=gitlab`) and the `CLAUDE_BIN` binary run (`--version`) | error |
+  | `git`, the forge CLI (`gh`, or `glab` for `FORGE=gitlab`) and the agent binary (`CLAUDE_BIN`, or `OPENCODE_BIN` with `ENGINE=opencode`) run (`--version`) | error |
   | `BOT_LOCALE` is in the catalog; `TIMEZONE` is valid; `REPO_PATH` is a git repository | error                      |
   | Bot API `getMe` accepts the token                                       | error (warning with `--skip-network-checks`)    |
   | `git -C REPO_PATH ls-remote` works without prompts                      | error (warning with `--skip-network-checks`)    |
@@ -135,6 +138,40 @@ instance `--forge-host=gitlab.example.com`; it checks `glab` instead of `gh`. Au
 `glab auth login --hostname gitlab.example.com` (token scopes `api` and `write_repository`). What works on
 GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab) section of the README.
 
+### OpenCode
+
+With `ENGINE=opencode` the jobs run through the [OpenCode](https://opencode.ai) CLI instead of Claude Code.
+Install the CLI as the bot's user and authenticate it: the bot never logs in for you, and every run starts in
+a private config directory under `STATE_DIR` (the project configuration of the managed repository is ignored).
+The verified version is **2.3.0** (`@opencode/cli`): the bot parses the NDJSON of
+`opencode run --format json`, which is undocumented upstream, so a newer version works only once it has been
+verified against that format.
+
+```bash
+php bin/install.php ... --engine=opencode --opencode-model=anthropic/claude-sonnet-5.5
+```
+
+What differs from a Claude instance:
+
+- The installer checks `OPENCODE_BIN` (`opencode` by default) instead of `CLAUDE_BIN` and warns about `--auto`
+  instead of about `--dangerously-skip-permissions`.
+- The model of every run is `OPENCODE_MODEL` (`provider/model`, or `provider/model#variant`); with it empty
+  the model of your OpenCode configuration applies. `/model` is read-only and `MODEL_EPIC_*`, `CLAUDE_MODELS`
+  and a `--model` in `CLAUDE_EXTRA_ARGS` do not apply. Changing `OPENCODE_MODEL` starts a new session, like
+  changing `ENGINE`.
+- Gated modes (`pm`, `review`) are refused, as is every epic command: the PM gate and the review hooks around
+  them are not wired for OpenCode yet.
+- **Every run is approved automatically.** The bot passes `--auto` on every `opencode run` and OpenCode then
+  approves every action its configuration does not explicitly deny. `OPENCODE_EXTRA_ARGS` cannot make that
+  stricter, so the installer's warning has no "set a safer value" option: run the bot as a dedicated
+  unprivileged user with a narrowly scoped forge token and deny what it must never do in that OpenCode
+  configuration.
+- Built-in agents are written into the per-run configuration, but their `model:` is **ignored** on OpenCode:
+  every agent of a run uses `OPENCODE_MODEL`.
+- `CLAUDE_TIMEOUT` and `CLAUDE_STALL_TIMEOUT` bound an OpenCode run as well. The stall timer stops counting
+  after the run has launched its first sub-agent: OpenCode waits for sub-agents in silence, so silence then
+  no longer means "hung" (the Claude runner never sees this, its sub-agent calls are progress lines).
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -147,8 +184,11 @@ GitLab (chat, PM and review modes; no epics) is in the [GitLab](README.md#gitlab
 | `FORGE_REPO` | empty | Workspace repository as `owner/name`, for commit links (alias: `GITHUB_REPO`; the new key wins, a warning is logged when both are set) |
 | `FORGE_OWNERS` | empty | Owners the bot works with; the first is the default owner; with `FORGE=gitlab` an owner may be a namespace path `group/subgroup` (alias: `GITHUB_OWNERS`) |
 | `OPENRONIN_LOGINS` | empty | Logins allowed to author the `<!-- openronin:bot -->` marker |
-| `ENGINE` | `claude` | Agent engine the bot runs: `claude` for now; anything else is a startup error |
-| `CLAUDE_BIN` | `claude` | Path or name of the `claude` binary |
+| `ENGINE` | `claude` | Agent engine that runs the jobs: `claude` or `opencode`; anything else is a startup error. See [OpenCode](#opencode) |
+| `CLAUDE_BIN` | `claude` | Path or name of the `claude` binary (`ENGINE=claude`) |
+| `OPENCODE_BIN` | `opencode` | Path or name of the `opencode` binary (`ENGINE=opencode`) |
+| `OPENCODE_MODEL` | empty | Model of every OpenCode run as `provider/model[#variant]`; empty = the model of your OpenCode configuration. Changing it starts a new session |
+| `OPENCODE_EXTRA_ARGS` | empty | Extra `opencode` arguments, comma-separated; they are added after the ones the bot passes itself |
 | `CLAUDE_TIMEOUT` | `0` | Overall limit of one Claude call, seconds (0 = off) |
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |
 | `CLAUDE_EXTRA_ARGS` | `--dangerously-skip-permissions` | Extra `claude` arguments, comma-separated |
