@@ -414,7 +414,9 @@ final class Installer
      */
     private static function engineOf(array $values): string
     {
-        return ($values['ENGINE'] ?? '') !== '' ? $values['ENGINE'] : Config::DEFAULT_ENGINE_FINGERPRINT;
+        $engine = trim((string) ($values['ENGINE'] ?? ''));
+
+        return $engine !== '' ? $engine : Config::DEFAULT_ENGINE_FINGERPRINT;
     }
 
     /**
