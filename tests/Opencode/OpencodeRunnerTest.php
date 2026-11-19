@@ -6,6 +6,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Opencode;
 
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
+use GpsLab\WorkspaceAssistant\GitHooks;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\OpencodeRunner;
 use GpsLab\WorkspaceAssistant\RunnerState;
@@ -94,6 +95,38 @@ final class OpencodeRunnerTest extends TestCase
         self::assertStringStartsWith($this->root.'/state/opencode-', $dir);
         self::assertSame($dir.'/explicit.json', $env['OPENCODE_CONFIG']);
         self::assertSame(getenv('XDG_CONFIG_HOME') === false ? null : getenv('XDG_CONFIG_HOME'), $env['XDG_CONFIG_HOME']);
+    }
+
+    /**
+     * The run must get the bot's git hooks like the Claude run does: the environment of the agent
+     * process carries `core.hooksPath`, in every run mode and without any extra variable. The per-run
+     * OpenCode config pointers stay intact and `XDG_CONFIG_HOME` is neither set nor overridden.
+     */
+    public function testRunsGetTheBotGitHooksPathInEveryModeWithoutExtraEnv(): void
+    {
+        foreach (SystemPrompt::MODES as $mode) {
+            $bin = $this->fake(self::FIXTURES.'/plain.ndjson');
+            $runner = $this->runner($bin, mode: $mode);
+
+            $runner->start('hello', null);
+            $this->waitDone($runner);
+
+            $env = $this->recordedEnv();
+            // GitHooks::apply() appends its entry after the ones the environment already has.
+            $at = (int) getenv('GIT_CONFIG_COUNT');
+            self::assertSame((string) ($at + 1), $env['GIT_CONFIG_COUNT'], $mode);
+            self::assertSame('core.hooksPath', $env['GIT_CONFIG_KEY_'.$at], $mode);
+            self::assertSame(GitHooks::dir(), $env['GIT_CONFIG_VALUE_'.$at], $mode);
+            self::assertSame(PHP_BINARY, $env[GitHooks::PHP_ENV], $mode);
+
+            self::assertSame('1', $env['OPENCODE_DISABLE_PROJECT_CONFIG'], $mode);
+            $dir = $env['OPENCODE_CONFIG_DIR'];
+            self::assertIsString($dir, $mode);
+            self::assertStringStartsWith($this->root.'/state/opencode-', $dir, $mode);
+            self::assertSame($dir.'/explicit.json', $env['OPENCODE_CONFIG'], $mode);
+            $xdg = getenv('XDG_CONFIG_HOME');
+            self::assertSame($xdg === false ? null : $xdg, $env['XDG_CONFIG_HOME'], $mode);
+        }
     }
 
     public function testThePerRunDirectoryIsPrivateAndCarriesTheRenderedArtefacts(): void
@@ -336,6 +369,7 @@ final class OpencodeRunnerTest extends TestCase
         int $stall = 0,
         bool $withAgents = false,
         array $extraArgs = [],
+        string $mode = SystemPrompt::MODE_ARCH,
     ): OpencodeRunner {
         return new OpencodeRunner(
             opencodeBin: $bin,
@@ -343,7 +377,7 @@ final class OpencodeRunnerTest extends TestCase
             timeout: $timeout,
             extraArgs: $extraArgs,
             stallTimeout: $stall,
-            mode: SystemPrompt::MODE_ARCH,
+            mode: $mode,
             locale: new Locale(),
             stateDir: $this->root.'/state',
             withAgents: $withAgents,
@@ -364,9 +398,11 @@ final class OpencodeRunnerTest extends TestCase
         $bin = $this->root.'/opencode';
         $script = '#!'.PHP_BINARY."\n<?php\n"
             .'file_put_contents('.var_export($this->argvFile(), true).', json_encode(array_slice($argv, 1)));'."\n"
-            .'$keys = ["OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG", "XDG_CONFIG_HOME"];'."\n"
+            .'$keys = ["OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG", "XDG_CONFIG_HOME", "'.GitHooks::PHP_ENV.'"];'."\n"
             .'$env = [];'."\n"
             .'foreach ($keys as $key) { $value = getenv($key); $env[$key] = $value === false ? null : $value; }'."\n"
+            // Every GIT_CONFIG_* entry, whatever index the bot hooks landed on.
+            .'foreach (getenv() as $key => $value) { if (str_starts_with($key, "GIT_CONFIG_")) { $env[$key] = $value; } }'."\n"
             .'file_put_contents('.var_export($this->envFile(), true).', json_encode($env));'."\n"
             .'$lines = file('.var_export($fixture, true).', FILE_IGNORE_NEW_LINES);'."\n"
             .'foreach ($lines as $line) { fwrite(STDOUT, $line."\n"); fflush(STDOUT); }'."\n"

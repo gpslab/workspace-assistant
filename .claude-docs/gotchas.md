@@ -49,10 +49,10 @@ phase 1 with `git status failed: <error>` (also when `changesSummary()` fails in
 Giving claude a trimmed env stops it from starting; leaving git on `env = null` loses the forced
 non-interactivity and git can hang on a passphrase or host key.
 
-## `core.hooksPath` of the Claude process is the bot's `hooks/git/`
+## `core.hooksPath` of the agent process is the bot's `hooks/git/`
 
-`ClaudeRunner::processEnv()` appends `core.hooksPath` to `GIT_CONFIG_*`, so every git Claude starts uses the
-bot's hooks and not the repository's. Hence:
+`ClaudeRunner::processEnv()` and `OpencodeRunner::processEnv()` append `core.hooksPath` to `GIT_CONFIG_*`, so
+every git the agent process starts uses the bot's hooks and not the repository's. Hence:
 
 - every hook name in `hooks/git/` must exist as a dispatcher and be committed `100755` (git silently skips a
   hook without the executable bit; a test checks it);
