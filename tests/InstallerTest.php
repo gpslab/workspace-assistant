@@ -699,6 +699,15 @@ final class InstallerTest extends TestCase
         self::assertFileDoesNotExist($this->root.'/.env');
     }
 
+    public function testRejectsUnknownEngine(): void
+    {
+        [$code, , $err] = $this->install([...$this->required(), '--engine=opencod']);
+
+        self::assertNotSame(0, $code);
+        self::assertStringContainsString('ENGINE=opencod is not supported (expected claude or opencode)', $err);
+        self::assertFileDoesNotExist($this->root.'/.env');
+    }
+
     public function testGitlabWritesForgeKeysAndChecksGlab(): void
     {
         $calls = [];

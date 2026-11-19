@@ -626,6 +626,22 @@ final class ConfigTest extends TestCase
         self::assertSame(['--foo', 'bar'], $config->opencodeExtraArgs);
     }
 
+    public function testEmptyOpencodeBinFallsBackToTheDefaultBinary(): void
+    {
+        // An empty OPENCODE_BIN must resolve to `opencode` exactly as the installer probes it:
+        // otherwise the installer check passes but every run starts an empty argv[0].
+        $this->writeEnv("ENGINE=opencode\nOPENCODE_BIN=\n");
+
+        self::assertSame('opencode', Config::load($this->envFile)->opencodeBin);
+    }
+
+    public function testEmptyClaudeBinFallsBackToTheDefaultBinary(): void
+    {
+        $this->writeEnv("CLAUDE_BIN=\n");
+
+        self::assertSame('claude', Config::load($this->envFile)->claudeBin);
+    }
+
     public function testOpencodeEngineIsAcceptedFromEnv(): void
     {
         $this->writeEnv("ENGINE=opencode\nOPENCODE_MODEL=anthropic/sonnet\n");

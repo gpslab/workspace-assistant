@@ -314,6 +314,7 @@ final class Installer
             $key === 'REPO_PATH' && !is_dir($value.'/.git') => "REPO_PATH={$value} does not look like a git repository.",
             $key === 'ALLOWED_USER_IDS' && preg_match('/^\d+(,\d+)*$/', $value) !== 1 => 'ALLOWED_USER_IDS: must contain only digits separated by commas (e.g. 1001,1002).',
             $key === 'FORGE' && $value !== '' && !isset(Config::DEFAULT_HOSTS[$value]) => "FORGE={$value} is not supported (expected ".implode(' or ', array_keys(Config::DEFAULT_HOSTS)).').',
+            $key === 'ENGINE' && trim($value) !== '' && !in_array(trim($value), [Config::DEFAULT_ENGINE_FINGERPRINT, Config::ENGINE_OPENCODE], true) => "ENGINE={$value} is not supported (expected ".Config::DEFAULT_ENGINE_FINGERPRINT.' or '.Config::ENGINE_OPENCODE.').',
             $key === 'TIMEZONE' && $value !== '' && !Timezone::isValid($value) => "Invalid TIMEZONE={$value}.",
             $key === 'BOT_LOCALE' && $value !== '' && !in_array($value, (new Locale())->codes(), true) => "BOT_LOCALE={$value} is not in the locale catalog (available: ".implode(', ', (new Locale())->codes()).').',
             default => null,
