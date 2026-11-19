@@ -88,7 +88,7 @@ The parts and the order are the same on both engines.
   body. `ENGINE=claude`: `the Stop hook does not read a body from a file (\`-F body=@file\`, \`--input\`) and
   blocks the turn until every id is in the body`; `ENGINE=opencode`: `the bot reads the published review
   after the run and does not see a body from a file (\`-F body=@file\`, \`--input\`): it repeats the turn
-  until every id is in the body`.
+  once when an id is missing from the body`.
 
 These two texts are why the tokens exist: `common` and `contract_review` are `load`-ed, not rendered
 (`PromptFiles::render`), so without that step a placeholder in them would reach the model unfilled. The

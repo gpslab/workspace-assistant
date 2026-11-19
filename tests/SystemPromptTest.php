@@ -172,7 +172,7 @@ final class SystemPromptTest extends TestCase
 
         $review = SystemPrompt::forMode(SystemPrompt::MODE_REVIEW, null, Config::FORGE_GITHUB, Config::ENGINE_OPENCODE);
         self::assertStringContainsString(
-            'Pass the body in the command itself (`-f body="…"`, or a heredoc): the bot reads the published review after the run and does not see a body from a file (`-F body=@file`, `--input`): it repeats the turn until every id is in the body.',
+            'Pass the body in the command itself (`-f body="…"`, or a heredoc): the bot reads the published review after the run and does not see a body from a file (`-F body=@file`, `--input`): it repeats the turn once when an id is missing from the body.',
             $review,
         );
         self::assertStringNotContainsString('Stop hook', $review);

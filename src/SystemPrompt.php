@@ -124,7 +124,7 @@ final class SystemPrompt
         if ($engine === Config::ENGINE_OPENCODE) {
             return [
                 '{engine_session}' => 'an OpenCode session',
-                '{engine_review_check}' => 'the bot reads the published review after the run and does not see a body from a file (`-F body=@file`, `--input`): it repeats the turn until every id is in the body',
+                '{engine_review_check}' => 'the bot reads the published review after the run and does not see a body from a file (`-F body=@file`, `--input`): it repeats the turn once when an id is missing from the body',
             ];
         }
 
