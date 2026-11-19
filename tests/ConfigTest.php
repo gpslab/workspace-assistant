@@ -490,6 +490,28 @@ final class ConfigTest extends TestCase
         );
     }
 
+    public function testEpicModelKeyOutsideClaudeModelsDoesNotFailOnOpencode(): void
+    {
+        // On OpenCode CLAUDE_MODELS does not apply: a provider/model value (the natural form there)
+        // must not stop the start — it is reported as not applied instead.
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=opencode\nMODEL_EPIC_TICK=openai/gpt-5\n");
+
+        self::assertSame(
+            ['MODEL_EPIC_TICK is not applied on OpenCode: the model of every run comes from OPENCODE_MODEL.'],
+            Config::load($this->envFile)->startupWarnings(),
+        );
+    }
+
+    public function testEpicModelKeyOutsideClaudeModelsIsOnlyWarnedOnOpencodeForEveryKey(): void
+    {
+        foreach (['MODEL_EPIC_TICK', 'MODEL_EPIC_FINAL', 'MODEL_EPIC_REVIEW'] as $key) {
+            $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=opencode\n{$key}=openai/gpt-5\n");
+            $config = Config::load($this->envFile);
+            self::assertStringContainsString($key, $config->startupWarnings()[0]);
+            self::assertStringContainsString('is not applied on OpenCode', $config->startupWarnings()[0]);
+        }
+    }
+
     public function testNoOpencodeWarningWithoutAnEpicModelKey(): void
     {
         $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=opencode\n");

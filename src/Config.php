@@ -201,9 +201,14 @@ final class Config
             'MODEL_EPIC_FINAL' => $modelEpicFinal,
             'MODEL_EPIC_REVIEW' => $modelEpicReview,
         ];
-        foreach ($epicModelKeys as $key => $model) {
-            if ($model !== '' && !in_array($model, $claudeModels, true)) {
-                throw new \RuntimeException("{$key}={$model} in .env is not in CLAUDE_MODELS.");
+        // CLAUDE_MODELS is a Claude Code list: an epic model key can legitimately hold a provider/model
+        // value on an OpenCode instance, so the membership check is skipped there — the key is reported
+        // as not applied below instead of failing the start.
+        if ($engine !== self::ENGINE_OPENCODE) {
+            foreach ($epicModelKeys as $key => $model) {
+                if ($model !== '' && !in_array($model, $claudeModels, true)) {
+                    throw new \RuntimeException("{$key}={$model} in .env is not in CLAUDE_MODELS.");
+                }
             }
         }
         $setEpicModelKeys = array_keys(array_filter($epicModelKeys, static fn (string $model): bool => $model !== ''));
