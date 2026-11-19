@@ -19,6 +19,12 @@ final class RunAnswer
         public readonly bool $exitedWithoutResult = false,
         /** The text is the last assistant message, taken instead of the missing result. */
         public readonly bool $recovered = false,
+        /**
+         * Limit classification reported by the engine's own parser (`rate` or `quota`), null when the
+         * engine reported none. {@see JobRunner} prefers it over the text classification, which only
+         * matches the wording of a foreign Anthropic-compatible provider.
+         */
+        public readonly ?string $limitClass = null,
     ) {
     }
 
@@ -55,13 +61,13 @@ final class RunAnswer
     /** The same result with other totals (a per-run figure instead of the snapshot, or the last result's). */
     public function withTotals(?UsageTotals $totals): self
     {
-        return new self($this->isError, $this->text, $this->sessionId, $totals, $this->exitedWithoutResult, $this->recovered);
+        return new self($this->isError, $this->text, $this->sessionId, $totals, $this->exitedWithoutResult, $this->recovered, $this->limitClass);
     }
 
     /** The same result with other text (an extra line appended to the reply). */
     public function withText(string $text): self
     {
-        return new self($this->isError, $text, $this->sessionId, $this->totals, $this->exitedWithoutResult, $this->recovered);
+        return new self($this->isError, $text, $this->sessionId, $this->totals, $this->exitedWithoutResult, $this->recovered, $this->limitClass);
     }
 
     /**

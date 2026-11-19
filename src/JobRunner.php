@@ -416,33 +416,33 @@ final class JobRunner implements JobLauncher, RunControl
         // An epic run is judged by its signal file, not by the reply, so a clean exit
         // without a result event is not a failure there.
         if ($claude->isError && !($claude->exitedWithoutResult && $kind === RunKind::KIND_EPIC)) {
-            // A foreign provider has its own limit semantics: `429` / "rate limit" pauses the queue
+            // The engine's own parser may already classify the limit (OpenCode does); otherwise a
+            // foreign provider has its own text semantics: `429` / "rate limit" pauses the queue
             // (like an unparseable Claude reset), a quota/balance error does not (waiting does not
             // refill a balance). On the Anthropic subscription the Claude handling below is unchanged.
-            if ($this->config->usesForeignProvider()) {
-                $foreign = $this->claudeErrorText->foreignLimit($claude->text);
-                if ($foreign === 'rate' && $queueId > 0) {
-                    $until = min(time() + self::LIMIT_PAUSE_FALLBACK_SEC, time() + self::LIMIT_PAUSE_MAX_SEC);
-                    $this->db->setLimitPauseUntil($until);
-                    $this->db->queueRelease($queueId);
+            $limitClass = $claude->limitClass
+                ?? ($this->config->usesForeignProvider() ? $this->claudeErrorText->foreignLimit($claude->text) : null);
+            if ($limitClass === 'rate' && $queueId > 0) {
+                $until = min(time() + self::LIMIT_PAUSE_FALLBACK_SEC, time() + self::LIMIT_PAUSE_MAX_SEC);
+                $this->db->setLimitPauseUntil($until);
+                $this->db->queueRelease($queueId);
 
-                    return new RunOutcome(
-                        $kind, $chatId, $threadId, $queueId,
-                        $claude, true, 'Provider rate limit: '.$claude->text,
-                        $this->claudeErrorText->format($claude->text)."\n".$this->t('run.queue_paused_until', ['until' => date('H:i d.m', $until)]),
-                        $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
-                    );
-                }
-                if ($foreign === 'quota') {
-                    $this->delivery->deliver($chatId, $threadId, $this->t('error.provider_quota', ['text' => $claude->text]));
+                return new RunOutcome(
+                    $kind, $chatId, $threadId, $queueId,
+                    $claude, true, 'Provider rate limit: '.$claude->text,
+                    $this->claudeErrorText->format($claude->text)."\n".$this->t('run.queue_paused_until', ['until' => date('H:i d.m', $until)]),
+                    $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
+                );
+            }
+            if ($limitClass === 'quota') {
+                $this->delivery->deliver($chatId, $threadId, $this->t('error.provider_quota', ['text' => $claude->text]));
 
-                    return new RunOutcome(
-                        $kind, $chatId, $threadId, $queueId,
-                        $claude, false, 'Provider quota: '.$claude->text,
-                        null,
-                        $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
-                    );
-                }
+                return new RunOutcome(
+                    $kind, $chatId, $threadId, $queueId,
+                    $claude, false, 'Provider quota: '.$claude->text,
+                    null,
+                    $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
+                );
             }
 
             $limit = $this->claudeErrorText->parseLimit($claude->text);
