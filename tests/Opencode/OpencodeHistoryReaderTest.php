@@ -23,6 +23,53 @@ final class OpencodeHistoryReaderTest extends TestCase
         return $history;
     }
 
+    /**
+     * `ctx.session.context()` returns the bare message list; the `{sessionID, command, messages}`
+     * wrapper of the fixtures is the probe's. The reader takes both.
+     */
+    public function testABareMessageListIsAccepted(): void
+    {
+        $wrapped = self::fixture('stage-sequential');
+        $messages = $wrapped['messages'];
+        self::assertIsArray($messages);
+
+        self::assertSame(
+            OpencodeHistoryReader::agentCalls($wrapped),
+            OpencodeHistoryReader::agentCalls($messages),
+        );
+    }
+
+    /** The hook path reads the bare list out of the file the shim writes. */
+    public function testFromFileReadsABareMessageList(): void
+    {
+        $messages = self::fixture('stage-single')['messages'];
+        self::assertIsArray($messages);
+        $path = tempnam(sys_get_temp_dir(), 'opencode-history-');
+        self::assertIsString($path);
+        file_put_contents($path, json_encode($messages, JSON_THROW_ON_ERROR));
+        try {
+            self::assertSame(
+                OpencodeHistoryReader::agentCalls(self::fixture('stage-single')),
+                OpencodeHistoryReader::fromFile($path),
+            );
+        } finally {
+            unlink($path);
+        }
+    }
+
+    /**
+     * A history of an unrecognised shape is an error, never an empty call list: `[]` means "no stage
+     * ran", which denies on `pm`/`tick`/`final` blaming the model and forces a skip with a false
+     * reason on `review`/`epic_review`.
+     */
+    public function testAnUnrecognisedHistoryShapeThrows(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('history holds no messages list');
+
+        OpencodeHistoryReader::agentCalls(['sessionID' => 'ses_test', 'command' => 'echo GATE']);
+    }
+
     public function testStageSingleReturnsCallAndResultPositions(): void
     {
         self::assertSame(

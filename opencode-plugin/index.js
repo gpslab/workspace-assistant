@@ -14,11 +14,14 @@
  * loads a default-exported `{id, setup(ctx)}` object. It reads no types at runtime, so phpunit can
  * run it under bare `node` with a stub `ctx`.
  *
- * Fail-closed: any failure of this file or of a PHP hook denies the call. A gate that lets a command
+ * Fail-closed: any failure of this file or of a PHP hook denies the call, and so does a gated run whose
+ * environment is invalid or whose review-commit flag does not match the run. A gate that lets a command
  * through because it crashed is no gate.
  *
  * The environment of a gated run carries the gate variables (state directory, run kind, run id, PHP
- * binary, review-commit flag); without them (a run with no gate, e.g. `arch`) the shim does nothing.
+ * binary, review-commit flag). The plugin is listed in the configuration of a gated run only, so a run
+ * with no gate (`arch`, `/compact`) never reaches this file; a run that does reach it with a variable
+ * missing or empty is invalid and denied, and the input validation itself stays in the PHP hook.
  */
 
 import {spawnSync} from "node:child_process";
@@ -41,6 +44,9 @@ const REVIEW_ENV = "WORKSPACE_ASSISTANT_REVIEW_COMMIT_GATE";
 
 /** What the model sees when the shim or a hook fails without a reason of its own. */
 const FAILURE_REASON = "The command was blocked: the gate failed.";
+
+/** What the model sees when the review-commit flag of the run is not the one this run needs. */
+const REVIEW_REASON = "The command was blocked: the review commit gate of this run is not the one the run needs.";
 
 /**
  * @typedef {{deny: boolean, reason: string}} Decision
@@ -123,7 +129,8 @@ function runHook(script, args, input) {
 }
 
 /**
- * The whole gate: dump the history, then the PM gate and, on a review run, the commit hook.
+ * The whole gate: the review-commit flag of the run, then the dumped history, the PM gate and, where
+ * the flag is `1`, the commit hook. Every path out of it that is not an explicit allow denies.
  *
  * @param {any} event
  * @param {any} history
@@ -133,14 +140,26 @@ function decide(event, history) {
     const stateDir = env(STATE_ENV);
     const kind = env(KIND_ENV);
     const runId = env(RUN_ENV);
-    if (stateDir === "" || kind === "" || runId === "") {
-        // No gate in this run (an `arch` run, or a run without a gate kind).
-        return {deny: false, reason: ""};
+
+    // A missing or empty state directory, kind or run id is not checked here: it falls through to the
+    // PHP hook, whose `bad arguments` check is the single validation of the gate input (exit 2 denies).
+    // The review-commit flag is the one variable only this file can check, because the PHP review hook
+    // is started with the state directory alone. It is read from `process.env` and not through `env()`:
+    // an empty flag is an invalid environment, and `env()` folds it into the same `""` as an unset one.
+    const reviewFlag = process.env[REVIEW_ENV];
+    const reviewEnabled = reviewFlag === "1";
+    if (typeof reviewFlag === "string" && !reviewEnabled) {
+        return {deny: true, reason: REVIEW_REASON + " " + REVIEW_ENV + " is set to something other than 1."};
+    }
+    if ((kind === "review" || kind === "epic_review") && !reviewEnabled) {
+        return {deny: true, reason: REVIEW_REASON + " A " + kind + " run carries the flag as " + REVIEW_ENV + "=1."};
     }
 
     const dir = mkdtempSync(join(tmpdir(), "workspace-assistant-gate-"));
     try {
         const historyPath = join(dir, "history.json");
+        // Exactly what `ctx.session.context()` returned: the reader of the PHP hook takes both the bare
+        // message list of OpenCode and the wrapped shape of the fixtures.
         writeFileSync(historyPath, JSON.stringify(history), {mode: 0o600});
         const input = {command: commandOf(event), history: historyPath, engine: "opencode"};
 
@@ -148,7 +167,7 @@ function decide(event, history) {
         if (pm.deny) {
             return pm;
         }
-        if (env(REVIEW_ENV) === "1") {
+        if (reviewEnabled) {
             const review = runHook(REVIEW_HOOK, [stateDir], input);
             if (review.deny) {
                 return review;
