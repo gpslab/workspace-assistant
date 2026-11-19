@@ -588,14 +588,16 @@ final class PmGateHook
 
     /**
      * The Bash command of a hook input, in either shape: the Claude Code PreToolUse event
-     * (`tool_name` + `tool_input.command`) or the neutral input (`command`). null when the input
-     * does not carry a Bash command to gate.
+     * (`tool_name` + `tool_input.command`) or the neutral input (`command` + `engine`). An input
+     * with a `tool_input` and no `engine` is the Claude Code shape, where a missing `tool_name`
+     * still means `Bash`; the neutral shape is recognised by its `engine` key (or the absence of
+     * `tool_input`). null when the input does not carry a Bash command to gate.
      *
      * @param array<string, mixed> $input
      */
     public static function toolCommand(array $input): ?string
     {
-        if (array_key_exists('tool_name', $input)) {
+        if (!array_key_exists('engine', $input) && array_key_exists('tool_input', $input)) {
             if (($input['tool_name'] ?? 'Bash') !== 'Bash') {
                 return null;
             }

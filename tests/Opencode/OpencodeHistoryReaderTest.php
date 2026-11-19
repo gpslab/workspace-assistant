@@ -108,4 +108,47 @@ final class OpencodeHistoryReaderTest extends TestCase
             OpencodeHistoryReader::agentCalls(self::fixture('derived-window-user')),
         );
     }
+
+    /**
+     * A shell reports `status: "completed"` also when it exited non-zero, so success is read from
+     * the exit code: a failed `gh issue create` (exit 1) must not open a new window and the stage_a
+     * call before it still counts.
+     */
+    public function testFailedIssueCreationDoesNotOpenANewWindow(): void
+    {
+        self::assertSame(
+            [
+                ['agent' => 'stage_a', 'callAt' => 1, 'resultAt' => 2, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => false],
+                ['agent' => 'stage_b', 'callAt' => 5, 'resultAt' => 6, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => false],
+            ],
+            OpencodeHistoryReader::agentCalls(self::fixture('derived-window-create-failed')),
+        );
+    }
+
+    /**
+     * A `gh issue create` whose call errored (`status: "error"`) must not open a new window even
+     * though the history holds an exit code of 0: the `status === 'completed'` check decides it.
+     */
+    public function testErroredIssueCreationDoesNotOpenANewWindow(): void
+    {
+        self::assertSame(
+            [
+                ['agent' => 'stage_a', 'callAt' => 1, 'resultAt' => 2, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => false],
+                ['agent' => 'stage_b', 'callAt' => 5, 'resultAt' => 6, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => false],
+            ],
+            OpencodeHistoryReader::agentCalls(self::fixture('derived-window-create-error')),
+        );
+    }
+
+    /**
+     * A sub-agent whose report carries a non-`completed` state did not finish the stage: the call
+     * comes back `completed: false`, so the neutral core must not count it.
+     */
+    public function testErrorReportMarksTheCallIncomplete(): void
+    {
+        self::assertSame(
+            [['agent' => 'stage_a', 'callAt' => 1, 'resultAt' => 2, 'completed' => false, 'asyncLaunched' => false, 'isSidechain' => false]],
+            OpencodeHistoryReader::agentCalls(self::fixture('derived-error-report')),
+        );
+    }
 }

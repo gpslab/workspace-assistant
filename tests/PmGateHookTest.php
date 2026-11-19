@@ -398,10 +398,21 @@ final class PmGateHookTest extends TestCase
         self::assertStringContainsString('stage_b (agent stage_b)', $decision['reason']);
     }
 
+    public function testOpenCodeErrorReportIsDeniedThroughDecide(): void
+    {
+        $input = ['command' => self::CREATE, 'history' => self::opencodeFixture('derived-error-report'), 'engine' => PmGateHook::ENGINE_OPENCODE];
+
+        $decision = PmGateHook::decideFromInput($input, self::opencodeConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('stage_a (agent stage_a)', $decision['reason']);
+    }
+
     public function testToolCommandReadsBothInputShapes(): void
     {
         self::assertSame('gh issue create', PmGateHook::toolCommand(['tool_name' => 'Bash', 'tool_input' => ['command' => 'gh issue create']]));
         self::assertSame('gh issue create', PmGateHook::toolCommand(['command' => 'gh issue create', 'engine' => PmGateHook::ENGINE_OPENCODE]));
+        self::assertSame('gh issue create', PmGateHook::toolCommand(['tool_input' => ['command' => 'gh issue create']]));
         self::assertNull(PmGateHook::toolCommand(['tool_name' => 'Read', 'tool_input' => ['command' => 'x']]));
         self::assertNull(PmGateHook::toolCommand(['command' => 5]));
     }

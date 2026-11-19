@@ -232,7 +232,9 @@
                         "input": {
                             "command": "gh issue create --title t --body b"
                         },
-                        "metadata": []
+                        "metadata": {
+                            "exit": 0
+                        }
                     },
                     "time": {
                         "created": 1794662644000

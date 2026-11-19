@@ -18,7 +18,9 @@ use GpsLab\WorkspaceAssistant\PmGateHook;
  * message `id` order.
  *
  * A `synthetic` report is not a real message of the author and does not open a new window; a `user`
- * message does.
+ * message does. A `user` message opens the window only after an issue-creating `shell` call that
+ * actually succeeded: `status` is `completed` for any shell that ran (also one that exited non-zero)
+ * and success is read from an exit code of 0.
  */
 final class OpencodeHistoryReader
 {
@@ -104,7 +106,7 @@ final class OpencodeHistoryReader
                     }
                 } elseif ($name === 'shell') {
                     $command = $state['input']['command'] ?? null;
-                    if (is_string($command) && ($state['status'] ?? null) === 'completed' && PmGateHook::createsIssue($command)) {
+                    if (is_string($command) && ($state['status'] ?? null) === 'completed' && self::shellExitCode($state) === 0 && PmGateHook::createsIssue($command)) {
                         $lastCreate = $at;
                     }
                 }
@@ -156,5 +158,34 @@ final class OpencodeHistoryReader
         $content = $entry['content'] ?? null;
 
         return is_array($content) ? array_values(array_filter($content, 'is_array')) : [];
+    }
+
+    /**
+     * The exit code of a completed shell tool call, or null when the history does not report one.
+     *
+     * A shell that ran always reports `status: "completed"`, also when it exited non-zero, so success
+     * is read from the exit code. The session history flattens the tool state: where the `run
+     * --format json` NDJSON holds `state.metadata.metadata.exit` (`run/plain.ndjson`), the history
+     * holds it as `state.metadata.exit` — the sub-agent tool's `state.metadata` is likewise the flat
+     * inner object in `history/stage-parallel.json`. Both shapes are read.
+     *
+     * @param array<string, mixed> $state
+     */
+    private static function shellExitCode(array $state): ?int
+    {
+        $metadata = $state['metadata'] ?? null;
+        if (!is_array($metadata)) {
+            return null;
+        }
+        $exit = $metadata['exit'] ?? null;
+        if ($exit === null) {
+            $inner = $metadata['metadata'] ?? null;
+            $exit = is_array($inner) ? ($inner['exit'] ?? null) : null;
+        }
+        if (is_int($exit)) {
+            return $exit;
+        }
+
+        return is_string($exit) && preg_match('/^\d+$/', $exit) === 1 ? (int) $exit : null;
     }
 }

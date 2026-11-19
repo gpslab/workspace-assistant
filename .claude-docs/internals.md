@@ -362,6 +362,10 @@ uses OpenCode yet; these facts are the contract for the OpenCode engine.
   <child>, agent, state: "completed"}`. Match a call to its report by child session id. The order of events is the **array order** (or
   `time.created`), not message `id` order: in `history/stage-sequential.json` a report's `id` sorts before the messages
   that precede it, because the id is allocated at launch. Do not sort by `id`. A report is not a user message.
+- **Shell success** (session history): a `shell` tool call reports `state.status: "completed"` for any command that ran,
+  also one that exited non-zero; `status` is `error` only when the call was denied or a plugin threw. Success is the exit
+  code, `state.metadata.exit` — the history flattens the tool state, so the NDJSON of `run/plain.ndjson` has it one level
+  deeper as `state.metadata.metadata.exit`. An issue-creating `shell` counts as a successful creation only with `exit: 0`.
 - **Agents:** markdown files in `$OPENCODE_CONFIG_DIR/agents/<name>.md` with `mode: subagent` and `description` are
   callable through the `subagent` tool.
 
