@@ -12,8 +12,9 @@ use GpsLab\WorkspaceAssistant\InstanceAgents;
  * Pure: no filesystem or network access. It returns the contents the future engine task places
  * in `state/opencode-<runId>/` and writes to disk itself. Four artefacts: the system-prompt file,
  * `opencode.json` (the `instructions` list), `agents/<name>.md` (OpenCode V2 markdown agents) and
- * `explicit.json` (the agent permissions, passed to the engine via `OPENCODE_CONFIG`; a gated run also
- * lists the gate shim there in `plugins`).
+ * `explicit.json` (the agent permissions, passed to the engine via `OPENCODE_CONFIG`; every run lists
+ * the bot's plugin there in `plugins`, which runs the gate of a gated run and the guard of a run that
+ * has no gate).
  */
 final class OpencodeConfigRenderer
 {
@@ -33,9 +34,9 @@ final class OpencodeConfigRenderer
      * @param string              $repoRoot         absolute root of the managed repository
      * @param bool                $hasClaudeMd      whether `<repo>/CLAUDE.md` exists
      * @param bool                $hasAgentsMd      whether `<repo>/AGENTS.md` exists
-     * @param string|null         $gatePlugin       directory of the gate shim (`opencode-plugin/`) when the
-     *                                              run is gated (a `pm` or `review` mode run, which covers the
-     *                                              epic runs); null for a run with no gate (`arch`, `/compact`)
+     * @param string              $pluginDir        directory of the bot's plugin (`opencode-plugin/`), listed
+     *                                              in `plugins` of every run: gated (a `pm` or `review` mode
+     *                                              run, which covers the epic runs) or not (`arch`, `/compact`)
      */
     public function __construct(
         private readonly string $systemPrompt,
@@ -45,7 +46,7 @@ final class OpencodeConfigRenderer
         private readonly string $repoRoot,
         private readonly bool $hasClaudeMd,
         private readonly bool $hasAgentsMd,
-        private readonly ?string $gatePlugin = null,
+        private readonly string $pluginDir,
     ) {
     }
 
@@ -136,15 +137,10 @@ final class OpencodeConfigRenderer
         // Belt and braces on top of name validation: a stdClass always encodes as a JSON object,
         // so even a name that slipped through as a numeric string could not turn the agents map
         // into a JSON list and drop the name -> permissions binding.
-        $data = ['agents' => (object) $agents];
-        if ($this->gatePlugin !== null) {
-            // OpenCode has no command hooks: the PM gate and the review commit hook of a gated run reach
-            // it through this plugin, which starts the same PHP hooks (no gate logic in JS). A run with no
-            // gate kind gets no plugin, so it does not pay a hook call on every shell call.
-            $data['plugins'] = [$this->gatePlugin];
-        }
-
-        return $this->json($data);
+        // OpenCode has no command hooks, so every run lists the plugin: it starts the same PHP hooks as
+        // Claude Code (no logic in JS), running the PM gate and the review commit hook of a run with a
+        // gate kind and the secret guard of a run without one.
+        return $this->json(['agents' => (object) $agents, 'plugins' => [$this->pluginDir]]);
     }
 
     private function agentMarkdown(OpencodeAgent $agent): string

@@ -159,10 +159,13 @@ What differs from a Claude instance:
   the model of your OpenCode configuration applies, epic runs included. `/model` is read-only and
   `MODEL_EPIC_*`, `CLAUDE_MODELS` and a `--model` in `CLAUDE_EXTRA_ARGS` do not apply; a set `MODEL_EPIC_*`
   is named in one startup log line. Changing `OPENCODE_MODEL` starts a new session, like changing `ENGINE`.
-- Every mode and epics work. OpenCode has no command hooks, so a gated run (`pm`, `review` and the epic runs,
-  which are the same two modes with the gate kind of the run kind) carries the PM gate and the review commit
-  hook through the gate plugin (`opencode-plugin/`) listed in the `plugins` of the run's own configuration.
-  The plugin starts the same PHP hooks Claude Code would, so the gate logic is not duplicated.
+- Every mode and epics work. OpenCode has no command hooks, so every run lists the plugin (`opencode-plugin/`)
+  in the `plugins` of the run's own configuration. A gated run (`pm`, `review` and the epic runs, which are
+  the same two modes with the gate kind of the run kind) carries the PM gate and the review commit hook
+  through it; the plugin starts the same PHP hooks Claude Code would, so the gate logic is not duplicated.
+  A run with no gate kind (`arch`, `/compact`) has no gate to run, and the plugin then runs the secret guard
+  alone: it denies a shell command that carries a secret (`bin/secret-guard-hook.php`, the detector of the
+  masking and of the commit gate) and lets every ordinary command through.
 - **Every run is approved automatically.** The bot passes `--auto` on every `opencode run` and OpenCode then
   approves every action its configuration does not explicitly deny. `OPENCODE_EXTRA_ARGS` cannot make that
   stricter, so the installer's warning has no "set a safer value" option: run the bot as a dedicated

@@ -4,18 +4,24 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests\Opencode;
 
+use GpsLab\WorkspaceAssistant\GitHooks;
 use GpsLab\WorkspaceAssistant\PmGateHook;
 use GpsLab\WorkspaceAssistant\ReviewCommitHook;
+use GpsLab\WorkspaceAssistant\SecretGuard;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The OpenCode gate shim (`opencode-plugin`) under bare `node` with a stub `ctx`.
+ * The OpenCode plugin (`opencode-plugin`) under bare `node` with a stub `ctx`.
  *
- * The shim holds no gate logic: it starts the PHP hooks of the bot. These tests pin the wiring the
- * bot relies on — the deny translation, the fail-closed paths and the engine-neutral input — not the
- * gate rules, which {@see \GpsLab\WorkspaceAssistant\Tests\PmGateHookTest} and
- * {@see \GpsLab\WorkspaceAssistant\Tests\ReviewCommitHookTest} cover through PHP directly.
+ * The plugin holds no security logic: it starts the PHP hooks of the bot. These tests pin the wiring
+ * the bot relies on — the mode it picks, the deny translation, the fail-closed paths and the
+ * engine-neutral input — not the gate rules, which {@see \GpsLab\WorkspaceAssistant\Tests\PmGateHookTest}
+ * and {@see \GpsLab\WorkspaceAssistant\Tests\ReviewCommitHookTest} cover through PHP directly, and not
+ * the guard rule, which {@see \GpsLab\WorkspaceAssistant\Tests\SecretGuardTest} covers.
+ *
+ * Two modes: a run that carries the gate kind runs the gate hooks as before, a run that carries none
+ * runs the secret guard alone (`bin/secret-guard-hook.php`) and lets ordinary commands pass.
  */
 #[CoversNothing]
 final class GatePluginTest extends TestCase
@@ -49,7 +55,16 @@ final class GatePluginTest extends TestCase
         @rmdir($this->state.'/pm-gate');
         @rmdir($this->state);
         @unlink($this->harness);
+        foreach (glob($this->dir.'/{.env,secrets.env}') ?: [] as $file) {
+            @unlink($file);
+        }
         @rmdir($this->dir);
+    }
+
+    /** A fake GitHub token: a shape the guard knows without any source. Built by concatenation. */
+    private static function fakeToken(): string
+    {
+        return 'ghp_'.substr(str_repeat('aB3dE5gH7jK9mN1pQ4rS', 2), 0, 36);
     }
 
     public function testADenyBecomesEffectDenyWithTheHookReason(): void
@@ -82,21 +97,14 @@ final class GatePluginTest extends TestCase
     }
 
     /**
-     * The gate environment is fail-closed: an empty state directory, run kind or run id is invalid and
-     * denied, whatever the command is. `ls` is not gated by the PM gate, so only the environment can
-     * deny it — and the deny comes from the PHP hook, which owns the input validation.
+     * The gate environment is fail-closed: an empty state directory or run id in a run that carries a
+     * gate kind is invalid and denied, whatever the command is. `ls` is not gated by the PM gate, so
+     * only the environment can deny it — and the deny comes from the PHP hook, which owns the input
+     * validation.
      */
     public function testAnEmptyStateDirectoryDenies(): void
     {
         $result = $this->evaluate('ls -la', self::fixture('stage-single'), stateDir: '');
-
-        self::assertSame('deny', $result['effect']);
-        self::assertStringContainsString(PmGateHook::FAILURE_REASON, (string) $result['message']);
-    }
-
-    public function testAnEmptyRunKindDenies(): void
-    {
-        $result = $this->evaluate('ls -la', self::fixture('stage-single'), kind: '');
 
         self::assertSame('deny', $result['effect']);
         self::assertStringContainsString(PmGateHook::FAILURE_REASON, (string) $result['message']);
@@ -251,8 +259,97 @@ final class GatePluginTest extends TestCase
     }
 
     /**
-     * @param string|null           $stateDir the state directory of the run; null: the one of the test
-     * @param string|null           $runId    the run id; null: `run-1`
+     * A run with no gate kind (`arch`, `/compact`) runs the guard alone: a command that carries a secret
+     * is denied, the reason names its type and never a value.
+     */
+    public function testWithoutAGateKindACommandWithASecretIsDenied(): void
+    {
+        $token = self::fakeToken();
+
+        $result = $this->evaluate('curl -H "Authorization: token '.$token.'" https://api.github.com/user', null, kind: '');
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString('github_token', (string) $result['message']);
+        self::assertStringNotContainsString($token, (string) $result['message']);
+    }
+
+    /** The same run lets an ordinary command through — the guard is no deny-all. */
+    public function testWithoutAGateKindAnOrdinaryCommandPasses(): void
+    {
+        $result = $this->evaluate('git status --short && ls -la', null, kind: '');
+
+        self::assertNull($result['effect']);
+        self::assertNull($result['message']);
+    }
+
+    /**
+     * The guard needs the command alone: without a gate kind the session history is never read, so a
+     * `context()` that throws does not deny an ordinary command.
+     */
+    public function testWithoutAGateKindTheSessionHistoryIsNotRead(): void
+    {
+        $result = $this->evaluate('ls -la', null, context: 'throw', kind: '');
+
+        self::assertNull($result['effect']);
+    }
+
+    /** The known values of the bot reach the guard: the `.env` of the run names a `SECRET_ENV_FILES` file. */
+    public function testWithoutAGateKindAKnownValueOfTheBotIsDenied(): void
+    {
+        $value = 'Zq7Xm2Vb9Lk4Pw8';
+        $secrets = $this->dir.'/secrets.env';
+        file_put_contents($secrets, 'DB_PASSWORD='.$value."\n");
+        $envFile = $this->dir.'/.env';
+        file_put_contents($envFile, 'SECRET_ENV_FILES='.$secrets."\n");
+
+        $result = $this->evaluate('psql "postgres://db:'.$value.'@localhost/app" -c select', null, kind: '', extraEnv: [GitHooks::ENV_FILE_ENV => $envFile]);
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString('known:', (string) $result['message']);
+        self::assertStringNotContainsString($value, (string) $result['message']);
+    }
+
+    /**
+     * The gate variables of a run are set together: some of them without the gate kind is a broken
+     * wiring, not an `arch` run, and the run is denied instead of silently running ungated.
+     */
+    public function testAGateVariableWithoutTheGateKindDenies(): void
+    {
+        $result = $this->evaluate('ls -la', null, kind: '', extraEnv: [PmGateHook::STATE_ENV => $this->state]);
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString(PmGateHook::STATE_ENV, (string) $result['message']);
+    }
+
+    /**
+     * A guard run fails closed too: a guard that cannot run (here: no PHP binary) denies the call rather
+     * than letting it through, and the reason is the guard's, not the gate's.
+     */
+    public function testAFailingGuardDenies(): void
+    {
+        $result = $this->evaluate('ls -la', null, kind: '', extraEnv: [GitHooks::PHP_ENV => $this->dir.'/no-such-php']);
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString(SecretGuard::FAILURE_REASON, (string) $result['message']);
+    }
+
+    /**
+     * A gated run keeps its old behaviour: the guard is not run, so a command the gate does not check
+     * passes even when it carries something the guard would deny.
+     */
+    public function testAGatedRunDoesNotRunTheGuard(): void
+    {
+        $token = self::fakeToken();
+
+        $result = $this->evaluate('echo '.$token, self::fixture('stage-sequential'), kind: 'pm');
+
+        self::assertNull($result['effect']);
+    }
+
+    /**
+     * @param string|null           $stateDir the state directory of the run; null: the one of the test.
+     *                                        Only a run with a gate kind carries it at all
+     * @param string|null           $runId    the run id; null: `run-1` (a run with a gate kind only)
      * @param string|null           $review   the value of {@see ReviewCommitHook::ENABLED_ENV}; null: the
      *                                        variable is not in the environment at all, an empty string is
      *                                        a present flag
@@ -268,13 +365,18 @@ final class GatePluginTest extends TestCase
         }
 
         $env = getenv();
-        foreach ([PmGateHook::STATE_ENV, PmGateHook::KIND_ENV, PmGateHook::RUN_ENV, PmGateHook::PHP_ENV, PmGateHook::SKIP_ENV, ReviewCommitHook::ENABLED_ENV, ReviewCommitHook::SHAS_ENV] as $name) {
+        foreach ([PmGateHook::STATE_ENV, PmGateHook::KIND_ENV, PmGateHook::RUN_ENV, PmGateHook::PHP_ENV, PmGateHook::SKIP_ENV, ReviewCommitHook::ENABLED_ENV, ReviewCommitHook::SHAS_ENV, GitHooks::PHP_ENV] as $name) {
             unset($env[$name]);
         }
-        $env[PmGateHook::STATE_ENV] = $stateDir ?? $this->state;
-        $env[PmGateHook::KIND_ENV] = $kind;
-        $env[PmGateHook::RUN_ENV] = $runId ?? 'run-1';
-        $env[PmGateHook::PHP_ENV] = PHP_BINARY;
+        // The PHP binary of the run: `GitHooks::PHP_ENV` is set on every run of both engines, the gate
+        // variable (`JobRunner`) only where there is a gate kind. An `arch` run has the first one alone.
+        $env[GitHooks::PHP_ENV] = PHP_BINARY;
+        if ($kind !== '') {
+            $env[PmGateHook::STATE_ENV] = $stateDir ?? $this->state;
+            $env[PmGateHook::KIND_ENV] = $kind;
+            $env[PmGateHook::RUN_ENV] = $runId ?? 'run-1';
+            $env[PmGateHook::PHP_ENV] = PHP_BINARY;
+        }
         // The review flag goes through the stub, not through this array: an empty value would not
         // survive `proc_open` (it drops an entry whose value is), and a present, empty flag is one of
         // the cases the shim must tell from an absent one. The stub plants it in its own environment.

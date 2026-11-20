@@ -2291,15 +2291,23 @@ final class QueueFlowTest extends TestCase
         self::assertSame([dirname(__DIR__).'/opencode-plugin'], $this->capturedExplicitConfig()['plugins'] ?? null);
     }
 
-    public function testOpencodeArchRunHasNoPluginsInTheExplicitConfig(): void
+    /**
+     * An `arch` run has no gate, but it does get the plugin: it then runs the secret guard alone. The
+     * run carries none of the gate variables, which is what puts the plugin in that mode.
+     */
+    public function testOpencodeArchRunListsThePluginWithoutTheGateVariables(): void
     {
-        $this->captureOpencodeRun();
+        $this->captureOpencodeEnv();
         $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
         $this->db->setMode(100, 1, 'arch');
 
         $this->runChat('hi', 10);
 
-        self::assertArrayNotHasKey('plugins', $this->capturedExplicitConfig());
+        self::assertSame([dirname(__DIR__).'/opencode-plugin'], $this->capturedExplicitConfig()['plugins'] ?? null);
+        $env = $this->opencodeEnv();
+        foreach ([PmGateHook::STATE_ENV, PmGateHook::KIND_ENV, PmGateHook::RUN_ENV, ReviewCommitHook::ENABLED_ENV] as $name) {
+            self::assertArrayNotHasKey($name, $env, $name);
+        }
     }
 
     public function testOpencodeGatedRunGetsTheGateStateDir(): void

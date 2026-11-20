@@ -25,13 +25,15 @@ use GpsLab\WorkspaceAssistant\Opencode\ToolPermissions;
  * The environment also carries the bot's git hooks `core.hooksPath` ({@see GitHooks}), exactly as
  * {@see ClaudeRunner::processEnv()} does, so the agent process is wired the same way on both engines.
  *
- * A gated run (a `pm` / `review` mode run, which covers the epic runs) additionally lists the gate shim
- * in the `plugins` of that config: OpenCode has no command hooks, so the PM gate and the review commit
- * hook of such a run reach it through the plugin, which starts the same PHP hooks. The plugin reads the
- * gate environment contract `JobRunner` passes in `$extraEnv` ({@see PmGateHook::STATE_ENV},
+ * Every run lists the plugin (`opencode-plugin/`) in the `plugins` of that config: OpenCode has no
+ * command hooks, so the PM gate and the review commit hook of a gated run (a `pm` / `review` mode run,
+ * which covers the epic runs) reach it through the plugin, which starts the same PHP hooks. The plugin
+ * reads the gate environment contract `JobRunner` passes in `$extraEnv` ({@see PmGateHook::STATE_ENV},
  * {@see PmGateHook::KIND_ENV}, {@see PmGateHook::RUN_ENV}, {@see PmGateHook::PHP_ENV}, plus
  * {@see PmGateHook::SKIP_ENV}, {@see ReviewCommitHook::SHAS_ENV} and
- * {@see ReviewCommitHook::ENABLED_ENV} on a review). A run with no gate kind gets no plugin.
+ * {@see ReviewCommitHook::ENABLED_ENV} on a review). A run with no gate kind (`arch`, `/compact`) gets
+ * the same plugin in its guard-only mode: it runs the secret guard and lets every ordinary command
+ * through ({@see SecretGuard}), instead of denying every call as it would without a gate kind.
  *
  * The model is pinned by the instance ({@see Config::$opencodeModel}); the `$model` of a
  * {@see JobRunner::launchJob()} call is a Claude Code alias and is deliberately ignored. A resumed
@@ -425,15 +427,18 @@ final class OpencodeRunner implements AgentRunner
     }
 
     /**
-     * Directory of the gate shim (`<bot>/opencode-plugin`) when this run is gated, null otherwise.
+     * Directory of the plugin (`<bot>/opencode-plugin`) every run lists.
      *
      * OpenCode has no command hooks, so a gated run carries its PM gate and its review commit hook
      * through this plugin (see {@see PmGateHook::KIND_ENV}, set by {@see JobRunner} on every gated run);
-     * the plugin starts the same PHP hooks, so the gate logic stays single-source.
+     * the plugin starts the same PHP hooks, so the gate logic stays single-source. A run without a gate
+     * kind (`arch`, `/compact`) gets the plugin too and it runs the secret guard alone, so the chat
+     * modes are guarded as well. The plugin reads the gate kind from the environment itself; the runner
+     * does not have to tell the modes apart.
      */
-    private function gatePluginDir(): ?string
+    private function pluginDir(): string
     {
-        return ($this->extraEnv[PmGateHook::KIND_ENV] ?? '') === '' ? null : dirname(__DIR__).'/opencode-plugin';
+        return dirname(__DIR__).'/opencode-plugin';
     }
 
     /**
@@ -452,7 +457,7 @@ final class OpencodeRunner implements AgentRunner
             $this->repoPath,
             is_file($this->repoPath.'/CLAUDE.md'),
             is_file($this->repoPath.'/AGENTS.md'),
-            $this->gatePluginDir(),
+            $this->pluginDir(),
         );
 
         foreach ($renderer->render() as $relative => $content) {
