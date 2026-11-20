@@ -137,7 +137,7 @@
     "decision.saved": "저장됨: {url}",
     "decision.stale": "이 결정은 더 이상 유효하지 않습니다.",
     "decision.uncommitted": "커밋되지 않은 변경 사항이 남아 있습니다:",
-    "error.claude": "Claude 오류: {text}",
+    "error.claude": "엔진 오류: {text}",
     "error.no_text": "텍스트 없음",
     "error.session_expired": "⏳ 세션이 만료되었습니다. Claude는 대화 기록을 약 30일간 보관하며, 이 채팅의 컨텍스트는 이미 삭제되어 이전 기록으로는 이어갈 수 없습니다. /new로 새 세션을 시작하세요. 대화는 Telegram에 남아 있어 직접 볼 수 있지만, 새 세션의 Claude는 기억하지 못합니다.",
     "error.provider_quota": "⚠️ 제공자의 할당량 또는 잔액이 소진되었습니다 (기다려도 해결되지 않습니다): {text}",

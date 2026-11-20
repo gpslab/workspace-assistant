@@ -492,7 +492,7 @@ final class JobRunner implements JobLauncher, RunControl
 
             return new RunOutcome(
                 $kind, $chatId, $threadId, $queueId,
-                $claude, false, 'Claude error: '.$claude->text,
+                $claude, false, 'Engine error: '.$claude->text,
                 null,
                 $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
             );

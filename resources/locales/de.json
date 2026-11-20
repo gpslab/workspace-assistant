@@ -137,7 +137,7 @@
     "decision.saved": "Gespeichert: {url}",
     "decision.stale": "Die Entscheidung ist nicht mehr aktuell.",
     "decision.uncommitted": "Es sind nicht committete Änderungen übrig:",
-    "error.claude": "Claude-Fehler: {text}",
+    "error.claude": "Engine-Fehler: {text}",
     "error.no_text": "kein Text",
     "error.session_expired": "⏳ Die Sitzung ist abgelaufen: Claude speichert Transkripte ca. 30 Tage und hat den Kontext dieses Chats bereits gelöscht — der alte Verlauf kann nicht fortgesetzt werden. Starte mit /new eine neue Sitzung. Die Unterhaltung bleibt in Telegram (du siehst sie), aber Claude erinnert sich in der neuen Sitzung nicht daran.",
     "error.provider_quota": "⚠️ Das Kontingent oder Guthaben des Anbieters ist erschöpft (Warten hilft nicht): {text}",

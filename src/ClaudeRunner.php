@@ -122,6 +122,8 @@ final class ClaudeRunner implements AgentRunner
         private readonly ?string $model = null,
         /** @var array<string, string> `.env` keys prefixed ANTHROPIC_/CLAUDE_CODE_ (real env wins over them) */
         private readonly array $providerEnv = [],
+        /** Age limit of the evidence kept for a run that ended with an engine error; 0 = no age limit */
+        private readonly int $failedRunEvidenceDays = 14,
     ) {
     }
 
@@ -386,7 +388,6 @@ final class ClaudeRunner implements AgentRunner
             $this->handleLine($this->lineBuf);
             $this->lineBuf = '';
         }
-        $this->closeProc();
 
         $result = RunAnswer::fromJson($this->stdout, $this->stderr, $exit, $this->locale);
         if ($this->stdout !== '') {
@@ -399,6 +400,8 @@ final class ClaudeRunner implements AgentRunner
                 ? new RunAnswer(false, $this->lastAssistantText, $this->sessionId, null, true, true)
                 : new RunAnswer(true, $result->text, $result->sessionId ?? $this->sessionId, null, true);
         }
+        $this->recordFailedRun($result, $exit);
+        $this->closeProc();
         $this->result = $result;
 
         return RunnerState::Done;
@@ -647,6 +650,29 @@ final class ClaudeRunner implements AgentRunner
         }
 
         return $path;
+    }
+
+    /**
+     * Keeps the raw event stream and stderr tail of a run that ended with an engine error,
+     * masked, so the failure can be investigated after the run files are gone.
+     */
+    private function recordFailedRun(RunAnswer $result, int $exit): void
+    {
+        if (!$result->isError) {
+            return;
+        }
+        $stream = isset($this->files[1]) ? (string) @file_get_contents($this->files[1]) : '';
+        $stderr = isset($this->files[2]) ? (string) @file_get_contents($this->files[2]) : $this->stderr;
+        FailedRunEvidence::record(
+            $this->stateDir,
+            'claude',
+            $this->runId,
+            $exit,
+            $stream,
+            $stderr,
+            $result->text,
+            $this->failedRunEvidenceDays,
+        );
     }
 
     /** Appends the chunk to the buffer and processes all completed lines (JSONL). */

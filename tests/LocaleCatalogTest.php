@@ -126,6 +126,18 @@ final class LocaleCatalogTest extends TestCase
         return $keys;
     }
 
+    public function testTheEngineErrorPrefixNamesNoEngine(): void
+    {
+        foreach (self::catalogs() as $code => $texts) {
+            self::assertArrayHasKey('error.claude', $texts, "locale {$code} has no engine-error text");
+            self::assertStringNotContainsStringIgnoringCase(
+                'claude',
+                $texts['error.claude'],
+                "locale {$code} names Claude in the engine-error prefix",
+            );
+        }
+    }
+
     public function testEnglishReferenceExistsAndEveryLocaleNamesItsLanguage(): void
     {
         $catalogs = self::catalogs();

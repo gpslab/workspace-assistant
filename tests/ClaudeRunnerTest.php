@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests;
 
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
+use GpsLab\WorkspaceAssistant\FailedRunEvidence;
 use GpsLab\WorkspaceAssistant\GitHooks;
 use GpsLab\WorkspaceAssistant\RunnerState;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -384,6 +385,82 @@ final class ClaudeRunnerTest extends TestCase
         unlink($live);
         rmdir($stateDir.'/runs');
         rmdir($stateDir);
+    }
+
+    public function testAFailedRunKeepsMaskedEvidenceAndLogsTheReason(): void
+    {
+        $stateDir = sys_get_temp_dir().'/runner-evidence-'.uniqid('', true);
+        $token = 'ghp_'.str_repeat('A', 36);
+        $result = json_encode(['type' => 'result', 'is_error' => true, 'result' => 'boom '.$token, 'session_id' => 's'], JSON_THROW_ON_ERROR);
+        $bin = $this->phpFake(
+            'fwrite(STDOUT, '.var_export('{"type":"system","subtype":"init","session_id":"s"}', true).'.PHP_EOL);'."\n"
+            .'fwrite(STDOUT, '.var_export($result, true).'.PHP_EOL);'."\n"
+            .'fwrite(STDERR, '.var_export('stderr carries '.$token, true).'.PHP_EOL);'."\n"
+            .'exit(7);'."\n",
+        );
+
+        try {
+            $runner = new ClaudeRunner($bin, sys_get_temp_dir(), 0, [], stateDir: $stateDir);
+            $runner->start('prompt', null);
+            $log = $this->capturedLog(function () use ($runner): void {
+                while ($runner->poll() === RunnerState::Running) {
+                    usleep(50000);
+                }
+                // The reason is written when poll() finishes the failed run.
+                self::assertTrue($runner->result()->isError);
+            });
+
+            $dir = $stateDir.'/'.FailedRunEvidence::DIR;
+            self::assertDirectoryExists($dir);
+            self::assertSame(0700, fileperms($dir) & 0777);
+            $files = glob($dir.'/*.log') ?: [];
+            self::assertCount(1, $files);
+            self::assertSame(0600, fileperms($files[0]) & 0777);
+
+            $body = (string) file_get_contents($files[0]);
+            self::assertStringContainsString('exit code: 7', $body);
+            self::assertStringContainsString('boom', $body);
+            self::assertStringContainsString('stderr carries', $body);
+            self::assertStringNotContainsString($token, $body);
+            self::assertStringContainsString('[REDACTED]', $body);
+
+            self::assertStringContainsString('claude run', $log);
+            self::assertStringContainsString('exit 7', $log);
+            self::assertStringContainsString('boom', $log);
+            self::assertStringNotContainsString($token, $log);
+
+            // The evidence is outside the paths purged at bot start.
+            ClaudeRunner::purgeRunFiles($stateDir);
+            self::assertFileExists($files[0]);
+        } finally {
+            unlink($bin);
+            array_map('unlink', glob($stateDir.'/'.FailedRunEvidence::DIR.'/*') ?: []);
+            @rmdir($stateDir.'/'.FailedRunEvidence::DIR);
+            @rmdir($stateDir.'/runs');
+            @rmdir($stateDir);
+        }
+    }
+
+    /**
+     * Log::line writes to the STDERR constant, so a write filter is put on the stream around the call.
+     *
+     * @param \Closure(): void $run
+     */
+    private function capturedLog(\Closure $run): string
+    {
+        if (!in_array('stderr_capture', stream_get_filters(), true)) {
+            stream_filter_register('stderr_capture', StderrCaptureFilter::class);
+        }
+        StderrCaptureFilter::$buffer = '';
+        $filter = stream_filter_append(STDERR, 'stderr_capture', STREAM_FILTER_WRITE);
+        self::assertNotFalse($filter);
+        try {
+            $run();
+        } finally {
+            stream_filter_remove($filter);
+        }
+
+        return StderrCaptureFilter::$buffer;
     }
 
     /** Executable PHP-script fake claude (shebang = the PHP running the tests). */

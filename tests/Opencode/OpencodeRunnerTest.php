@@ -6,6 +6,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Opencode;
 
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
+use GpsLab\WorkspaceAssistant\FailedRunEvidence;
 use GpsLab\WorkspaceAssistant\GitHooks;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\OpencodeRunner;
@@ -522,6 +523,44 @@ final class OpencodeRunnerTest extends TestCase
         self::assertSame('rate', $runner->result()->limitClass);
     }
 
+    public function testAFailedRunKeepsMaskedEvidenceAndLogsTheReason(): void
+    {
+        $token = 'ghp_'.str_repeat('B', 36);
+        $fixture = $this->root.'/failed.ndjson';
+        file_put_contents($fixture, json_encode([
+            'type' => 'error',
+            'sessionID' => 's',
+            'error' => ['type' => 'provider.unknown', 'message' => 'boom '.$token],
+        ], JSON_THROW_ON_ERROR)."\n");
+        $bin = $this->fake($fixture, exitCode: 7, stderr: 'stderr carries '.$token."\n");
+
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        $log = $this->captureLog(function () use ($runner): void {
+            $this->waitDone($runner);
+            self::assertTrue($runner->result()->isError);
+        });
+
+        $dir = $this->root.'/state/'.FailedRunEvidence::DIR;
+        self::assertDirectoryExists($dir);
+        self::assertSame(0700, fileperms($dir) & 0777);
+        $files = glob($dir.'/*.log') ?: [];
+        self::assertCount(1, $files);
+        self::assertSame(0600, fileperms($files[0]) & 0777);
+
+        $body = (string) file_get_contents($files[0]);
+        self::assertStringContainsString('exit code: 7', $body);
+        self::assertStringContainsString('boom', $body);
+        self::assertStringContainsString('stderr carries', $body);
+        self::assertStringNotContainsString($token, $body);
+        self::assertStringContainsString('[REDACTED]', $body);
+
+        self::assertStringContainsString('opencode run', $log);
+        self::assertStringContainsString('exit 7', $log);
+        self::assertStringContainsString('boom', $log);
+        self::assertStringNotContainsString($token, $log);
+    }
+
     public function testPurgeRemovesDeadRunDirectoriesAndKeepsLiveOnes(): void
     {
         $dead = $this->root.'/state/opencode-20260101-120000-999999-abcd';
@@ -570,6 +609,7 @@ final class OpencodeRunnerTest extends TestCase
         string $fixture,
         int $exitCode = 0,
         int $sleepAfterUs = 0,
+        string $stderr = '',
     ): string {
         $bin = $this->root.'/opencode';
         $script = '#!'.PHP_BINARY."\n<?php\n"
@@ -582,6 +622,7 @@ final class OpencodeRunnerTest extends TestCase
             .'file_put_contents('.var_export($this->envFile(), true).', json_encode($env));'."\n"
             .'$lines = file('.var_export($fixture, true).', FILE_IGNORE_NEW_LINES);'."\n"
             .'foreach ($lines as $line) { fwrite(STDOUT, $line."\n"); fflush(STDOUT); }'."\n"
+            .($stderr !== '' ? 'fwrite(STDERR, '.var_export($stderr, true).');'."\n" : '')
             .'touch('.var_export($this->doneFile(), true).');'."\n"
             .($sleepAfterUs > 0 ? 'usleep('.$sleepAfterUs.');'."\n" : '')
             .'exit('.$exitCode.');'."\n";

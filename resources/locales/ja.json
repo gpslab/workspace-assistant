@@ -137,7 +137,7 @@
     "decision.saved": "保存しました：{url}",
     "decision.stale": "この判断はもう有効ではありません。",
     "decision.uncommitted": "コミットされていない変更が残っています：",
-    "error.claude": "Claude エラー：{text}",
+    "error.claude": "エンジン エラー：{text}",
     "error.no_text": "テキストなし",
     "error.session_expired": "⏳ セッションの有効期限が切れました。Claude はトランスクリプトを約30日間保持しており、このチャットのコンテキストはすでに削除されたため、以前の履歴は続行できません。/new で新しいセッションを開始してください。会話は Telegram に残っています（閲覧できます）が、新しいセッションでは Claude はその内容を覚えていません。",
     "error.provider_quota": "⚠️ プロバイダーのクォータまたは残高を使い切りました（待っても解決しません）: {text}",

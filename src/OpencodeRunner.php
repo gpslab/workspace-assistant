@@ -86,6 +86,9 @@ final class OpencodeRunner implements AgentRunner
     /** Incomplete NDJSON line carried over between pipe reads. */
     private string $lineBuf = '';
 
+    /** Everything the process wrote to stderr, kept for the failed-run evidence. */
+    private string $stderr = '';
+
     /** @var list<string> every complete NDJSON line of the run, for {@see OpencodeNdjsonParser::parse()} */
     private array $lines = [];
 
@@ -128,6 +131,8 @@ final class OpencodeRunner implements AgentRunner
         private readonly string $homeDir = '',
         private readonly string $forge = Config::FORGE_GITHUB,
         private readonly string $opencodeModel = '',
+        /** Age limit of the evidence kept for a run that ended with an engine error; 0 = no age limit */
+        private readonly int $failedRunEvidenceDays = 14,
     ) {
     }
 
@@ -283,9 +288,10 @@ final class OpencodeRunner implements AgentRunner
             $this->handleLine($this->lineBuf);
             $this->lineBuf = '';
         }
-        $this->closeProc();
 
         $this->result = $this->buildResult($exit);
+        $this->recordFailedRun($this->result, $exit);
+        $this->closeProc();
 
         return RunnerState::Done;
     }
@@ -504,6 +510,7 @@ final class OpencodeRunner implements AgentRunner
         $this->sessionId = null;
         $this->stallSuspended = false;
         $this->lineBuf = '';
+        $this->stderr = '';
         $this->lines = [];
         $this->progressLines = [];
         $this->promptWarnings = [];
@@ -523,6 +530,7 @@ final class OpencodeRunner implements AgentRunner
         $err = $this->readNew(2);
         if ($err !== '') {
             $got = true;
+            $this->stderr .= $err;
         }
 
         // Any byte of an event is a heartbeat for stallTimeout.
@@ -676,6 +684,27 @@ final class OpencodeRunner implements AgentRunner
         }
 
         return mb_strlen($s) > self::CLIP_LENGTH ? mb_substr($s, 0, self::CLIP_LENGTH).'…' : $s;
+    }
+
+    /**
+     * Keeps the raw event stream and stderr tail of a run that ended with an engine error,
+     * masked, so the failure can be investigated after the run files are gone.
+     */
+    private function recordFailedRun(RunAnswer $result, int $exit): void
+    {
+        if (!$result->isError) {
+            return;
+        }
+        FailedRunEvidence::record(
+            $this->stateDir,
+            'opencode',
+            $this->runId,
+            $exit,
+            implode("\n", $this->lines),
+            $this->stderr,
+            $result->text,
+            $this->failedRunEvidenceDays,
+        );
     }
 
     /**
