@@ -137,7 +137,7 @@
     "decision.saved": "Enregistré : {url}",
     "decision.stale": "La décision n'est plus d'actualité.",
     "decision.uncommitted": "Il reste des modifications non validées :",
-    "error.claude": "Erreur de Claude : {text}",
+    "error.claude": "Erreur du moteur : {text}",
     "error.no_text": "sans texte",
     "error.session_expired": "⏳ La session a expiré : Claude conserve les transcriptions ~30 jours et a déjà supprimé le contexte de ce chat — l'ancien historique ne peut pas être poursuivi. Utilisez /new pour démarrer une nouvelle session. La conversation reste dans Telegram (vous la voyez), mais Claude ne s'en souviendra pas dans la nouvelle session.",
     "error.provider_quota": "⚠️ Le quota ou le solde du fournisseur est épuisé (attendre n'aide pas) : {text}",

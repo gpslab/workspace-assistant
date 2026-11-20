@@ -7,6 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests;
 use GpsLab\WorkspaceAssistant\AgentRunner;
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
+use GpsLab\WorkspaceAssistant\FailedRunEvidence;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\OpencodeRunner;
 use GpsLab\WorkspaceAssistant\RunnerFactory;
@@ -241,6 +242,96 @@ final class RunnerFactoryTest extends TestCase
     }
 
     /**
+     * `FAILED_RUN_EVIDENCE_DAYS` must reach the runner through the factory. With the default (14)
+     * everywhere, deleting either wiring line would leave every other test green; only a
+     * non-default value can tell them apart. A 2-day-old evidence file survives the default 14,
+     * but is pruned when 1 is wired through, so this proves the value the runner uses.
+     */
+    public function testWiresFailedRunEvidenceDaysIntoTheClaudeRunner(): void
+    {
+        $this->assertRetentionWiredThrough(
+            'claude',
+            'fwrite(STDOUT, '.var_export('{"type":"result","is_error":true,"result":"boom","session_id":"s"}', true).'.PHP_EOL);'."\n"
+            .'exit(7);'."\n",
+        );
+    }
+
+    /**
+     * The OpenCode counterpart: a non-default `FAILED_RUN_EVIDENCE_DAYS` reaches the OpenCode
+     * runner and its pruning uses it.
+     */
+    public function testWiresFailedRunEvidenceDaysIntoTheOpencodeRunner(): void
+    {
+        $this->assertRetentionWiredThrough(
+            Config::ENGINE_OPENCODE,
+            'fwrite(STDOUT, '.var_export('{"type":"error","sessionID":"s","error":{"type":"provider.unknown","message":"boom"}}', true).'.PHP_EOL);'."\n"
+            .'exit(7);'."\n",
+        );
+    }
+
+    /** Seeds an old evidence file, runs a failed run through the factory with retention 1, asserts pruning. */
+    private function assertRetentionWiredThrough(string $engine, string $fakeBody): void
+    {
+        $bin = tempnam(sys_get_temp_dir(), 'factory-evidence-');
+        self::assertIsString($bin);
+        file_put_contents($bin, '#!'.PHP_BINARY."\n<?php\n".$fakeBody);
+        chmod($bin, 0o755);
+
+        $stateDir = sys_get_temp_dir().'/factory-evidence-'.uniqid('', true);
+        $evidenceDir = $stateDir.'/'.FailedRunEvidence::DIR;
+        mkdir($evidenceDir, 0700, true);
+        $old = $evidenceDir.'/20250101-120000-1-abcd.log';
+        file_put_contents($old, 'evidence');
+        touch($old, time() - 2 * 86400);
+
+        try {
+            $config = $this->config(
+                engine: $engine,
+                claudeBin: $engine === Config::ENGINE_OPENCODE ? 'claude' : $bin,
+                opencodeBin: $engine === Config::ENGINE_OPENCODE ? $bin : 'opencode',
+                stateDir: $stateDir,
+                failedRunEvidenceDays: 1,
+            );
+            $runner = $this->factory($config)->create(
+                SystemPrompt::MODE_ARCH,
+                '',
+                [],
+                Locale::DEFAULT,
+                false,
+                false,
+                null,
+                null,
+            );
+            $runner->start('hello', null);
+            while ($runner->poll() === RunnerState::Running) {
+                usleep(50000);
+            }
+
+            self::assertFileDoesNotExist($old, $engine.' must prune a 2-day-old evidence file at the configured 1 day');
+            $evidence = glob($evidenceDir.'/*.log') ?: [];
+            self::assertCount(1, $evidence, $engine.' must keep the evidence of the just-failed run');
+        } finally {
+            unlink($bin);
+            self::removeTree($stateDir);
+        }
+    }
+
+    private static function removeTree(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $path = $dir.'/'.$entry;
+            is_dir($path) && !is_link($path) ? self::removeTree($path) : @unlink($path);
+        }
+        @rmdir($dir);
+    }
+
+    /**
      * A minimal config: only the fields the factory reads, so a signature change breaks the test, not the factory.
      *
      * @param list<string> $opencodeExtraArgs
@@ -254,6 +345,7 @@ final class RunnerFactoryTest extends TestCase
         string $opencodeBin = 'opencode',
         string $opencodeModel = '',
         array $opencodeExtraArgs = [],
+        int $failedRunEvidenceDays = 14,
     ): Config {
         return new Config(
             botToken: 't',
@@ -274,6 +366,7 @@ final class RunnerFactoryTest extends TestCase
             opencodeBin: $opencodeBin,
             opencodeModel: $opencodeModel,
             opencodeExtraArgs: $opencodeExtraArgs,
+            failedRunEvidenceDays: $failedRunEvidenceDays,
         );
     }
 

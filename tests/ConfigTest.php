@@ -76,6 +76,18 @@ final class ConfigTest extends TestCase
         Config::load($this->envFile);
     }
 
+    public function testFailedRunEvidenceDaysDefaultsToFourteenAndClampsNegativeValues(): void
+    {
+        $this->writeEnv();
+        self::assertSame(14, Config::load($this->envFile)->failedRunEvidenceDays);
+
+        $this->writeEnv('FAILED_RUN_EVIDENCE_DAYS=3');
+        self::assertSame(3, Config::load($this->envFile)->failedRunEvidenceDays);
+
+        $this->writeEnv('FAILED_RUN_EVIDENCE_DAYS=-1');
+        self::assertSame(0, Config::load($this->envFile)->failedRunEvidenceDays);
+    }
+
     public function testEpicQuietMinutesDefaultsToTen(): void
     {
         $this->writeEnv();

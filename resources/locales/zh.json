@@ -137,7 +137,7 @@
     "decision.saved": "已保存：{url}",
     "decision.stale": "该决定已失效。",
     "decision.uncommitted": "仍有未提交的改动：",
-    "error.claude": "Claude 错误：{text}",
+    "error.claude": "引擎错误：{text}",
     "error.no_text": "无文本",
     "error.session_expired": "⏳ 会话已过期：Claude 只保留约 30 天的对话记录，此聊天的上下文已被删除 — 无法延续旧的历史。请用 /new 开始新会话。对话仍保留在 Telegram 中（你可以看到），但 Claude 在新会话中不会记得。",
     "error.provider_quota": "⚠️ 提供商的配额或余额已耗尽（等待无济于事）: {text}",

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant;
 
 /**
- * Text of a Claude error for the chat and parsing of its usage-limit message (the reset moment
- * sets the queue pause).
+ * Text of an engine error for the chat and parsing of a Claude usage-limit message (the reset
+ * moment sets the queue pause).
  */
 final class ClaudeErrorText
 {

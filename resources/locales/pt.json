@@ -137,7 +137,7 @@
     "decision.saved": "Salvo: {url}",
     "decision.stale": "A decisão não é mais relevante.",
     "decision.uncommitted": "Restaram alterações não commitadas:",
-    "error.claude": "Erro do Claude: {text}",
+    "error.claude": "Erro do motor: {text}",
     "error.no_text": "sem texto",
     "error.session_expired": "⏳ A sessão expirou: o Claude guarda as transcrições por ~30 dias e já apagou o contexto deste chat — não é possível continuar o histórico antigo. Use /new para iniciar uma nova sessão. A conversa continua no Telegram (você pode vê-la), mas o Claude não vai lembrar dela na nova sessão.",
     "error.provider_quota": "⚠️ A cota ou saldo do provedor está esgotado (esperar não ajuda): {text}",

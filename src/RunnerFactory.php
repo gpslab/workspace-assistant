@@ -79,6 +79,7 @@ class RunnerFactory
             forge: $this->config->forge,
             model: $model,
             providerEnv: $this->config->providerEnv,
+            failedRunEvidenceDays: $this->config->failedRunEvidenceDays,
         );
     }
 
@@ -112,6 +113,7 @@ class RunnerFactory
             homeDir: (string) getenv('HOME'),
             forge: $this->config->forge,
             opencodeModel: $this->config->opencodeModel,
+            failedRunEvidenceDays: $this->config->failedRunEvidenceDays,
         );
     }
 }

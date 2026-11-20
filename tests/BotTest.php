@@ -288,12 +288,12 @@ final class BotTest extends TestCase
 
     public function testGenericErrorWithEmptyResultShowsFallback(): void
     {
-        self::assertSame('Claude error: no text', $this->formatClaudeError(''));
+        self::assertSame('Engine error: no text', $this->formatClaudeError(''));
     }
 
     public function testGenericErrorShowsRawText(): void
     {
-        self::assertSame('Claude error: Failed to authenticate', $this->formatClaudeError('Failed to authenticate'));
+        self::assertSame('Engine error: Failed to authenticate', $this->formatClaudeError('Failed to authenticate'));
     }
 
     public function testWeeklyLimitStillRecognized(): void

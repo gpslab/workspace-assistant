@@ -94,6 +94,8 @@ final class Config
         public readonly ?string $anthropicBaseUrl = null,
         /** `ANTHROPIC_MODEL` (real env over `.env`); null/'' = not set */
         public readonly ?string $anthropicModel = null,
+        /** Days the masked evidence of a failed run is kept (`FAILED_RUN_EVIDENCE_DAYS`); 0 = no age limit */
+        public readonly int $failedRunEvidenceDays = 14,
     ) {
     }
 
@@ -271,6 +273,7 @@ final class Config
             providerEnv: $env->providerEnv(),
             anthropicBaseUrl: trim((string) $env->get('ANTHROPIC_BASE_URL', '')) !== '' ? trim((string) $env->get('ANTHROPIC_BASE_URL')) : null,
             anthropicModel: trim((string) $env->get('ANTHROPIC_MODEL', '')) !== '' ? trim((string) $env->get('ANTHROPIC_MODEL')) : null,
+            failedRunEvidenceDays: max(0, (int) $env->get('FAILED_RUN_EVIDENCE_DAYS', '14')),
         );
     }
 

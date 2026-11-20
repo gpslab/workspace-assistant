@@ -217,6 +217,7 @@ What differs from a Claude instance:
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | empty | Text appended to the system prompt |
 | `PROMPTS_DIR` | empty | Persona files, relative to `REPO_PATH`; the texts in `prompts/` apply without it |
 | `STATE_DIR` | `./state` | State directory (SQLite, inbox, outbox, epic signals) |
+| `FAILED_RUN_EVIDENCE_DAYS` | `14` | Days the masked evidence (event stream and stderr tail) of a failed run is kept in `STATE_DIR/failed-runs`; `0` = no age limit. The newest 20 failed runs are always kept |
 | `POLL_TIMEOUT` | `30` | Long-polling timeout, seconds |
 | `GIT_TIMEOUT` | `120` | Timeout of `git pull`/`push`, seconds |
 | `AUTO_COMMIT` | `1` | `1`: the bot pulls, commits and pushes in the managed repository. `0`: it does not touch git there (changes stay in the working tree); epic runs and `/compact` work on a dirty tree too, and nothing is committed or pushed after them. Needs a restart |

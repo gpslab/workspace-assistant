@@ -53,7 +53,7 @@ Telegram getUpdates (long poll)
         ├─ Timeout ──► kill, "process killed", offer a decision if the tree is dirty (AUTO_COMMIT=1 only)
         └─ Done    ──► result()
                          ├─ recordRun (session_id, usage snapshot, counter)
-                         ├─ error ──► "Claude error", offer a decision if dirty (AUTO_COMMIT=1 only)
+                         ├─ error ──► "engine error", offer a decision if dirty (AUTO_COMMIT=1 only)
                          └─ ok ──► `RunResult::sendResult`: commit + push (AUTO_COMMIT=1), commit link, optional token usage, reply
 ```
 
@@ -97,12 +97,12 @@ result = runState->activeJob->result();   // valid ONLY here, before the reset
 finishJobState();               // release the job BEFORE delivering to Telegram
 deleteMessage("Thinking…");
 recordRun(...);                 // if there is a session_id
-RunResult::sendResult(...) | "Claude error"
+RunResult::sendResult(...) | "engine error"
 ```
 
 ### Commit / discard decision
 
-With `AUTO_COMMIT=1` (the default), after `/cancel`, a timeout or a Claude error the tree may stay dirty. `Callback\DirtyTreeDecision::offerDecisionIfDirty()` stores the decision and
+With `AUTO_COMMIT=1` (the default), after `/cancel`, a timeout or an engine error the tree may stay dirty. `Callback\DirtyTreeDecision::offerDecisionIfDirty()` stores the decision and
 sends the inline buttons "Commit / Discard"; the queue is paused while the tree is dirty.
 
 `GitManager::commitAndPush()` is a commit gate: after `add -A` it scans the added lines of the staged diff and of
@@ -173,6 +173,14 @@ proc_open($argv, $descriptors, $pipes, $repoPath, $env);
 - Bot start: `Bot::run()` calls `ClaudeRunner::purgeRunFiles()`, which deletes the leftover `runs/`
   files of previous runs and the leftover `agents/` files. The file name carries the PID of the bot instance that created the run (not
   the claude PID); a file whose PID is alive is kept.
+- Failed-run evidence: a run whose `RunAnswer` is an error writes the last 256 KiB of the event
+  stream and the last 16 KiB of stderr, both through `SecretScanner`, into
+  `<STATE_DIR>/failed-runs/<run id>.log` (`FailedRunEvidence`; directory 0700, file 0600) before
+  the run files are deleted, and logs the reason (exit code and last error, masked). The stream
+  tail is read from the end of the `.out` file (`fseek`), so a long failed run never loads the
+  whole file into memory. The directory is outside `runs/` and `agents/`, so `purgeRunFiles()`
+  leaves it alone. On every save the store prunes evidence older than `FAILED_RUN_EVIDENCE_DAYS`
+  (0 = no age limit) and everything beyond the newest 20 files.
 - The working directory is the managed repository.
 
 `RunAnswer::fromJson`: not a JSON object → the process died before a result (`isError`, text =
@@ -206,7 +214,8 @@ a change of the model (or of the engine) resets the session and adds the usual n
 - Run files and lifecycle are the same as for claude: stdout/stderr go to `<STATE_DIR>/runs/<id>.out` and
   `.err`, `poll()` / `kill()` behave the same, and `OpencodeNdjsonParser` turns the NDJSON into progress
   lines, the session id (`sessionID`) and the `RunAnswer` (totals from `step_finish`). `actualModel()` is
-  always `null`: OpenCode reports no model.
+  always `null`: OpenCode reports no model. A failed run leaves the same masked evidence in
+  `<STATE_DIR>/failed-runs/` through `FailedRunEvidence`.
 - The stall timer is suspended after the first sub-agent of a run: OpenCode runs every sub-agent in the
   background and stdout stays silent while it works, so silence stops meaning "hung".
 - `Bot::run()` calls `OpencodeRunner::purgeRunDirs()` next to `ClaudeRunner::purgeRunFiles()`; a run
@@ -337,7 +346,8 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `CLAUDE_EXTRA_ARGS`     | extra claude arguments, comma-separated                        | `--dangerously-skip-permissions` |
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | text appended to the system prompt (not split on commas) | empty                            |
 | `PROMPTS_DIR`           | persona files, relative to `REPO_PATH`                         | empty (texts from `prompts/`)    |
-| `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/` and `agents/`, the per-run `opencode-<runId>/` config directories | `./state` |
+| `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/` and `agents/`, failed-run `failed-runs/`, the per-run `opencode-<runId>/` config directories | `./state` |
+| `FAILED_RUN_EVIDENCE_DAYS` | days the masked evidence of a failed run is kept (0 = no age limit; the newest 20 are always kept) | `14` |
 | `POLL_TIMEOUT`          | idle long-poll timeout, seconds                                | `30`                             |
 | `GIT_TIMEOUT`           | network git timeout, seconds                                   | `120`                            |
 | `AUTO_COMMIT`           | `1` pull/commit/push around runs; `0` the bot does not touch git in the managed repository | `1`                              |

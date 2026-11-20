@@ -86,6 +86,9 @@ final class OpencodeRunner implements AgentRunner
     /** Incomplete NDJSON line carried over between pipe reads. */
     private string $lineBuf = '';
 
+    /** Everything the process wrote to stderr, kept for the failed-run evidence. */
+    private string $stderr = '';
+
     /** @var list<string> every complete NDJSON line of the run, for {@see OpencodeNdjsonParser::parse()} */
     private array $lines = [];
 
@@ -128,6 +131,8 @@ final class OpencodeRunner implements AgentRunner
         private readonly string $homeDir = '',
         private readonly string $forge = Config::FORGE_GITHUB,
         private readonly string $opencodeModel = '',
+        /** Age limit of the evidence kept for a run that ended with an engine error; 0 = no age limit */
+        private readonly int $failedRunEvidenceDays = 14,
     ) {
     }
 
@@ -283,9 +288,15 @@ final class OpencodeRunner implements AgentRunner
             $this->handleLine($this->lineBuf);
             $this->lineBuf = '';
         }
-        $this->closeProc();
 
         $this->result = $this->buildResult($exit);
+        try {
+            $this->recordFailedRun($this->result, $exit);
+        } finally {
+            // The evidence path is best-effort: even if it throws, the process handle and the run
+            // files must be cleaned up exactly as they were before the evidence step existed.
+            $this->closeProc();
+        }
 
         return RunnerState::Done;
     }
@@ -504,6 +515,7 @@ final class OpencodeRunner implements AgentRunner
         $this->sessionId = null;
         $this->stallSuspended = false;
         $this->lineBuf = '';
+        $this->stderr = '';
         $this->lines = [];
         $this->progressLines = [];
         $this->promptWarnings = [];
@@ -523,6 +535,7 @@ final class OpencodeRunner implements AgentRunner
         $err = $this->readNew(2);
         if ($err !== '') {
             $got = true;
+            $this->stderr .= $err;
         }
 
         // Any byte of an event is a heartbeat for stallTimeout.
@@ -676,6 +689,52 @@ final class OpencodeRunner implements AgentRunner
         }
 
         return mb_strlen($s) > self::CLIP_LENGTH ? mb_substr($s, 0, self::CLIP_LENGTH).'…' : $s;
+    }
+
+    /**
+     * Keeps the raw event stream and stderr tail of a run that ended with an engine error,
+     * masked, so the failure can be investigated after the run files are gone.
+     */
+    private function recordFailedRun(RunAnswer $result, int $exit): void
+    {
+        if (!$result->isError) {
+            return;
+        }
+        // Only the tail of the stream is assembled, so a long failed run does not build one huge
+        // string here; FailedRunEvidence caps the assembled tail again to the same byte limit.
+        FailedRunEvidence::record(
+            $this->stateDir,
+            'opencode',
+            $this->runId,
+            $exit,
+            implode("\n", self::tailLines($this->lines, FailedRunEvidence::STREAM_TAIL_BYTES)),
+            $this->stderr,
+            $result->text,
+            $this->failedRunEvidenceDays,
+        );
+    }
+
+    /**
+     * The last whole lines up to $bytes (newest first reversed back to original order), so the
+     * evidence stream stays bounded; at least the last line is always kept.
+     *
+     * @param list<string> $lines
+     *
+     * @return list<string>
+     */
+    private static function tailLines(array $lines, int $bytes): array
+    {
+        $tail = [];
+        $total = 0;
+        for ($i = count($lines) - 1; $i >= 0; --$i) {
+            $tail[] = $lines[$i];
+            $total += strlen($lines[$i]) + 1; // + the "\n" join separator
+            if ($total >= $bytes) {
+                break;
+            }
+        }
+
+        return array_reverse($tail);
     }
 
     /**

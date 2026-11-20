@@ -892,7 +892,7 @@ final class QueueFlowTest extends TestCase
         self::assertSame('s-old', $this->db->getSessionId(100, 1));
         // Only the summarize run was launched: no reseed from the unusable recovered answer.
         self::assertSame(1, $this->launches());
-        self::assertContains('Claude error: Claude finished without a final result; the answer cannot be used here.', $this->tg->textsTo(100, 1));
+        self::assertContains('Engine error: Claude finished without a final result; the answer cannot be used here.', $this->tg->textsTo(100, 1));
     }
 
     public function testCompactWithoutSessionIsDroppedAtStart(): void
@@ -1726,7 +1726,7 @@ final class QueueFlowTest extends TestCase
 
         self::assertSame(0, $this->db->getLimitPauseUntil());
         self::assertCount(0, $this->db->queueWaiting());
-        self::assertStringContainsString('Claude error', implode("\n", $this->tg->textsTo(100, 1)));
+        self::assertStringContainsString('Engine error', implode("\n", $this->tg->textsTo(100, 1)));
     }
 
     public function testForeign429TextOnAnthropicHostKeepsTodaysBehaviour(): void
@@ -1739,7 +1739,7 @@ final class QueueFlowTest extends TestCase
 
         self::assertSame(0, $this->db->getLimitPauseUntil());
         self::assertCount(0, $this->db->queueWaiting());
-        self::assertStringContainsString('Claude error', implode("\n", $this->tg->textsTo(100, 1)));
+        self::assertStringContainsString('Engine error', implode("\n", $this->tg->textsTo(100, 1)));
     }
 
     public function testLimitPauseSurvivesRestart(): void
@@ -2621,6 +2621,18 @@ final class QueueFlowTest extends TestCase
         // No epic in the topic and no plan to start: the menu falls back to the usage.
         self::assertStringContainsString('/epic start <slug>', $texts[1]);
         self::assertSame(0, $this->launches());
+    }
+
+    public function testOpencodeEngineErrorIsReportedWithTheEngineNeutralPrefix(): void
+    {
+        $this->opencodeOutput('{"type":"error","sessionID":"s-oc","error":{"type":"provider.unknown","message":"boom"}}');
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE);
+
+        $this->say(100, 1, 'hello', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertStringContainsString('Engine error: boom', implode("\n", $this->tg->textsTo(100, 1)));
     }
 
     public function testOpencodeConnectsTheOrchestrator(): void

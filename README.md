@@ -280,6 +280,11 @@ implementer (openronin), not by the bot's Claude runs.
 - **Inbox.** Any file sent to the bot (photo, document, audio, video, voice, ...) is downloaded to
   `<STATE_DIR>/inbox` and passed to Claude by path; the caption becomes the request text. Albums are
   combined into one request. Files are deleted after the run.
+- **Failed-run evidence.** A run that ends with an engine error keeps its raw event stream and the
+  tail of stderr in `<STATE_DIR>/failed-runs/` (masked with the same secret scanner as outgoing
+  messages; files `0600`, directory `0700`), and the reason (exit code and last error) goes to the
+  bot log. This directory survives a bot restart. Evidence older than `FAILED_RUN_EVIDENCE_DAYS`
+  (default `14`, `0` = no age limit) is pruned, and at most the newest 20 failed runs are kept.
 
 <p align="center">
   <img src="docs/assets/screenshot-files.jpg" width="320"
