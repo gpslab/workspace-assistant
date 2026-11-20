@@ -167,7 +167,13 @@ function runHook(script, args, input, failure = FAILURE_REASON) {
  * @returns {Decision}
  */
 function guard(event) {
-    return runHook(GUARD_HOOK, [], {command: commandOf(event), engine: "opencode"}, GUARD_FAILURE_REASON);
+    const command = commandOf(event);
+    // A `shell` action with no readable command has no legitimate use, and a command the plugin cannot
+    // read is a command the guard cannot scan: deny it fail-closed rather than let every call through.
+    if (command.trim() === "") {
+        return {deny: true, reason: GUARD_FAILURE_REASON + " The shell call carries no command."};
+    }
+    return runHook(GUARD_HOOK, [], {command, engine: "opencode"}, GUARD_FAILURE_REASON);
 }
 
 /**

@@ -283,6 +283,18 @@ final class GatePluginTest extends TestCase
     }
 
     /**
+     * A `shell` event whose command the plugin cannot read (no `resources`) has no legitimate use, and a
+     * command the guard cannot scan must not pass: the guard denies it fail-closed.
+     */
+    public function testWithoutAGateKindAnEventWithNoCommandIsDenied(): void
+    {
+        $result = $this->evaluate('', null, kind: '');
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString(SecretGuard::FAILURE_REASON, (string) $result['message']);
+    }
+
+    /**
      * The guard needs the command alone: without a gate kind the session history is never read, so a
      * `context()` that throws does not deny an ordinary command.
      */
@@ -490,7 +502,12 @@ final class GatePluginTest extends TestCase
                 throw new Error("the plugin registered no evaluate hook");
             }
 
-            const event = {action: process.env.STUB_ACTION, resources: process.env.STUB_COMMAND, sessionID: "ses_test"};
+            // No `resources` key when the command is empty (or dropped by `proc_open`): that is the
+            // event shape the guard must deny, an unreadable command is an unscanned command.
+            const event = {action: process.env.STUB_ACTION, sessionID: "ses_test"};
+            if (process.env.STUB_COMMAND !== undefined && process.env.STUB_COMMAND !== "") {
+                event.resources = process.env.STUB_COMMAND;
+            }
             const result = hook(event);
             if (result !== null && typeof result === "object" && typeof result.then === "function") {
                 await result;
