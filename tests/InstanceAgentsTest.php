@@ -68,6 +68,18 @@ final class InstanceAgentsTest extends TestCase
         self::assertSame(['Read', 'Grep'], $agents['critic']['tools']);
     }
 
+    public function testAnUnindentedBlockSequenceToolsListIsParsed(): void
+    {
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mine.md',
+            "---\nname: critic\ndescription: d\ntools:\n- Read\n- Grep\nmodel: opus\n---\nbody\n",
+        );
+
+        $agents = $this->load(Config::ENGINE_OPENCODE);
+
+        self::assertSame(['Read', 'Grep'], $agents['critic']['tools']);
+    }
+
     public function testABlockSequenceToolsListStopsAtTheNextKey(): void
     {
         file_put_contents(

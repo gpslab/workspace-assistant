@@ -11,6 +11,7 @@ use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\OpencodeRunner;
 use GpsLab\WorkspaceAssistant\RunnerState;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
+use GpsLab\WorkspaceAssistant\Tests\StderrCaptureFilter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -252,6 +253,84 @@ final class OpencodeRunnerTest extends TestCase
             ],
             $explicit['agents']['verifier']['permissions'],
         );
+
+        $runner->kill();
+    }
+
+    /**
+     * A `tools:` written as an unindented YAML block sequence (`- Read` at column zero, the default
+     * output of common YAML emitters) must parse the same as the indented form.
+     */
+    public function testAnUnindentedBlockSequenceToolsListReachesThePermissionRules(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/critic.md',
+            "---\nname: critic\ndescription: block\ntools:\n- Read\n- Grep\nmodel: opus\n---\nBLOCK BODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $runner->start('hello', null);
+        $this->waitForFile($this->doneFile());
+        $runner->poll();
+
+        $dirs = glob($this->root.'/state/opencode-*') ?: [];
+        self::assertCount(1, $dirs);
+        $explicit = json_decode((string) file_get_contents($dirs[0].'/explicit.json'), true);
+        self::assertIsArray($explicit);
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'read', 'resource' => '*', 'effect' => 'allow'],
+                ['action' => 'grep', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $explicit['agents']['critic']['permissions'],
+        );
+
+        $runner->kill();
+    }
+
+    /**
+     * An agent whose non-empty `tools:` map to no OpenCode permission is restricted to nothing, and
+     * the runner says so on STDERR instead of leaving the deny-all silent.
+     */
+    public function testAnAgentWhoseToolsMapToNothingLogsAWarning(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mystery.md',
+            "---\nname: mystery\ndescription: d\ntools: Mystery\n---\nBODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $log = $this->captureLog(static function () use ($runner): void {
+            $runner->start('hello', null);
+        });
+
+        self::assertStringContainsString('map to no OpenCode permission', $log);
+        self::assertStringContainsString('Mystery', $log);
+
+        $runner->kill();
+    }
+
+    /** An agent whose tools all map to a permission logs no warning. */
+    public function testAnAgentWhoseToolsMapToAPermissionLogsNoWarning(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/reader.md',
+            "---\nname: reader\ndescription: d\ntools: Read\n---\nBODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $log = $this->captureLog(static function () use ($runner): void {
+            $runner->start('hello', null);
+        });
+
+        self::assertStringNotContainsString('map to no OpenCode permission', $log);
 
         $runner->kill();
     }
@@ -534,6 +613,29 @@ final class OpencodeRunnerTest extends TestCase
     private function backdate(OpencodeRunner $runner, string $property): void
     {
         (new \ReflectionProperty(OpencodeRunner::class, $property))->setValue($runner, time() - 100);
+    }
+
+    /**
+     * Log::line writes to the STDERR constant, so a write filter is put on the stream around the call.
+     *
+     * @param \Closure(): void $run
+     */
+    private function captureLog(\Closure $run): string
+    {
+        if (!in_array('stderr_capture', stream_get_filters(), true)) {
+            stream_filter_register('stderr_capture', StderrCaptureFilter::class);
+        }
+        StderrCaptureFilter::$buffer = '';
+        $filter = stream_filter_append(STDERR, 'stderr_capture', STREAM_FILTER_WRITE);
+        self::assertNotFalse($filter);
+
+        try {
+            $run();
+        } finally {
+            stream_filter_remove($filter);
+        }
+
+        return StderrCaptureFilter::$buffer;
     }
 
     /** @return list<string> */

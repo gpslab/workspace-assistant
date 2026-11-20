@@ -132,9 +132,10 @@ final class AgentFrontMatter
     }
 
     /**
-     * The items of a YAML block sequence under a `tools:` key: consecutive indented `- item` lines
-     * (`  - Read`). Each item is trimmed and unquoted. Returns an empty list, leaving the index on
-     * the `tools:` line, when the next line does not start an item.
+     * The items of a YAML block sequence under a `tools:` key: consecutive `- item` lines at any
+     * indentation, including none (`- Read`). Each item is trimmed and unquoted. Returns an empty
+     * list, leaving the index on the `tools:` line, when the next line does not start an item. A
+     * key of the main loop starts with a letter, so an unindented item cannot be mistaken for one.
      *
      * @param list<string> $lines
      * @param int          $start index of the first line after the `tools:` key
@@ -145,7 +146,7 @@ final class AgentFrontMatter
     {
         $items = [];
         for ($i = $start, $count = count($lines); $i < $count; ++$i) {
-            if (preg_match('/^[ \t]+-[ \t]*(.*)$/', $lines[$i], $m) !== 1) {
+            if (preg_match('/^[ \t]*-[ \t]*(.*)$/', $lines[$i], $m) !== 1) {
                 break;
             }
             $item = trim(self::unquote(trim($m[1])));
