@@ -218,17 +218,31 @@ Traps:
   `STATE_DIR/agents/<run id>.json` (one file per run, removed with the run files) and passes
   `--agents <file>`, also on `--resume`: the CLI keeps no `--agents` in the session. The CLI lets an
   `--agents` entry shadow a project agent of the same name, so an agent whose frontmatter `name:` matches
-  one in `<REPO_PATH>/.claude/agents/*.md` or `~/.claude/agents/*.md` is left out (the file name does not
-  matter). `CLAUDE_EXTRA_ARGS` with `--agents` drops all of them and warns on every run. `tools` are fixed
-  in code; a local `prompts/agents/<name>.md` replaces the whole file but must keep `name:`, otherwise
+  one the instance defines is left out (the file name does not matter). **Which directories count is per
+  engine** (`InstanceAgents::directories`): Claude Code loads `<REPO_PATH>/.claude/agents/*.md` and
+  `~/.claude/agents/*.md` itself and never reads `<REPO_PATH>/.agents/agents`, so there only those two
+  shadow a built-in; OpenCode loads none of the three, so there the bot renders all of them into the
+  per-run config and all of them shadow. A built-in must never be dropped for an agent its engine does not
+  get: were `.agents/agents/critic.md` to shadow the built-in on Claude, that run would have no `critic`
+  at all — the same failure as passing no agent file on OpenCode. `CLAUDE_EXTRA_ARGS` with `--agents`
+  drops all of them and warns on every run. `tools` of a built-in are fixed in code; an instance's own
+  agent keeps its own `tools:`, and one without that key is unrestricted (as on Claude), not denied
+  everything. A local `prompts/agents/<name>.md` replaces the whole file but must keep `name:`, otherwise
   `.dist` is used with a warning. The agents are not in `PromptFiles::NAMES`/`CONTRACT`.
+- **Agent front matter is read by `AgentFrontMatter`, not by a YAML parser** (the bot has no runtime
+  dependencies): `key: value`, the block scalars `>`/`|` with their indicators, and `tools:` as a
+  comma-separated scalar (`A, B`), a YAML flow sequence (`[A, B]`) or a block sequence (`- A`). Only
+  `name`, `description`, `model` and `tools` are read; every other
+  key is skipped together with its block. A file is addressed by its frontmatter `name:`, never by its file
+  name, and a file without a usable `name:` is logged and ignored.
 - **`role_review` has two independent axes:** fit to the task's intent, and cross-project scope (consumers
   in other components, recorded decisions, paired tasks, duplicated solutions). The second is mandatory:
   a cold CI reviewer sees one repository and one diff, the architect sees the whole system.
 - **Prompt files are not trusted input.** They live in the managed repository, which the bot edits and (with `AUTO_COMMIT=1`)
   pushes. A run that changes them gets a warning on every commit path (`RunResult::sendResult()`, epic runs, the
   manual "commit" button); see the accepted risk in [context.md](context.md). Temporary prompt files
-  outside git are wiped by `reset --hard` and cause "file not found".
+  outside git are wiped by `reset --hard` and cause "file not found". The instance's agent files
+  (`InstanceAgents`) come from the same repository and are read the same way on every run.
 - **Mode** is the `mode` field of `sessions`, sticky: `resetSession()` keeps it, `/new` and `/compact`
   keep it. A new session starts in `SystemPrompt::DEFAULT_MODE` (`pm`). `Database::ensureRow()` writes
   `mode` **explicitly**, not through the column DEFAULT, because already created databases carry an old

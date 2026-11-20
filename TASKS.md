@@ -75,9 +75,13 @@ The bot hands six read-only sub-agents to every Claude run (except the two phase
 `--agents <file>`: `critic`, `verifier`, `editor`, `scope-check`, `acceptor` and `security`. Their bodies are
 `prompts/agents/<name>.md.dist`. To override one:
 
-- an agent with the same `name:` (the frontmatter value, not the file name) in `.claude/agents/*.md` of
-  the managed repository or in `~/.claude/agents/*.md` of the bot's user wins: the bot does not pass the
-  built-in agent of that name;
+- an agent with the same `name:` (the frontmatter value, not the file name) that the engine loads wins: the
+  bot does not pass the built-in agent of that name. Claude Code loads `.claude/agents/*.md` of the managed
+  repository and `~/.claude/agents/*.md` of the bot's user itself, so there those two count; OpenCode loads
+  no agent directory at all, so the bot passes those two into the run and, on top, the engine-neutral
+  `.agents/agents/*.md` of the managed repository. A file in `.agents/agents` therefore replaces a built-in
+  only with `ENGINE=opencode`: on Claude nothing would pass that agent and dropping the built-in would leave
+  the run with no agent of that name;
 - if `CLAUDE_EXTRA_ARGS` already contains `--agents`, no built-in agents are passed and the reply carries
   a warning;
 - to change only the body, put a local `prompts/agents/<name>.md` next to the `.dist` (the

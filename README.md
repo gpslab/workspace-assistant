@@ -119,9 +119,10 @@ to close the epic.
 
 The design stage runs a pipeline of read-only sub-agents shipped with the bot (`critic`, `verifier`,
 `editor`, `scope-check`, `acceptor`), and a gate refuses to create issues until the required stages ran:
-see [Working out a task](TASKS.md). Any of them can be replaced by your own Claude Code
-sub-agent with the same name, and the persona files and additions in `PROMPTS_DIR` change how the modes
-and epic runs behave, see [PROMPTS.md](PROMPTS.md). Details are in [EPICS.md](EPICS.md).
+see [Working out a task](TASKS.md). Any of them can be replaced by your own sub-agent with the same name,
+from `.claude/agents/` on either engine and, with `ENGINE=opencode`, also from the engine-neutral
+`.agents/agents/` (see [OpenCode](#opencode)); the persona files and additions in `PROMPTS_DIR` change how
+the modes and epic runs behave, see [PROMPTS.md](PROMPTS.md). Details are in [EPICS.md](EPICS.md).
 
 The `security` agent also works on demand, without a new mode or command. To check the security of a
 PR or task, ask the bot to call the `security` agent on that PR; to audit the project before a release, ask
@@ -154,6 +155,10 @@ OpenCode keys are ignored. Verified against OpenCode **2.3.0**.
   plugin starts the same PHP hooks Claude Code would, so a `pm` run still needs the issue created and a
   `review` run still publishes only the reviewed commits. A run with no gate (`arch`, `/compact`) gets no
   plugin.
+- Your own sub-agents reach the run: OpenCode loads no agent directory on its own, so the bot passes the
+  agents of `.claude/agents/`, `.agents/agents/` and `~/.claude/agents/` into the run's configuration. An
+  agent of the same `name:` replaces the built-in one, exactly as on Claude, and its `tools:` decide what
+  it may do (an agent without `tools:` is unrestricted).
 - Every run is approved automatically (OpenCode's `--auto`), with no equivalent of a stricter
   `CLAUDE_EXTRA_ARGS`. See [Security](#security).
 - Changing `OPENCODE_MODEL` starts a new session, like changing `ENGINE`.

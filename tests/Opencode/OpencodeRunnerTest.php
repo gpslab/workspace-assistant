@@ -11,6 +11,7 @@ use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\OpencodeRunner;
 use GpsLab\WorkspaceAssistant\RunnerState;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
+use GpsLab\WorkspaceAssistant\Tests\StderrCaptureFilter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -157,6 +158,181 @@ final class OpencodeRunnerTest extends TestCase
 
         $runner->kill();
         self::assertSame([], glob($this->root.'/state/opencode-*') ?: []);
+    }
+
+    /**
+     * OpenCode loads none of the instance's agent directories itself, so the bot renders them into the
+     * per-run config; the built-in agent of a name the instance defines is left out of it instead.
+     */
+    public function testTheInstanceAgentsReachThePerRunConfig(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        mkdir($this->root.'/repo/.agents/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mine.md',
+            "---\nname: critic\ndescription: >\n  My own reviewer,\n  with a folded description.\ntools: Read, Grep\n---\nMY CRITIC BODY\n",
+        );
+        file_put_contents(
+            $this->root.'/repo/.agents/agents/free.md',
+            "---\nname: free\ndescription: free\nmodel: opus\n---\nFREE BODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $runner->start('hello', null);
+        $this->waitForFile($this->doneFile());
+        $runner->poll();
+
+        $dirs = glob($this->root.'/state/opencode-*') ?: [];
+        self::assertCount(1, $dirs);
+        $critic = (string) file_get_contents($dirs[0].'/agents/critic.md');
+        self::assertStringContainsString('MY CRITIC BODY', $critic);
+        self::assertStringContainsString('My own reviewer, with a folded description.', $critic);
+        self::assertStringNotContainsString('strictly read-only', $critic);
+
+        $explicit = json_decode((string) file_get_contents($dirs[0].'/explicit.json'), true);
+        self::assertIsArray($explicit);
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'read', 'resource' => '*', 'effect' => 'allow'],
+                ['action' => 'grep', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $explicit['agents']['critic']['permissions'],
+        );
+        // An agent of the engine-neutral directory reaches the run as well; one without `tools:` gets
+        // no rule of its own, and its `model:` is not rendered (OpenCode has one model per run).
+        self::assertStringContainsString('FREE BODY', (string) file_get_contents($dirs[0].'/agents/free.md'));
+        self::assertStringNotContainsString('opus', (string) file_get_contents($dirs[0].'/agents/free.md'));
+        self::assertArrayNotHasKey('free', $explicit['agents']);
+        // The built-ins the instance does not define are still there.
+        self::assertArrayHasKey('verifier', $explicit['agents']);
+
+        $runner->kill();
+    }
+
+    /**
+     * A `tools:` written as a YAML flow sequence (`[Read, Grep]`) or a block sequence (`- Read`) must
+     * land in the rendered permission rules as the tools they name, not collapse into a bare deny-*.
+     */
+    public function testFlowAndBlockSequenceToolsReachThePermissionRules(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/critic.md',
+            "---\nname: critic\ndescription: flow\ntools: [Read, Grep]\n---\nFLOW BODY\n",
+        );
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/verifier.md',
+            "---\nname: verifier\ndescription: block\ntools:\n  - Read\n  - Edit\n---\nBLOCK BODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $runner->start('hello', null);
+        $this->waitForFile($this->doneFile());
+        $runner->poll();
+
+        $dirs = glob($this->root.'/state/opencode-*') ?: [];
+        self::assertCount(1, $dirs);
+        $explicit = json_decode((string) file_get_contents($dirs[0].'/explicit.json'), true);
+        self::assertIsArray($explicit);
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'read', 'resource' => '*', 'effect' => 'allow'],
+                ['action' => 'grep', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $explicit['agents']['critic']['permissions'],
+        );
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'read', 'resource' => '*', 'effect' => 'allow'],
+                ['action' => 'edit', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $explicit['agents']['verifier']['permissions'],
+        );
+
+        $runner->kill();
+    }
+
+    /**
+     * A `tools:` written as an unindented YAML block sequence (`- Read` at column zero, the default
+     * output of common YAML emitters) must parse the same as the indented form.
+     */
+    public function testAnUnindentedBlockSequenceToolsListReachesThePermissionRules(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/critic.md',
+            "---\nname: critic\ndescription: block\ntools:\n- Read\n- Grep\nmodel: opus\n---\nBLOCK BODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $runner->start('hello', null);
+        $this->waitForFile($this->doneFile());
+        $runner->poll();
+
+        $dirs = glob($this->root.'/state/opencode-*') ?: [];
+        self::assertCount(1, $dirs);
+        $explicit = json_decode((string) file_get_contents($dirs[0].'/explicit.json'), true);
+        self::assertIsArray($explicit);
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'read', 'resource' => '*', 'effect' => 'allow'],
+                ['action' => 'grep', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $explicit['agents']['critic']['permissions'],
+        );
+
+        $runner->kill();
+    }
+
+    /**
+     * An agent whose non-empty `tools:` map to no OpenCode permission is restricted to nothing, and
+     * the runner says so on STDERR instead of leaving the deny-all silent.
+     */
+    public function testAnAgentWhoseToolsMapToNothingLogsAWarning(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mystery.md',
+            "---\nname: mystery\ndescription: d\ntools: Mystery\n---\nBODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $log = $this->captureLog(static function () use ($runner): void {
+            $runner->start('hello', null);
+        });
+
+        self::assertStringContainsString('map to no OpenCode permission', $log);
+        self::assertStringContainsString('Mystery', $log);
+
+        $runner->kill();
+    }
+
+    /** An agent whose tools all map to a permission logs no warning. */
+    public function testAnAgentWhoseToolsMapToAPermissionLogsNoWarning(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/reader.md',
+            "---\nname: reader\ndescription: d\ntools: Read\n---\nBODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $log = $this->captureLog(static function () use ($runner): void {
+            $runner->start('hello', null);
+        });
+
+        self::assertStringNotContainsString('map to no OpenCode permission', $log);
+
+        $runner->kill();
     }
 
     public function testThePerRunDirectoryIsRemovedAfterANormalFinish(): void
@@ -437,6 +613,29 @@ final class OpencodeRunnerTest extends TestCase
     private function backdate(OpencodeRunner $runner, string $property): void
     {
         (new \ReflectionProperty(OpencodeRunner::class, $property))->setValue($runner, time() - 100);
+    }
+
+    /**
+     * Log::line writes to the STDERR constant, so a write filter is put on the stream around the call.
+     *
+     * @param \Closure(): void $run
+     */
+    private function captureLog(\Closure $run): string
+    {
+        if (!in_array('stderr_capture', stream_get_filters(), true)) {
+            stream_filter_register('stderr_capture', StderrCaptureFilter::class);
+        }
+        StderrCaptureFilter::$buffer = '';
+        $filter = stream_filter_append(STDERR, 'stderr_capture', STREAM_FILTER_WRITE);
+        self::assertNotFalse($filter);
+
+        try {
+            $run();
+        } finally {
+            stream_filter_remove($filter);
+        }
+
+        return StderrCaptureFilter::$buffer;
     }
 
     /** @return list<string> */

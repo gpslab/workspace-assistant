@@ -170,6 +170,14 @@ What differs from a Claude instance:
   configuration.
 - Built-in agents are written into the per-run configuration, but their `model:` is **ignored** on OpenCode:
   every agent of a run uses `OPENCODE_MODEL`.
+- Your own agents reach the run as well: OpenCode loads no agent directory Claude Code would load, so the
+  bot reads `.claude/agents/*.md` and `.agents/agents/*.md` of the managed repository and
+  `~/.claude/agents/*.md` of the bot's user and renders them into the per-run configuration. An agent of
+  the same `name:` replaces the built-in one (a file there is addressed by its frontmatter `name:`, not by
+  its file name), and its `tools:` become that agent's OpenCode permission allowlist — an agent without
+  `tools:` is unrestricted, as it is on Claude. `.agents/agents` is the engine-neutral place for an agent
+  an instance wants on both engines; with `ENGINE=claude` it does not replace a built-in, because that CLI
+  never reads the directory.
 - `CLAUDE_TIMEOUT` and `CLAUDE_STALL_TIMEOUT` bound an OpenCode run as well. The stall timer stops counting
   after the run has launched its first sub-agent: OpenCode waits for sub-agents in silence, so silence then
   no longer means "hung" (the Claude runner never sees this, its sub-agent calls are progress lines).

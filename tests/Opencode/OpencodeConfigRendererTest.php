@@ -124,6 +124,16 @@ final class OpencodeConfigRendererTest extends TestCase
         ], $explicit['agents']['critic']['permissions']);
     }
 
+    public function testAnAgentWithoutToolsGetsNoPermissionRules(): void
+    {
+        $files = $this->render(override: [new OpencodeAgent('free', 'd', 'free body', null)]);
+
+        // The agent is rendered, but no rule of its own is: a deny-all rule list would restrict it to
+        // nothing, while the agent file declares no `tools:` and is unrestricted on Claude too.
+        self::assertStringContainsString('free body', $files['agents/free.md']);
+        self::assertArrayNotHasKey('free', $this->explicitJson($files)['agents']);
+    }
+
     public function testANumericNamedOverrideIsSkippedAndAgentsStaysAnObject(): void
     {
         $files = $this->render(override: [new OpencodeAgent('0', 'd', 'body', ['Bash'])]);
@@ -184,6 +194,15 @@ final class OpencodeConfigRendererTest extends TestCase
         $rules = ToolPermissions::rules(['Mystery']);
 
         self::assertSame([['action' => '*', 'resource' => '*', 'effect' => 'deny']], $rules);
+    }
+
+    public function testMapsToNothingIsTrueOnlyForANonEmptyListOfUnknownTools(): void
+    {
+        self::assertFalse(ToolPermissions::mapsToNothing([]));
+        self::assertFalse(ToolPermissions::mapsToNothing(['Read']));
+        self::assertFalse(ToolPermissions::mapsToNothing(['Read', 'Mystery']));
+        self::assertTrue(ToolPermissions::mapsToNothing(['Mystery']));
+        self::assertTrue(ToolPermissions::mapsToNothing(['Mystery', 'Other']));
     }
 
     public function testWriteAndEditBothMapToTheSingleEditAction(): void

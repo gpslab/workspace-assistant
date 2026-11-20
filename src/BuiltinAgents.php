@@ -6,10 +6,12 @@ namespace GpsLab\WorkspaceAssistant;
 
 /**
  * Read-only sub-agents shipped with the bot (`prompts/agents/<name>.md.dist`) and handed to every
- * Claude run through `--agents <file>`.
+ * Claude run through `--agents <file>`, and to every OpenCode run through the per-run config.
  *
- * An agent with the same `name:` in `<repo>/.claude/agents/*.md` or `~/.claude/agents/*.md` wins:
- * the CLI would let an `--agents` entry shadow it, so the built-in one is left out. A local
+ * An agent the instance defines with the same `name:` wins: the CLI would let an `--agents` entry
+ * shadow it, so the built-in one is left out. Which files those are is the engine's business
+ * ({@see InstanceAgents::directories()}): on Claude only the directories that CLI loads itself, on
+ * OpenCode all of them, since there the bot passes the instance's agents on. A local
  * `prompts/agents/<name>.md` replaces the whole file (frontmatter included) and must keep the `name:`.
  * The agents are not in {@see PromptFiles::CONTRACT}: replacing a body is a setting, not a contract.
  */
@@ -40,9 +42,9 @@ final class BuiltinAgents
      *
      * @throws \RuntimeException when a `.dist` file is missing (a broken installation)
      */
-    public static function build(string $repoPath, string $homeDir, array &$warnings = []): array
+    public static function build(string $repoPath, string $homeDir, string $engine, array &$warnings = []): array
     {
-        $taken = self::instanceNames($repoPath, $homeDir);
+        $taken = array_keys(InstanceAgents::load($repoPath, $homeDir, $engine));
         $agents = [];
         foreach (self::TOOLS as $name => $tools) {
             if (in_array($name, $taken, true)) {
@@ -50,7 +52,7 @@ final class BuiltinAgents
             }
             $path = self::PROMPT_DIR.'/'.$name;
             $loadWarnings = [];
-            $parsed = self::parse(PromptFiles::load($path, $loadWarnings));
+            $parsed = AgentFrontMatter::parse(PromptFiles::load($path, $loadWarnings));
             // Agent bodies are not rendered, so a placeholder mismatch is irrelevant here.
             foreach ($loadWarnings as $warning) {
                 if (!str_contains($warning, 'placeholders')) {
@@ -59,7 +61,7 @@ final class BuiltinAgents
             }
             if (($parsed['name'] ?? null) !== $name) {
                 $warnings[] = 'Agent file '.PromptFiles::DIR.'/'.$path.'.md must keep "name: '.$name.'" — '.PromptFiles::DIR.'/'.$path.'.md.dist was used.';
-                $parsed = self::parse(PromptFiles::loadDist($path));
+                $parsed = AgentFrontMatter::parse(PromptFiles::loadDist($path));
             }
             $agents[$name] = [
                 'description' => $parsed['description'] ?? '',
@@ -70,54 +72,5 @@ final class BuiltinAgents
         }
 
         return $agents;
-    }
-
-    /**
-     * `name:` values of the agents the instance defines itself.
-     *
-     * @return list<string>
-     */
-    public static function instanceNames(string $repoPath, string $homeDir): array
-    {
-        $dirs = [$repoPath.'/.claude/agents'];
-        if ($homeDir !== '') {
-            $dirs[] = $homeDir.'/.claude/agents';
-        }
-        $names = [];
-        foreach ($dirs as $dir) {
-            foreach (glob($dir.'/*.md') ?: [] as $file) {
-                $text = @file_get_contents($file);
-                $name = $text === false ? null : (self::parse($text)['name'] ?? null);
-                if ($name === null || $name === '') {
-                    Log::line('Agent file '.$file.' has no usable "name:" in its frontmatter; it does not shadow a built-in agent.');
-
-                    continue;
-                }
-                $names[] = $name;
-            }
-        }
-
-        return array_values(array_unique($names));
-    }
-
-    /**
-     * Splits a markdown agent file into frontmatter keys and body; a file without a frontmatter has only a body.
-     *
-     * @return array{name?: string, description?: string, model?: string, body: string}
-     */
-    private static function parse(string $text): array
-    {
-        $text = str_replace("\r\n", "\n", $text);
-        if (preg_match('/\A---\n(.*?)\n---(?:\n(.*))?\z/s', $text, $m) !== 1) {
-            return ['body' => $text];
-        }
-        $out = ['body' => $m[2] ?? ''];
-        foreach (explode("\n", $m[1]) as $line) {
-            if (preg_match('/^(name|description|model):\s*(.*?)\s*$/', $line, $kv) === 1) {
-                $out[$kv[1]] = trim($kv[2], '"\'');
-            }
-        }
-
-        return $out;
     }
 }
