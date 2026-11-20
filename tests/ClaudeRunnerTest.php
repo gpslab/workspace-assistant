@@ -419,6 +419,9 @@ final class ClaudeRunnerTest extends TestCase
 
             $body = (string) file_get_contents($files[0]);
             self::assertStringContainsString('exit code: 7', $body);
+            // Stream-only marker: 'boom' is shared with the `last error:` header, so it does not
+            // prove the event stream was stored; `subtype":"init` exists only in the stream.
+            self::assertStringContainsString('"subtype":"init"', $body);
             self::assertStringContainsString('boom', $body);
             self::assertStringContainsString('stderr carries', $body);
             self::assertStringNotContainsString($token, $body);
@@ -436,6 +439,34 @@ final class ClaudeRunnerTest extends TestCase
             unlink($bin);
             array_map('unlink', glob($stateDir.'/'.FailedRunEvidence::DIR.'/*') ?: []);
             @rmdir($stateDir.'/'.FailedRunEvidence::DIR);
+            @rmdir($stateDir.'/runs');
+            @rmdir($stateDir);
+        }
+    }
+
+    public function testASuccessfulRunWritesNoEvidence(): void
+    {
+        $stateDir = sys_get_temp_dir().'/runner-success-'.uniqid('', true);
+        $result = json_encode(['type' => 'result', 'is_error' => false, 'result' => 'ok', 'session_id' => 's'], JSON_THROW_ON_ERROR);
+        $bin = $this->phpFake(
+            'fwrite(STDOUT, '.var_export('{"type":"system","subtype":"init","session_id":"s"}', true).'.PHP_EOL);'."\n"
+            .'fwrite(STDOUT, '.var_export($result, true).'.PHP_EOL);'."\n"
+            .'exit(0);'."\n",
+        );
+
+        try {
+            $runner = new ClaudeRunner($bin, sys_get_temp_dir(), 0, [], stateDir: $stateDir);
+            $runner->start('prompt', null);
+            while ($runner->poll() === RunnerState::Running) {
+                usleep(50000);
+            }
+
+            self::assertFalse($runner->result()->isError);
+            self::assertSame([], glob($stateDir.'/'.FailedRunEvidence::DIR.'/*') ?: []);
+        } finally {
+            unlink($bin);
+            @rmdir($stateDir.'/'.FailedRunEvidence::DIR);
+            @rmdir($stateDir.'/agents');
             @rmdir($stateDir.'/runs');
             @rmdir($stateDir);
         }

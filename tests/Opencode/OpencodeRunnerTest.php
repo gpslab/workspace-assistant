@@ -494,6 +494,8 @@ final class OpencodeRunnerTest extends TestCase
         self::assertSame('There is **1** file in the current directory: `README.md`.', $result->text);
         self::assertSame('ses_e264d4bf7ffe7WjNcc5PBGKfPF', $result->sessionId);
         self::assertNull($result->limitClass);
+        // A successful run must not write failed-run evidence, even with a state directory.
+        self::assertSame([], glob($this->root.'/state/'.FailedRunEvidence::DIR.'/*') ?: []);
     }
 
     public function testAProviderQuotaErrorIsCarriedAsAQuotaLimit(): void
@@ -527,11 +529,14 @@ final class OpencodeRunnerTest extends TestCase
     {
         $token = 'ghp_'.str_repeat('B', 36);
         $fixture = $this->root.'/failed.ndjson';
-        file_put_contents($fixture, json_encode([
-            'type' => 'error',
-            'sessionID' => 's',
-            'error' => ['type' => 'provider.unknown', 'message' => 'boom '.$token],
-        ], JSON_THROW_ON_ERROR)."\n");
+        file_put_contents($fixture,
+            json_encode(['type' => 'step_start', 'sessionID' => 's', 'part' => ['snapshot' => 'stream-only-marker']])."\n"
+            .json_encode([
+                'type' => 'error',
+                'sessionID' => 's',
+                'error' => ['type' => 'provider.unknown', 'message' => 'boom '.$token],
+            ], JSON_THROW_ON_ERROR)."\n"
+        );
         $bin = $this->fake($fixture, exitCode: 7, stderr: 'stderr carries '.$token."\n");
 
         $runner = $this->runner($bin);
@@ -550,6 +555,9 @@ final class OpencodeRunnerTest extends TestCase
 
         $body = (string) file_get_contents($files[0]);
         self::assertStringContainsString('exit code: 7', $body);
+        // Stream-only marker: 'boom' is shared with the `last error:` header, so it does not prove
+        // the event stream was stored; 'stream-only-marker' exists only in the stream.
+        self::assertStringContainsString('stream-only-marker', $body);
         self::assertStringContainsString('boom', $body);
         self::assertStringContainsString('stderr carries', $body);
         self::assertStringNotContainsString($token, $body);

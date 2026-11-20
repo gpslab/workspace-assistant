@@ -75,14 +75,24 @@ final class FailedRunEvidenceTest extends TestCase
         mkdir($dir, 0700, true);
         $now = 1_700_000_000;
 
+        $paths = [];
         for ($i = 0; $i < 25; ++$i) {
             $path = $dir.'/20260101-12'.sprintf('%02d', $i).'00-1-abcd.log';
             touch($path, $now - $i * 60);
+            $paths[$i] = $path;
         }
 
         FailedRunEvidence::prune($dir, 14, $now);
 
         self::assertCount(FailedRunEvidence::KEEP_FILES, glob($dir.'/*.log') ?: []);
+        // The newest 20 survive; the 5 oldest are dropped. Which ones, not just how many: an
+        // inverted comparator that deletes the newest files would still leave 20 behind.
+        for ($i = 0; $i < 20; ++$i) {
+            self::assertFileExists($paths[$i], 'newest file '.$i.' must survive');
+        }
+        for ($i = 20; $i < 25; ++$i) {
+            self::assertFileDoesNotExist($paths[$i], 'oldest file '.$i.' must be pruned');
+        }
     }
 
     public function testPruneWithZeroDaysKeepsOnlyTheCap(): void
@@ -91,14 +101,24 @@ final class FailedRunEvidenceTest extends TestCase
         mkdir($dir, 0700, true);
         $now = 1_700_000_000;
 
+        $paths = [];
         for ($i = 0; $i < 22; ++$i) {
             $path = $dir.'/20260101-12'.sprintf('%02d', $i).'00-1-abcd.log';
             touch($path, $now - $i * 86400);
+            $paths[$i] = $path;
         }
 
         FailedRunEvidence::prune($dir, 0, $now);
 
         self::assertCount(FailedRunEvidence::KEEP_FILES, glob($dir.'/*.log') ?: []);
+        // Only the cap drops files here (the age limit is off), so the exact set separates the
+        // cap from the age limit: the newest 20 survive, the 2 oldest are dropped.
+        for ($i = 0; $i < 20; ++$i) {
+            self::assertFileExists($paths[$i], 'newest file '.$i.' must survive');
+        }
+        for ($i = 20; $i < 22; ++$i) {
+            self::assertFileDoesNotExist($paths[$i], 'oldest file '.$i.' must be pruned by the cap');
+        }
     }
 
     private static function removeTree(string $dir): void
