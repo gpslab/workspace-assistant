@@ -7,6 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests;
 use GpsLab\WorkspaceAssistant\Bot;
 use GpsLab\WorkspaceAssistant\BuiltinAgents;
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
+use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\PromptFiles;
 use GpsLab\WorkspaceAssistant\RunnerState;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -59,13 +60,13 @@ final class BuiltinAgentsTest extends TestCase
         $text = (string) file_get_contents(dirname(__DIR__).'/prompts/agents/security.md.dist');
         self::assertStringContainsString('`composer audit --locked`', $text);
         self::assertStringContainsString('`npm audit`', $text);
-        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT);
         self::assertSame(['Read', 'Grep', 'Glob', 'Bash'], $agents['security']['tools']);
     }
 
     public function testBuildContainsAllAgentsFromFiles(): void
     {
-        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT);
 
         self::assertSame(array_keys(BuiltinAgents::TOOLS), array_keys($agents));
         foreach ($agents as $name => $agent) {
@@ -84,17 +85,32 @@ final class BuiltinAgentsTest extends TestCase
     {
         file_put_contents($this->root.'/repo/.claude/agents/my-critic.md', "---\nname: critic\ndescription: mine\n---\nbody\n");
 
-        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT);
 
         self::assertArrayNotHasKey('critic', $agents);
         self::assertArrayHasKey('verifier', $agents);
+    }
+
+    public function testNeutralDirAgentShadowsABuiltinOnOpencodeOnly(): void
+    {
+        mkdir($this->root.'/repo/.agents/agents', 0o700, true);
+        file_put_contents($this->root.'/repo/.agents/agents/critic.md', "---\nname: critic\ndescription: mine\n---\nbody\n");
+
+        // Claude Code does not read `.agents/agents`: there the built-in critic is still passed, since
+        // nothing else would give the run an agent of that name.
+        $claude = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT);
+        $opencode = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::ENGINE_OPENCODE);
+
+        self::assertArrayHasKey('critic', $claude);
+        self::assertArrayNotHasKey('critic', $opencode);
+        self::assertArrayHasKey('verifier', $opencode);
     }
 
     public function testHomeAgentWithSameNameShadowsBuiltinRegardlessOfFileName(): void
     {
         file_put_contents($this->root.'/home/.claude/agents/other.md', "---\nname: \"acceptor\"\ndescription: mine\n---\nbody\n");
 
-        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT);
 
         self::assertArrayNotHasKey('acceptor', $agents);
         self::assertCount(5, $agents);
@@ -105,7 +121,7 @@ final class BuiltinAgentsTest extends TestCase
         file_put_contents($this->root.'/repo/.claude/agents/critic.md', "---\nname: something-else\n---\nbody\n");
         file_put_contents($this->root.'/repo/.claude/agents/verifier.md', "no frontmatter at all\n");
 
-        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT);
 
         self::assertArrayHasKey('critic', $agents);
         self::assertArrayHasKey('verifier', $agents);
@@ -118,7 +134,7 @@ final class BuiltinAgentsTest extends TestCase
         file_put_contents($this->root.'/prompts/agents/critic.md', "---\nname: critic\ndescription: local\nmodel: inherit\n---\nLocal body {x}\n");
         $warnings = [];
 
-        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', $warnings);
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT, $warnings);
 
         self::assertSame('Local body {x}', $agents['critic']['prompt']);
         self::assertSame('local', $agents['critic']['description']);
@@ -133,7 +149,7 @@ final class BuiltinAgentsTest extends TestCase
         file_put_contents($this->root.'/prompts/agents/critic.md', "---\nname: other\ndescription: local\n---\nLocal body\n");
         $warnings = [];
 
-        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', $warnings);
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT, $warnings);
 
         self::assertStringContainsString('strictly read-only', $agents['critic']['prompt']);
         self::assertCount(1, $warnings);
@@ -147,7 +163,7 @@ final class BuiltinAgentsTest extends TestCase
         file_put_contents($this->root.'/prompts/agents/critic.md', "  \n");
         $warnings = [];
 
-        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', $warnings);
+        $agents = BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT, $warnings);
 
         self::assertStringContainsString('strictly read-only', $agents['critic']['prompt']);
         self::assertCount(1, $warnings);
@@ -191,7 +207,7 @@ final class BuiltinAgentsTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('prompts/agents/critic.md.dist');
-        BuiltinAgents::build($this->root.'/repo', $this->root.'/home');
+        BuiltinAgents::build($this->root.'/repo', $this->root.'/home', Config::DEFAULT_ENGINE_FINGERPRINT);
     }
 
     public function testRunPassesAgentsFileAndRemovesIt(): void

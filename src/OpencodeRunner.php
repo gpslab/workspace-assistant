@@ -150,12 +150,13 @@ final class OpencodeRunner implements AgentRunner
         $systemPrompt = $this->systemPrompt();
         $this->promptHash = hash('sha256', $systemPrompt);
         $builtinAgents = $this->builtinAgents();
+        $instanceAgents = $this->instanceAgents();
 
         [$outFile, $errFile] = $this->openRunFiles();
 
         try {
             $this->configDir = $this->prepareConfigDir();
-            $this->writeConfig($this->configDir, $systemPrompt, $builtinAgents);
+            $this->writeConfig($this->configDir, $systemPrompt, $builtinAgents, $instanceAgents);
 
             $descriptors = [
                 0 => ['pipe', 'r'],
@@ -387,7 +388,32 @@ final class OpencodeRunner implements AgentRunner
         }
 
         $agents = [];
-        foreach (BuiltinAgents::build($this->repoPath, $this->homeDir, $this->promptWarnings) as $name => $agent) {
+        foreach (BuiltinAgents::build($this->repoPath, $this->homeDir, Config::ENGINE_OPENCODE, $this->promptWarnings) as $name => $agent) {
+            $agents[] = new OpencodeAgent($name, $agent['description'], $agent['prompt'], $agent['tools']);
+        }
+
+        return $agents;
+    }
+
+    /**
+     * The agents the instance defines itself, in the renderer's shape (empty for /compact runs or when
+     * disabled).
+     *
+     * OpenCode loads none of the instance's agent directories on its own — not even `.claude/agents`,
+     * which it reads for skills only — so without this an instance's own agent would be missing from
+     * the run while the built-in one of the same name was left out of it (see
+     * {@see InstanceAgents::directories()}).
+     *
+     * @return list<OpencodeAgent>
+     */
+    private function instanceAgents(): array
+    {
+        if (!$this->withAgents) {
+            return [];
+        }
+
+        $agents = [];
+        foreach (InstanceAgents::load($this->repoPath, $this->homeDir, Config::ENGINE_OPENCODE) as $name => $agent) {
             $agents[] = new OpencodeAgent($name, $agent['description'], $agent['prompt'], $agent['tools']);
         }
 
@@ -410,14 +436,15 @@ final class OpencodeRunner implements AgentRunner
      * Writes the renderer's artefacts into the per-run config directory.
      *
      * @param list<OpencodeAgent> $builtinAgents
+     * @param list<OpencodeAgent> $instanceAgents
      */
-    private function writeConfig(string $dir, string $systemPrompt, array $builtinAgents): void
+    private function writeConfig(string $dir, string $systemPrompt, array $builtinAgents, array $instanceAgents): void
     {
         $renderer = new OpencodeConfigRenderer(
             $systemPrompt,
             $dir.'/'.OpencodeConfigRenderer::SYSTEM_PROMPT_FILE,
             $builtinAgents,
-            [],
+            $instanceAgents,
             $this->repoPath,
             is_file($this->repoPath.'/CLAUDE.md'),
             is_file($this->repoPath.'/AGENTS.md'),

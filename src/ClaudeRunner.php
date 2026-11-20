@@ -201,7 +201,9 @@ final class ClaudeRunner implements AgentRunner
             if ($this->hasAgentsArg()) {
                 $this->promptWarnings[] = 'CLAUDE_EXTRA_ARGS contains --agents: the built-in sub-agents (critic, verifier, editor, scope-check, acceptor, security) are not passed. Remove it to get them.';
             } else {
-                $agents = BuiltinAgents::build($this->repoPath, $this->homeDir, $this->promptWarnings);
+                // The CLI loads `.claude/agents` and `~/.claude/agents` itself; only the built-ins that
+                // those directories shadow are left out (see InstanceAgents::directories()).
+                $agents = BuiltinAgents::build($this->repoPath, $this->homeDir, Config::DEFAULT_ENGINE_FINGERPRINT, $this->promptWarnings);
             }
         }
         $argv[] = '--append-system-prompt';

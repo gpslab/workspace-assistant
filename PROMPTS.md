@@ -49,10 +49,13 @@ There are three kinds of file:
 | `agents/verifier`                   | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 
 The agent files are passed with `--agents`; an error in an agent file is still reported in the reply. An
-agent also yields to an agent with the same `name:` in `.claude/agents/`, see
+agent also yields to an agent the engine loads with the same `name:` (`.claude/agents/` and
+`~/.claude/agents/` on Claude; on OpenCode additionally the engine-neutral `.agents/agents/`), see
 [Built-in agents](TASKS.md#built-in-agents). On OpenCode the same files are rendered as
-`agents/<name>.md` in the per-run config directory; `model:` inside them is ignored, because that engine has
-one model for everything, `OPENCODE_MODEL`.
+`agents/<name>.md` in the per-run config directory, and so are the instance's own agents
+(`InstanceAgents`), whose `tools:` become the OpenCode permission allowlist of that agent — an agent
+without `tools:` is unrestricted, as it is on Claude. `model:` inside them is ignored, because that engine
+has one model for everything, `OPENCODE_MODEL`.
 
 ## Assembly
 

@@ -159,6 +159,57 @@ final class OpencodeRunnerTest extends TestCase
         self::assertSame([], glob($this->root.'/state/opencode-*') ?: []);
     }
 
+    /**
+     * OpenCode loads none of the instance's agent directories itself, so the bot renders them into the
+     * per-run config; the built-in agent of a name the instance defines is left out of it instead.
+     */
+    public function testTheInstanceAgentsReachThePerRunConfig(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        mkdir($this->root.'/repo/.agents/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mine.md',
+            "---\nname: critic\ndescription: >\n  My own reviewer,\n  with a folded description.\ntools: Read, Grep\n---\nMY CRITIC BODY\n",
+        );
+        file_put_contents(
+            $this->root.'/repo/.agents/agents/free.md',
+            "---\nname: free\ndescription: free\nmodel: opus\n---\nFREE BODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $runner->start('hello', null);
+        $this->waitForFile($this->doneFile());
+        $runner->poll();
+
+        $dirs = glob($this->root.'/state/opencode-*') ?: [];
+        self::assertCount(1, $dirs);
+        $critic = (string) file_get_contents($dirs[0].'/agents/critic.md');
+        self::assertStringContainsString('MY CRITIC BODY', $critic);
+        self::assertStringContainsString('My own reviewer, with a folded description.', $critic);
+        self::assertStringNotContainsString('strictly read-only', $critic);
+
+        $explicit = json_decode((string) file_get_contents($dirs[0].'/explicit.json'), true);
+        self::assertIsArray($explicit);
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'read', 'resource' => '*', 'effect' => 'allow'],
+                ['action' => 'grep', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $explicit['agents']['critic']['permissions'],
+        );
+        // An agent of the engine-neutral directory reaches the run as well; one without `tools:` gets
+        // no rule of its own, and its `model:` is not rendered (OpenCode has one model per run).
+        self::assertStringContainsString('FREE BODY', (string) file_get_contents($dirs[0].'/agents/free.md'));
+        self::assertStringNotContainsString('opus', (string) file_get_contents($dirs[0].'/agents/free.md'));
+        self::assertArrayNotHasKey('free', $explicit['agents']);
+        // The built-ins the instance does not define are still there.
+        self::assertArrayHasKey('verifier', $explicit['agents']);
+
+        $runner->kill();
+    }
+
     public function testThePerRunDirectoryIsRemovedAfterANormalFinish(): void
     {
         $bin = $this->fake(self::FIXTURES.'/plain.ndjson');

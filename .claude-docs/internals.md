@@ -196,7 +196,8 @@ a change of the model (or of the engine) resets the session and adds the usual n
 - The system prompt is a file, not argv: the per-run directory `<STATE_DIR>/opencode-<runId>/` (0700, files
   0600) holds `system-prompt.md`, `opencode.json` (its `instructions` list, plus the repository `CLAUDE.md`
   when there is no `AGENTS.md`), `explicit.json` (agent permissions, and the gate plugin of a gated run) and
-  `agents/<name>.md`. The run
+  `agents/<name>.md` — the built-in sub-agents plus the agents the instance defines itself
+  (`InstanceAgents`; OpenCode loads no agent directory on its own). The run
   environment adds `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_CONFIG_DIR=<dir>` and
   `OPENCODE_CONFIG=<dir>/explicit.json`, so a project `opencode.json` of the managed repository cannot
   override the Bot's config. `XDG_CONFIG_HOME` is left alone on purpose: it would also move the configs of

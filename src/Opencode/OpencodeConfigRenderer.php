@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Opencode;
 
+use GpsLab\WorkspaceAssistant\InstanceAgents;
+
 /**
  * Renders the per-run OpenCode config directory as in-memory data (relative path -> content).
  *
@@ -24,9 +26,10 @@ final class OpencodeConfigRenderer
      * @param string              $systemPromptPath absolute path the runner writes the system prompt
      *                                              to; referenced from `opencode.json`'s `instructions`
      * @param list<OpencodeAgent> $builtinAgents    the built-in sub-agents
-     * @param list<OpencodeAgent> $overrides        the managed repository's `.claude/agents/`
-     *                                              overrides; an override shadows a built-in of the
-     *                                              same name, one with a new name is added
+     * @param list<OpencodeAgent> $overrides        the agents the instance defines itself
+     *                                              ({@see InstanceAgents}); an override shadows a
+     *                                              built-in of the same name, one with a new name is
+     *                                              added
      * @param string              $repoRoot         absolute root of the managed repository
      * @param bool                $hasClaudeMd      whether `<repo>/CLAUDE.md` exists
      * @param bool                $hasAgentsMd      whether `<repo>/AGENTS.md` exists
@@ -121,6 +124,12 @@ final class OpencodeConfigRenderer
     {
         $agents = [];
         foreach ($this->agents() as $name => $agent) {
+            if ($agent->tools === null) {
+                // An agent without `tools:` is unrestricted, as it is on Claude: it gets no entry, so
+                // no rule applies to it. Every rule list rendered here starts with a deny-all, so an
+                // empty one would turn "no restriction" into "no permission".
+                continue;
+            }
             $agents[$name] = ['permissions' => ToolPermissions::rules($agent->tools)];
         }
 
