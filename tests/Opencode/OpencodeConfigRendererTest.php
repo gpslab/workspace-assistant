@@ -18,6 +18,7 @@ final class OpencodeConfigRendererTest extends TestCase
 {
     private const string PROMPT_PATH = '/state/opencode-run-1/system-prompt.md';
     private const string REPO = '/repo';
+    private const string PLUGIN = '/bot/opencode-plugin';
 
     public function testSystemPromptFileCarriesTheAssembledPrompt(): void
     {
@@ -153,20 +154,17 @@ final class OpencodeConfigRendererTest extends TestCase
         self::assertSame(['instructions'], array_keys($config));
     }
 
-    public function testAGatedRunListsTheGateShimInThePlugins(): void
-    {
-        $files = $this->render(gatePlugin: '/bot/opencode-plugin');
-
-        $explicit = $this->explicitJson($files);
-        self::assertArrayHasKey('plugins', $explicit);
-        self::assertSame(['/bot/opencode-plugin'], $explicit['plugins']);
-    }
-
-    public function testARunWithNoGateListsNoPlugins(): void
+    /**
+     * The plugin is listed in every run, the gated ones and the ones with no gate kind alike: the
+     * renderer does not tell them apart, the plugin reads the gate kind from the environment itself.
+     */
+    public function testThePluginIsListedInEveryRun(): void
     {
         $files = $this->render();
 
-        self::assertArrayNotHasKey('plugins', $this->explicitJson($files));
+        $explicit = $this->explicitJson($files);
+        self::assertArrayHasKey('plugins', $explicit);
+        self::assertSame([self::PLUGIN], $explicit['plugins']);
     }
 
     public function testEditingToolsWithoutShellDenyTheShell(): void
@@ -258,7 +256,6 @@ final class OpencodeConfigRendererTest extends TestCase
         array $override = [],
         bool $hasClaudeMd = false,
         bool $hasAgentsMd = false,
-        ?string $gatePlugin = null,
     ): array {
         return (new OpencodeConfigRenderer(
             'the system prompt',
@@ -268,7 +265,7 @@ final class OpencodeConfigRendererTest extends TestCase
             self::REPO,
             $hasClaudeMd,
             $hasAgentsMd,
-            $gatePlugin,
+            self::PLUGIN,
         ))->render();
     }
 

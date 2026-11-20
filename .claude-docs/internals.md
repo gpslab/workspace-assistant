@@ -195,7 +195,7 @@ a change of the model (or of the engine) resets the session and adds the usual n
   so a message starting with `-` is never parsed as a flag.
 - The system prompt is a file, not argv: the per-run directory `<STATE_DIR>/opencode-<runId>/` (0700, files
   0600) holds `system-prompt.md`, `opencode.json` (its `instructions` list, plus the repository `CLAUDE.md`
-  when there is no `AGENTS.md`), `explicit.json` (agent permissions, and the gate plugin of a gated run) and
+  when there is no `AGENTS.md`), `explicit.json` (agent permissions, and the plugin every run lists) and
   `agents/<name>.md` — the built-in sub-agents plus the agents the instance defines itself
   (`InstanceAgents`; OpenCode loads no agent directory on its own). The run
   environment adds `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_CONFIG_DIR=<dir>` and
@@ -211,13 +211,19 @@ a change of the model (or of the engine) resets the session and adds the usual n
   background and stdout stays silent while it works, so silence stops meaning "hung".
 - `Bot::run()` calls `OpencodeRunner::purgeRunDirs()` next to `ClaudeRunner::purgeRunFiles()`; a run
   directory whose bot PID is still alive is kept.
-- Gates go through a plugin: OpenCode has no command hooks, so `explicit.json` of a gated run lists
-  `opencode-plugin/` in `plugins` and the runs' environment carries the gate contract
+- Gates and the guard go through a plugin: OpenCode has no command hooks, so `explicit.json` of every run
+  lists `opencode-plugin/` in `plugins` (`OpencodeRunner::pluginDir()`; the renderer does not tell the
+  modes apart) and the environment of a gated run carries the gate contract
   (`WORKSPACE_ASSISTANT_GATE_STATE_DIR`, `_KIND`, `_RUN_ID`, `_PHP`, `PmGateHook::SKIP_ENV`,
-  `ReviewCommitHook::ENABLED_ENV` and `_SHAS`), which `JobRunner` already sets for every gated run. The
-  plugin's `evaluate` hook starts the same PHP hooks (`bin/pm-gate-hook.php`) with those values, so the
-  gate logic stays single-source in PHP; the directory is listed only when the run has a gate kind
-  (`PmGateHook::KIND_ENV` non-empty), so `arch` and `/compact` pay no hook call.
+  `ReviewCommitHook::ENABLED_ENV` and `_SHAS`), which `JobRunner` sets for every gated run. The mode is the
+  gate kind `PmGateHook::KIND_ENV`:
+  with it the plugin's `evaluate` hook starts the same PHP hooks (`bin/pm-gate-hook.php`,
+  `bin/review-commit-hook.php`) with those values, without it the run has no gate to run and the plugin
+  starts `bin/secret-guard-hook.php` with the command alone — the secret guard of `src/SecretGuard.php`,
+  which denies a command that carries a secret and lets every ordinary one through. Both modes stay
+  single-source in PHP (`SecretScanner` is the detector of the guard, as of the masking and the commit
+  gate), and both are fail-closed: a hook that fails denies the call. A run that carries a gate variable
+  (state directory, run id, review flag) but no gate kind is a broken wiring and is denied, not guarded.
 - The review Stop hook has no OpenCode equivalent: no Stop hooks at all. `JobRunner::repeatReviewRun()`
   makes the same decision after the run (see [gotchas.md](gotchas.md)).
 - Epics run here too: `Bot` wires the `Orchestrator`, `ChatSurface::cmdEpic()` and `startEpicItem()` have no

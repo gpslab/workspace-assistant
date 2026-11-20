@@ -117,8 +117,8 @@ without it is used. The warning goes into the reply in the `pm` mode and into th
 ## The issue-creation gate
 
 A `PreToolUse` hook on `Bash` in the `pm` and `review` modes (and in epic runs) refuses to create an issue
-until the required stages ran. The `arch` mode is not covered. With `ENGINE=opencode` the same gate runs
-from the gate plugin (`opencode-plugin/`, listed in the run's own configuration, see
+until the required stages ran. The `arch` mode has no gate. With `ENGINE=opencode` the same gate runs
+from the bot's plugin (`opencode-plugin/`, listed in the run's own configuration, see
 [README](README.md#opencode)): the plugin dumps the session history to a file and starts the same two PHP
 hooks, so the checks, the wording and the fail-closed behaviour are identical on both engines.
 
@@ -145,6 +145,10 @@ Limits, stated plainly:
   findings were taken into account.
 - Creating an issue with `curl` or GraphQL is not caught.
 - The `arch` mode is not closed by the gate.
+
+A run whose mode has no gate is not left without the plugin: it runs the secret guard of the same plugin
+instead, which denies a shell call that carries a secret (with the type of the finding, never a value) and
+lets every ordinary command through. A gated run keeps exactly its gate and does not run the guard.
 
 ## Why write your own `scope-check`
 

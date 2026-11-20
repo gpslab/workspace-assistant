@@ -79,9 +79,9 @@ parts, in order:
 `instructions` of the rendered `opencode.json`; it also adds the managed repository's `CLAUDE.md` to the
 same list, but only when there is no `AGENTS.md` (OpenCode reads `AGENTS.md` itself and never `CLAUDE.md`).
 The parts and the order are the same on both engines. OpenCode takes no command hooks, so the run directory
-of a gated run (`pm`, `review` and the epic runs) also lists the gate shim (`opencode-plugin/`) in the
-`plugins` of `explicit.json`: the same PHP hooks then run there as on Claude Code, so the gates hold on both
-engines.
+also lists the plugin (`opencode-plugin/`) in the `plugins` of `explicit.json`: a gated run (`pm`, `review`
+and the epic runs) gets the same PHP hooks there as on Claude Code, so the gates hold on both engines, and a
+run with no gate kind (`arch`, `/compact`) runs the secret guard alone.
 
 #### Engine tokens
 

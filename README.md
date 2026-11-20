@@ -149,12 +149,16 @@ OpenCode keys are ignored. Verified against OpenCode **2.3.0**.
 
 - `OPENCODE_MODEL` (`provider/model`) is the model of every run, epics included. `/model` is read-only and
   `MODEL_EPIC_*` does not apply: the bot logs one line at startup when such a key is set.
-- All three modes and epics work. OpenCode has no command hooks, so a gated run (`pm`, `review`, and the
-  epic runs, which are `pm` or `review` with their own gate kind) carries the PM gate and the review commit
-  hook through a plugin listed in the run's own configuration. The gate logic itself stays in the bot: the
-  plugin starts the same PHP hooks Claude Code would, so a `pm` run still needs the issue created and a
-  `review` run still publishes only the reviewed commits. A run with no gate (`arch`, `/compact`) gets no
-  plugin.
+- All three modes and epics work. OpenCode has no command hooks, so every run carries a plugin listed in the
+  run's own configuration. A gated run (`pm`, `review`, and the epic runs, which are `pm` or `review` with
+  their own gate kind) gets the PM gate and the review commit hook through it. The logic itself stays in the
+  bot: the plugin starts the same PHP hooks Claude Code would, so a `pm` run still needs the issue created
+  and a `review` run still publishes only the reviewed commits. A run with no gate kind (`arch`, `/compact`)
+  has no gate to run, and the plugin then runs the secret guard alone: a shell command that carries a secret
+  is denied with the type of the finding, never a value, and every ordinary command passes. A Claude Code run
+  takes such a guard from the user and project scope the deployment installs; an OpenCode run sees neither of
+  those scopes, because the bot passes its own per-run configuration with `OPENCODE_DISABLE_PROJECT_CONFIG=1`,
+  so the guard comes from the bot.
 - Your own sub-agents reach the run: OpenCode loads no agent directory on its own, so the bot passes the
   agents of `.claude/agents/`, `.agents/agents/` and `~/.claude/agents/` into the run's configuration. An
   agent of the same `name:` replaces the built-in one, exactly as on Claude, and its `tools:` decide what
