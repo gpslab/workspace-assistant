@@ -400,8 +400,13 @@ final class ClaudeRunner implements AgentRunner
                 ? new RunAnswer(false, $this->lastAssistantText, $this->sessionId, null, true, true)
                 : new RunAnswer(true, $result->text, $result->sessionId ?? $this->sessionId, null, true);
         }
-        $this->recordFailedRun($result, $exit);
-        $this->closeProc();
+        try {
+            $this->recordFailedRun($result, $exit);
+        } finally {
+            // The evidence path is best-effort: even if it throws, the process handle and the run
+            // files must be cleaned up exactly as they were before the evidence step existed.
+            $this->closeProc();
+        }
         $this->result = $result;
 
         return RunnerState::Done;
@@ -661,8 +666,13 @@ final class ClaudeRunner implements AgentRunner
         if (!$result->isError) {
             return;
         }
-        $stream = isset($this->files[1]) ? (string) @file_get_contents($this->files[1]) : '';
-        $stderr = isset($this->files[2]) ? (string) @file_get_contents($this->files[2]) : $this->stderr;
+        // Only the tails are read, from the end of the files: a long failed run must not load
+        // its whole .out/.err into memory here, on the bot main loop. FailedRunEvidence caps each
+        // artifact to the same byte limits again, so a shorter read stays harmless.
+        $stream = $this->readTail($this->files[1] ?? '', FailedRunEvidence::STREAM_TAIL_BYTES);
+        $stderr = isset($this->files[2])
+            ? $this->readTail($this->files[2], FailedRunEvidence::STDERR_TAIL_BYTES)
+            : substr($this->stderr, -FailedRunEvidence::STDERR_TAIL_BYTES);
         FailedRunEvidence::record(
             $this->stateDir,
             'claude',
@@ -673,6 +683,32 @@ final class ClaudeRunner implements AgentRunner
             $result->text,
             $this->failedRunEvidenceDays,
         );
+    }
+
+    /** The last $bytes bytes of $path, read with fseek from the end — never the whole file. */
+    private static function readTail(string $path, int $bytes): string
+    {
+        if ($path === '' || $bytes <= 0) {
+            return '';
+        }
+        $size = @filesize($path);
+        if ($size === false || $size === 0) {
+            return '';
+        }
+        if ($size <= $bytes) {
+            return (string) @file_get_contents($path);
+        }
+        $h = @fopen($path, 'r');
+        if ($h === false) {
+            return '';
+        }
+        $tail = '';
+        if (fseek($h, -$bytes, SEEK_END) === 0) {
+            $tail = stream_get_contents($h) ?: '';
+        }
+        fclose($h);
+
+        return $tail;
     }
 
     /** Appends the chunk to the buffer and processes all completed lines (JSONL). */

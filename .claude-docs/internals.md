@@ -173,12 +173,14 @@ proc_open($argv, $descriptors, $pipes, $repoPath, $env);
 - Bot start: `Bot::run()` calls `ClaudeRunner::purgeRunFiles()`, which deletes the leftover `runs/`
   files of previous runs and the leftover `agents/` files. The file name carries the PID of the bot instance that created the run (not
   the claude PID); a file whose PID is alive is kept.
-- Failed-run evidence: a run whose `RunAnswer` is an error writes the raw event stream and the last
-  16 KiB of stderr, both through `SecretScanner`, into `<STATE_DIR>/failed-runs/<run id>.log`
-  (`FailedRunEvidence`; directory 0700, file 0600) before the run files are deleted, and logs the
-  reason (exit code and last error, masked). The directory is outside `runs/` and `agents/`, so
-  `purgeRunFiles()` leaves it alone. On every save the store prunes evidence older than
-  `FAILED_RUN_EVIDENCE_DAYS` (0 = no age limit) and everything beyond the newest 20 files.
+- Failed-run evidence: a run whose `RunAnswer` is an error writes the last 256 KiB of the event
+  stream and the last 16 KiB of stderr, both through `SecretScanner`, into
+  `<STATE_DIR>/failed-runs/<run id>.log` (`FailedRunEvidence`; directory 0700, file 0600) before
+  the run files are deleted, and logs the reason (exit code and last error, masked). The stream
+  tail is read from the end of the `.out` file (`fseek`), so a long failed run never loads the
+  whole file into memory. The directory is outside `runs/` and `agents/`, so `purgeRunFiles()`
+  leaves it alone. On every save the store prunes evidence older than `FAILED_RUN_EVIDENCE_DAYS`
+  (0 = no age limit) and everything beyond the newest 20 files.
 - The working directory is the managed repository.
 
 `RunAnswer::fromJson`: not a JSON object → the process died before a result (`isError`, text =

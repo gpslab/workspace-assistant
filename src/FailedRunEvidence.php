@@ -23,6 +23,9 @@ final class FailedRunEvidence
     /** Bytes of the stderr tail stored in the evidence file. */
     public const int STDERR_TAIL_BYTES = 16384;
 
+    /** Bytes of the event-stream tail stored in the evidence file (256 KiB). */
+    public const int STREAM_TAIL_BYTES = 262144;
+
     /**
      * Logs the failure reason (masked) and stores the evidence of a failed run when there is a
      * state directory. Returns the evidence file path, or null when nothing was written.
@@ -65,13 +68,18 @@ final class FailedRunEvidence
 
         $id = $runId !== '' ? basename($runId) : date('Ymd-His').'-'.getmypid().'-'.bin2hex(random_bytes(4));
         $path = $dir.'/'.$id.'.log';
+        // Cap the stream to its tail before masking: a long failed run (huge tool outputs, base64)
+        // must not be masked whole, which blocks poll() and fills the disk.
+        $streamTail = $stream !== '' && strlen($stream) > self::STREAM_TAIL_BYTES
+            ? substr($stream, -self::STREAM_TAIL_BYTES)
+            : $stream;
         $body = '== failed run =='."\n"
             .'engine: '.$engine."\n"
             .'run id: '.$id."\n"
             .'time: '.date('Y-m-d H:i:sP')."\n"
             .'exit code: '.$exitCode."\n"
             .'last error: '.$reason."\n"
-            .'== event stream (masked) =='."\n".$scanner->mask($stream)."\n"
+            .'== event stream (last '.self::STREAM_TAIL_BYTES.' bytes, masked) =='."\n".$scanner->mask($streamTail)."\n"
             .'== stderr tail (last '.self::STDERR_TAIL_BYTES.' bytes, masked) =='."\n"
             .$scanner->mask($stderr !== '' ? substr($stderr, -self::STDERR_TAIL_BYTES) : '')."\n";
 
@@ -94,7 +102,7 @@ final class FailedRunEvidence
     public static function prune(string $dir, int $retentionDays, ?int $now = null): void
     {
         $files = glob($dir.'/*.log') ?: [];
-        // Newest first: the file name starts with a sortable timestamp, mtime is the fallback.
+        // Newest first, by mtime; the file name (a `Ymd-His` timestamp) is only the tie-breaker.
         usort($files, static function (string $a, string $b): int {
             $byMtime = ((int) @filemtime($b)) <=> ((int) @filemtime($a));
 

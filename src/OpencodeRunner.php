@@ -290,8 +290,13 @@ final class OpencodeRunner implements AgentRunner
         }
 
         $this->result = $this->buildResult($exit);
-        $this->recordFailedRun($this->result, $exit);
-        $this->closeProc();
+        try {
+            $this->recordFailedRun($this->result, $exit);
+        } finally {
+            // The evidence path is best-effort: even if it throws, the process handle and the run
+            // files must be cleaned up exactly as they were before the evidence step existed.
+            $this->closeProc();
+        }
 
         return RunnerState::Done;
     }
@@ -695,16 +700,41 @@ final class OpencodeRunner implements AgentRunner
         if (!$result->isError) {
             return;
         }
+        // Only the tail of the stream is assembled, so a long failed run does not build one huge
+        // string here; FailedRunEvidence caps the assembled tail again to the same byte limit.
         FailedRunEvidence::record(
             $this->stateDir,
             'opencode',
             $this->runId,
             $exit,
-            implode("\n", $this->lines),
+            implode("\n", self::tailLines($this->lines, FailedRunEvidence::STREAM_TAIL_BYTES)),
             $this->stderr,
             $result->text,
             $this->failedRunEvidenceDays,
         );
+    }
+
+    /**
+     * The last whole lines up to $bytes (newest first reversed back to original order), so the
+     * evidence stream stays bounded; at least the last line is always kept.
+     *
+     * @param list<string> $lines
+     *
+     * @return list<string>
+     */
+    private static function tailLines(array $lines, int $bytes): array
+    {
+        $tail = [];
+        $total = 0;
+        for ($i = count($lines) - 1; $i >= 0; --$i) {
+            $tail[] = $lines[$i];
+            $total += strlen($lines[$i]) + 1; // + the "\n" join separator
+            if ($total >= $bytes) {
+                break;
+            }
+        }
+
+        return array_reverse($tail);
     }
 
     /**
