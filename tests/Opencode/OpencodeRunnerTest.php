@@ -210,6 +210,52 @@ final class OpencodeRunnerTest extends TestCase
         $runner->kill();
     }
 
+    /**
+     * A `tools:` written as a YAML flow sequence (`[Read, Grep]`) or a block sequence (`- Read`) must
+     * land in the rendered permission rules as the tools they name, not collapse into a bare deny-*.
+     */
+    public function testFlowAndBlockSequenceToolsReachThePermissionRules(): void
+    {
+        mkdir($this->root.'/repo/.claude/agents', 0o777, true);
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/critic.md',
+            "---\nname: critic\ndescription: flow\ntools: [Read, Grep]\n---\nFLOW BODY\n",
+        );
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/verifier.md',
+            "---\nname: verifier\ndescription: block\ntools:\n  - Read\n  - Edit\n---\nBLOCK BODY\n",
+        );
+        $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
+        $runner = $this->runner($bin, withAgents: true);
+
+        $runner->start('hello', null);
+        $this->waitForFile($this->doneFile());
+        $runner->poll();
+
+        $dirs = glob($this->root.'/state/opencode-*') ?: [];
+        self::assertCount(1, $dirs);
+        $explicit = json_decode((string) file_get_contents($dirs[0].'/explicit.json'), true);
+        self::assertIsArray($explicit);
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'read', 'resource' => '*', 'effect' => 'allow'],
+                ['action' => 'grep', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $explicit['agents']['critic']['permissions'],
+        );
+        self::assertSame(
+            [
+                ['action' => '*', 'resource' => '*', 'effect' => 'deny'],
+                ['action' => 'read', 'resource' => '*', 'effect' => 'allow'],
+                ['action' => 'edit', 'resource' => '*', 'effect' => 'allow'],
+            ],
+            $explicit['agents']['verifier']['permissions'],
+        );
+
+        $runner->kill();
+    }
+
     public function testThePerRunDirectoryIsRemovedAfterANormalFinish(): void
     {
         $bin = $this->fake(self::FIXTURES.'/plain.ndjson');

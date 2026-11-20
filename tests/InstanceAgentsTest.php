@@ -44,6 +44,54 @@ final class InstanceAgentsTest extends TestCase
         self::assertSame($this->root.'/repo/.claude/agents/mine.md', $agents['critic']['path']);
     }
 
+    public function testAFlowSequenceToolsListIsParsed(): void
+    {
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mine.md',
+            "---\nname: critic\ndescription: d\ntools: [Read, \"Grep\"]\n---\nbody\n",
+        );
+
+        $agents = $this->load(Config::ENGINE_OPENCODE);
+
+        self::assertSame(['Read', 'Grep'], $agents['critic']['tools']);
+    }
+
+    public function testABlockSequenceToolsListIsParsed(): void
+    {
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mine.md',
+            "---\nname: critic\ndescription: d\ntools:\n  - Read\n  - Grep\n---\nbody\n",
+        );
+
+        $agents = $this->load(Config::ENGINE_OPENCODE);
+
+        self::assertSame(['Read', 'Grep'], $agents['critic']['tools']);
+    }
+
+    public function testABlockSequenceToolsListStopsAtTheNextKey(): void
+    {
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mine.md',
+            "---\nname: critic\ndescription: d\ntools:\n  - Read\nmodel: opus\n---\nbody\n",
+        );
+
+        $agents = $this->load(Config::ENGINE_OPENCODE);
+
+        self::assertSame(['Read'], $agents['critic']['tools']);
+    }
+
+    public function testAQuotedFlowSequenceEntryLosesItsQuotes(): void
+    {
+        file_put_contents(
+            $this->root.'/repo/.claude/agents/mine.md',
+            "---\nname: critic\ndescription: d\ntools: ['Bash', \"Edit\"]\n---\nbody\n",
+        );
+
+        $agents = $this->load(Config::ENGINE_OPENCODE);
+
+        self::assertSame(['Bash', 'Edit'], $agents['critic']['tools']);
+    }
+
     public function testALiteralBlockScalarKeepsItsLineBreaksAndAFoldedOneItsParagraphs(): void
     {
         file_put_contents(

@@ -230,8 +230,9 @@ Traps:
   everything. A local `prompts/agents/<name>.md` replaces the whole file but must keep `name:`, otherwise
   `.dist` is used with a warning. The agents are not in `PromptFiles::NAMES`/`CONTRACT`.
 - **Agent front matter is read by `AgentFrontMatter`, not by a YAML parser** (the bot has no runtime
-  dependencies): `key: value`, the block scalars `>`/`|` with their indicators, and the comma-separated
-  `tools:` of the Claude Code format. Only `name`, `description`, `model` and `tools` are read; every other
+  dependencies): `key: value`, the block scalars `>`/`|` with their indicators, and `tools:` as a
+  comma-separated scalar (`A, B`), a YAML flow sequence (`[A, B]`) or a block sequence (`- A`). Only
+  `name`, `description`, `model` and `tools` are read; every other
   key is skipped together with its block. A file is addressed by its frontmatter `name:`, never by its file
   name, and a file without a usable `name:` is logged and ignored.
 - **`role_review` has two independent axes:** fit to the task's intent, and cross-project scope (consumers

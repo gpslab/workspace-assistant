@@ -13,7 +13,8 @@ namespace GpsLab\WorkspaceAssistant;
  * - `key: value`, with the value optionally in single or double quotes;
  * - the block scalars `>` (folded) and `|` (literal), with the optional chomping and indentation
  *   indicators (`>-`, `|-`, `>2`, ...), which is how a long `description:` is written;
- * - `tools: A, B` — the comma-separated list Claude Code uses.
+ * - `tools:` as a comma-separated scalar (`A, B`), as a YAML flow sequence (`[A, B]`) or as a YAML
+ *   block sequence (`- A` / `- B` lines indented under the key).
  *
  * Only `name`, `description`, `model` and `tools` are read; every other key is skipped, together
  * with its block. A file with no front matter has only a body, and a value this reader does not
@@ -47,14 +48,23 @@ final class AgentFrontMatter
                 continue;
             }
             $value = rtrim($kv[2]);
+            $isBlock = false;
             if (preg_match('/^([>|])(?:[1-9][+-]?|[+-][1-9]?)?$/', $value, $block) === 1) {
                 [$blockLines, $i] = self::blockLines($lines, $i + 1);
                 $value = self::blockScalar($blockLines, $block[1] === '>');
+                $isBlock = true;
             } else {
                 $value = self::unquote($value);
             }
             if ($key === 'tools') {
-                $out['tools'] = self::tools($value);
+                if ($value === '' && !$isBlock) {
+                    // An empty `tools:` may open a block sequence (`- Read` / `- Grep`) instead of
+                    // an empty list; the helper consumes the items when the next line starts one.
+                    [$items, $i] = self::blockSequence($lines, $i + 1);
+                    $out['tools'] = $items;
+                } else {
+                    $out['tools'] = self::tools($value);
+                }
             } else {
                 $out[$key] = $value;
             }
@@ -122,16 +132,49 @@ final class AgentFrontMatter
     }
 
     /**
-     * A comma-separated `tools:` list, trimmed and without empty entries.
+     * The items of a YAML block sequence under a `tools:` key: consecutive indented `- item` lines
+     * (`  - Read`). Each item is trimmed and unquoted. Returns an empty list, leaving the index on
+     * the `tools:` line, when the next line does not start an item.
+     *
+     * @param list<string> $lines
+     * @param int          $start index of the first line after the `tools:` key
+     *
+     * @return array{0: list<string>, 1: int} the items and the index of the last line consumed
+     */
+    private static function blockSequence(array $lines, int $start): array
+    {
+        $items = [];
+        for ($i = $start, $count = count($lines); $i < $count; ++$i) {
+            if (preg_match('/^[ \t]+-[ \t]*(.*)$/', $lines[$i], $m) !== 1) {
+                break;
+            }
+            $item = trim(self::unquote(trim($m[1])));
+            if ($item !== '') {
+                $items[] = $item;
+            }
+        }
+
+        return [$items, $i - 1];
+    }
+
+    /**
+     * A `tools:` list: a comma-separated scalar (`A, B`) or a flow sequence (`[A, B]`), trimmed,
+     * with each entry unquoted and without empty entries.
      *
      * @return list<string>
      */
     private static function tools(string $value): array
     {
+        $value = trim($value);
+        // A flow sequence: strip the wrapping brackets so the entries split on the commas.
+        if (str_starts_with($value, '[') && str_ends_with($value, ']')) {
+            $value = substr($value, 1, -1);
+        }
         $tools = [];
         foreach (explode(',', $value) as $tool) {
-            if (trim($tool) !== '') {
-                $tools[] = trim($tool);
+            $tool = trim(self::unquote(trim($tool)));
+            if ($tool !== '') {
+                $tools[] = $tool;
             }
         }
 

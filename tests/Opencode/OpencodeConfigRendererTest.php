@@ -196,6 +196,15 @@ final class OpencodeConfigRendererTest extends TestCase
         self::assertSame([['action' => '*', 'resource' => '*', 'effect' => 'deny']], $rules);
     }
 
+    public function testMapsToNothingIsTrueOnlyForANonEmptyListOfUnknownTools(): void
+    {
+        self::assertFalse(ToolPermissions::mapsToNothing([]));
+        self::assertFalse(ToolPermissions::mapsToNothing(['Read']));
+        self::assertFalse(ToolPermissions::mapsToNothing(['Read', 'Mystery']));
+        self::assertTrue(ToolPermissions::mapsToNothing(['Mystery']));
+        self::assertTrue(ToolPermissions::mapsToNothing(['Mystery', 'Other']));
+    }
+
     public function testWriteAndEditBothMapToTheSingleEditAction(): void
     {
         $rules = ToolPermissions::rules(['Write', 'Edit']);

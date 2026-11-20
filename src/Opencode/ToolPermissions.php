@@ -54,6 +54,28 @@ final class ToolPermissions
         return $rules;
     }
 
+    /**
+     * Whether a non-empty tools list grants no action at all: every declared tool is unknown to
+     * {@see TOOL_ACTION}, so {@see rules()} would return only the deny-all base rule and the agent
+     * would be silently unable to do anything. An empty list is a deliberate "restriction to
+     * nothing", so it does not count here.
+     *
+     * @param list<string> $tools
+     */
+    public static function mapsToNothing(array $tools): bool
+    {
+        if ($tools === []) {
+            return false;
+        }
+        foreach ($tools as $tool) {
+            if (isset(self::TOOL_ACTION[$tool])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /** @return array{action: string, resource: string, effect: string} */
     private static function deny(string $action): array
     {

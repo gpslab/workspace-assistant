@@ -8,6 +8,7 @@ use GpsLab\WorkspaceAssistant\Opencode\OpencodeAgent;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeConfigRenderer;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeLimit;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeNdjsonParser;
+use GpsLab\WorkspaceAssistant\Opencode\ToolPermissions;
 
 /**
  * Asynchronous launch of `opencode run` in JSON mode.
@@ -414,6 +415,9 @@ final class OpencodeRunner implements AgentRunner
 
         $agents = [];
         foreach (InstanceAgents::load($this->repoPath, $this->homeDir, Config::ENGINE_OPENCODE) as $name => $agent) {
+            if ($agent['tools'] !== null && ToolPermissions::mapsToNothing($agent['tools'])) {
+                Log::line('Agent "'.$name.'" ('.$agent['path'].') declares tools ('.implode(', ', $agent['tools']).') that map to no OpenCode permission; it is restricted to nothing.');
+            }
             $agents[] = new OpencodeAgent($name, $agent['description'], $agent['prompt'], $agent['tools']);
         }
 
