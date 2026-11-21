@@ -158,9 +158,10 @@ OpenCode keys are ignored. Verified against OpenCode **2.3.0**.
   publishes only the reviewed commits. OpenCode sees neither the user nor the project scope, because the bot
   passes its own per-run configuration with `OPENCODE_DISABLE_PROJECT_CONFIG=1`, so the guard comes from the
   bot. The guard runs before the gate and its deny is final, so a denied command is never counted as a gate
-  skip. It inspects shell calls only: in a gated run a command that carries a token-shaped string or a value
-  from `SECRET_ENV_FILES` is denied with no skip, and a body with such a string goes through a file
-  (`--body-file`), which the guard does not see.
+  skip. It inspects shell calls only: in a gated run a command that carries a token-shaped string or a known
+  value of the bot's `.env` or of `SECRET_ENV_FILES` is denied with no skip. The guard does not read a body
+  passed through a file (`gh issue create --body-file …`) — that path is not covered, so a body that trips
+  the guard must have the secret removed, not be moved into a file.
 - Your own sub-agents reach the run: OpenCode loads no agent directory on its own, so the bot passes the
   agents of `.claude/agents/`, `.agents/agents/` and `~/.claude/agents/` into the run's configuration. An
   agent of the same `name:` replaces the built-in one, exactly as on Claude, and its `tools:` decide what

@@ -497,10 +497,12 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
 
 The guard of an OpenCode run (`src/SecretGuard.php`, started by `opencode-plugin/index.js`) inspects the
 command of a `shell` call only. It runs before the PM gate in a gated run, and a guard deny has no skip,
-so a command that carries a token-shaped string or a value from `SECRET_ENV_FILES` is denied outright —
-including `gh issue create` with such a string in the body. A body with such a string therefore goes
-through a file (`gh issue create --body-file …`): the guard never reads that file. This is the accepted
-blind spot of the accepted cost, not a bug in the guard; a skip mechanism is deliberately absent.
+so a command that carries a token-shaped string or a known value of the bot's `.env` or of
+`SECRET_ENV_FILES` is denied outright — including `gh issue create` with such a string in the body. Known
+limitation: the guard does not read a file passed with `--body-file` (`gh issue create --body-file …`), so
+that path is not covered; a body that trips the guard must have the secret removed, not be moved into a
+file. That blind spot is the accepted cost of running the guard before the gate, not a bug in the guard; a
+skip mechanism is deliberately absent.
 
 ---
 
