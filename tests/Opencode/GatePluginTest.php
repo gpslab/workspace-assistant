@@ -20,8 +20,9 @@ use PHPUnit\Framework\TestCase;
  * and {@see \GpsLab\WorkspaceAssistant\Tests\ReviewCommitHookTest} cover through PHP directly, and not
  * the guard rule, which {@see \GpsLab\WorkspaceAssistant\Tests\SecretGuardTest} covers.
  *
- * Two modes: a run that carries the gate kind runs the gate hooks as before, a run that carries none
- * runs the secret guard alone (`bin/secret-guard-hook.php`) and lets ordinary commands pass.
+ * Two modes, one guard: a run that carries no gate kind runs the secret guard alone
+ * (`bin/secret-guard-hook.php`); a gated run runs the same guard first, then the PM gate and the review
+ * commit hook, so a guard deny is final and no PM gate skip is recorded for it.
  */
 #[CoversNothing]
 final class GatePluginTest extends TestCase
@@ -33,6 +34,9 @@ final class GatePluginTest extends TestCase
 
     private const string ISSUE_CREATE = 'gh issue create --title t --body b';
     private const string APPROVE = 'gh pr review 1 --approve';
+
+    /** Every gate kind a run can carry: `pm` and `review`, and the epic runs. */
+    private const array GATED_KINDS = ['pm', 'review', 'tick', 'final', 'epic_review'];
 
     private string $dir;
     private string $state;
@@ -346,16 +350,79 @@ final class GatePluginTest extends TestCase
     }
 
     /**
-     * A gated run keeps its old behaviour: the guard is not run, so a command the gate does not check
-     * passes even when it carries something the guard would deny.
+     * Every gated kind runs the guard before its gate: a command that carries a secret is denied with
+     * the type of the finding and never a value. Removing the guard call lets each of these through.
      */
-    public function testAGatedRunDoesNotRunTheGuard(): void
+    public function testAGatedRunDeniesACommandWithASecret(): void
     {
         $token = self::fakeToken();
 
-        $result = $this->evaluate('echo '.$token, self::fixture('stage-sequential'), kind: 'pm');
+        foreach (self::GATED_KINDS as $kind) {
+            $result = $this->evaluate('curl -H "Authorization: token '.$token.'" https://api.github.com/user', self::fixture('stage-sequential'), kind: $kind, review: $this->reviewFlagOf($kind));
 
-        self::assertNull($result['effect']);
+            self::assertSame('deny', $result['effect'], $kind);
+            self::assertStringContainsString('github_token', (string) $result['message'], $kind);
+            self::assertStringNotContainsString($token, (string) $result['message'], $kind);
+        }
+    }
+
+    /**
+     * `guard(event)` brings its empty-command check into gated runs too: a `shell` event whose command
+     * the plugin cannot read is denied with the guard's reason. In a gated run it used to pass.
+     */
+    public function testAGatedRunDeniesAnEmptyCommand(): void
+    {
+        $result = $this->evaluate('', self::fixture('stage-sequential'), kind: 'pm');
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString(SecretGuard::FAILURE_REASON, (string) $result['message']);
+    }
+
+    /**
+     * A gated run fails closed on a guard that cannot run (here: no PHP binary), and the reason is the
+     * guard's, not the gate's. `phpBin()` reads {@see PmGateHook::PHP_ENV} first, so breaking it breaks
+     * the guard before the PM gate is reached.
+     */
+    public function testAFailingGuardInAGatedRunDeniesWithTheGuardReason(): void
+    {
+        $result = $this->evaluate('ls -la', self::fixture('stage-sequential'), kind: 'pm', extraEnv: [PmGateHook::PHP_ENV => $this->dir.'/no-such-php']);
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString(SecretGuard::FAILURE_REASON, (string) $result['message']);
+    }
+
+    /**
+     * The guard runs before the PM gate, so its deny stops the gate before it records an applied skip.
+     * Reversing the order lets the gate write the skip for a command the guard then denies.
+     */
+    public function testAGuardDenyStopsThePmGateFromRecordingASkip(): void
+    {
+        PmGateHook::writeSnapshot($this->state, 'run-1', ['stages' => self::STAGES, 'skip_allowed' => ['pm' => true]]);
+        $skip = $this->dir.'/skip.txt';
+        file_put_contents($skip, 'only a typo fix');
+
+        $result = $this->evaluate(self::ISSUE_CREATE.' '.self::fakeToken(), self::fixture('stage-single'), kind: 'pm', extraEnv: [PmGateHook::SKIP_ENV => $skip]);
+
+        self::assertSame('deny', $result['effect']);
+        self::assertStringContainsString('github_token', (string) $result['message']);
+        self::assertSame('', PmGateHook::skipReason($this->state, 'run-1'));
+    }
+
+    /** The guard is no deny-all: an ordinary command passes in every gated kind. */
+    public function testAnOrdinaryCommandPassesInEveryGatedKind(): void
+    {
+        foreach (self::GATED_KINDS as $kind) {
+            $result = $this->evaluate('git status --short && ls -la', self::fixture('stage-sequential'), kind: $kind, review: $this->reviewFlagOf($kind));
+
+            self::assertNull($result['effect'], $kind);
+            self::assertNull($result['message'], $kind);
+        }
+    }
+
+    /** The review-commit flag a kind needs: `1` for the review kinds, absent for the others. */
+    private function reviewFlagOf(string $kind): ?string
+    {
+        return in_array($kind, ['review', 'epic_review'], true) ? '1' : null;
     }
 
     /**

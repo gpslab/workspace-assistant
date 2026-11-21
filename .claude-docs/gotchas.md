@@ -493,6 +493,19 @@ variable) or that differs from the SHA recorded for that PR. The denial text car
 
 ---
 
+## The secret guard does not see a `--body-file`
+
+The guard of an OpenCode run (`src/SecretGuard.php`, started by `opencode-plugin/index.js`) inspects the
+command of a `shell` call only. It runs before the PM gate in a gated run, and a guard deny has no skip,
+so a command that carries a token-shaped string or a known value of the bot's `.env` or of
+`SECRET_ENV_FILES` is denied outright — including `gh issue create` with such a string in the body. Known
+limitation: the guard does not read a file passed with `--body-file` (`gh issue create --body-file …`), so
+that path is not covered; a body that trips the guard must have the secret removed, not be moved into a
+file. That blind spot is the accepted cost of running the guard before the gate, not a bug in the guard; a
+skip mechanism is deliberately absent.
+
+---
+
 ## The request queue: what must not be "simplified"
 
 A request while the bot is busy is queued in one FIFO (`queue` table; one claude run at a time in one

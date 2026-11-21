@@ -224,15 +224,16 @@ a change of the model (or of the engine) resets the session and adds the usual n
   lists `opencode-plugin/` in `plugins` (`OpencodeRunner::pluginDir()`; the renderer does not tell the
   modes apart) and the environment of a gated run carries the gate contract
   (`WORKSPACE_ASSISTANT_GATE_STATE_DIR`, `_KIND`, `_RUN_ID`, `_PHP`, `PmGateHook::SKIP_ENV`,
-  `ReviewCommitHook::ENABLED_ENV` and `_SHAS`), which `JobRunner` sets for every gated run. The mode is the
-  gate kind `PmGateHook::KIND_ENV`:
-  with it the plugin's `evaluate` hook starts the same PHP hooks (`bin/pm-gate-hook.php`,
-  `bin/review-commit-hook.php`) with those values, without it the run has no gate to run and the plugin
-  starts `bin/secret-guard-hook.php` with the command alone — the secret guard of `src/SecretGuard.php`,
-  which denies a command that carries a secret and lets every ordinary one through. Both modes stay
-  single-source in PHP (`SecretScanner` is the detector of the guard, as of the masking and the commit
-  gate), and both are fail-closed: a hook that fails denies the call. A run that carries a gate variable
-  (state directory, run id, review flag) but no gate kind is a broken wiring and is denied, not guarded.
+  `ReviewCommitHook::ENABLED_ENV` and `_SHAS`), which `JobRunner` sets for every gated run. The plugin's
+  `evaluate` hook starts `bin/secret-guard-hook.php` on every run, with the command alone — the secret
+  guard of `src/SecretGuard.php`, which denies a command that carries a secret and lets every ordinary one
+  through. The gate kind `PmGateHook::KIND_ENV` then decides what follows: with it the plugin starts the
+  gate hooks (`bin/pm-gate-hook.php`, `bin/review-commit-hook.php`) with the gate values, without it the
+  run has no gate to run and the guard runs alone. The guard goes first, so its deny is final and the PM
+  gate records no skip for a command it denied. Both modes stay single-source in PHP (`SecretScanner` is
+  the detector of the guard, as of the masking and the commit gate), and both are fail-closed: a hook that
+  fails denies the call. A run that carries a gate variable (state directory, run id, review flag) but no
+  gate kind is a broken wiring and is denied, not guarded.
 - The review Stop hook has no OpenCode equivalent: no Stop hooks at all. `JobRunner::repeatReviewRun()`
   makes the same decision after the run (see [gotchas.md](gotchas.md)).
 - Epics run here too: `Bot` wires the `Orchestrator`, `ChatSurface::cmdEpic()` and `startEpicItem()` have no

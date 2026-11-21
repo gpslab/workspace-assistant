@@ -9,16 +9,17 @@
  * one is covered by phpunit. This plugin therefore holds no such logic: it starts the PHP hooks with the
  * engine-neutral input and turns their deny into `effect: "deny"` with the reason the hook produced.
  *
+ * Every run starts the secret guard: `guard(event)` runs `bin/secret-guard-hook.php` with the command
+ * alone, denies a call that carries a secret and lets every ordinary command pass. The rule itself is
+ * `src/SecretGuard.php`; this file only starts the hook and translates its deny.
+ *
  * Gate mode — the run carries a gate kind (the `pm` and `review` modes, and the epic runs, which are
- * those two modes with the gate kind of the run kind): it dumps the session history and starts
- * `bin/pm-gate-hook.php` and, on a review run, `bin/review-commit-hook.php`. Unchanged.
+ * those two modes with the gate kind of the run kind): after the guard it dumps the session history and
+ * starts `bin/pm-gate-hook.php` and, on a review run, `bin/review-commit-hook.php`.
  *
  * Guard-only mode — the run carries no gate kind (`arch`, `/compact`): there is no gate to run and no
- * state directory, run id or gate kind to validate, so the plugin starts `bin/secret-guard-hook.php`
- * with the command alone and denies a call that carries a secret; every ordinary command passes. The
- * session history is not read: the guard needs no history. The plugin is listed in the configuration of
- * every run, so the guard reaches the runs that have no gate — the runs that used to get no plugin at
- * all. The rule itself is `src/SecretGuard.php`; this file only starts the hook and translates its deny.
+ * state directory, run id or gate kind to validate, so the guard runs alone. The session history is not
+ * read: the guard needs no history. The plugin is listed in the configuration of every run.
  *
  * The plugin is a plain ES module: no build step and no import of `@opencode/plugin`. OpenCode 2.3.0
  * loads a default-exported `{id, setup(ctx)}` object. It reads no types at runtime, so phpunit can
@@ -59,7 +60,7 @@ const GIT_PHP_ENV = "WORKSPACE_ASSISTANT_PHP";
 /** What the model sees when the shim or a hook fails without a reason of its own. */
 const FAILURE_REASON = "The command was blocked: the gate failed.";
 
-/** The same for the guard of a run with no gate kind, which is no gate failure. */
+/** The same for the secret guard, whose failure is no gate failure in either mode. */
 const GUARD_FAILURE_REASON = "The command was blocked: the secret guard failed.";
 
 /** What the model sees when the review-commit flag of the run is not the one this run needs. */
@@ -103,8 +104,8 @@ function messageOf(error) {
 
 /**
  * The PHP binary of the run. The gate variable is set on a gated run only; `GitHooks::PHP_ENV` is set
- * on every run of both engines, which is the one a guard-only run has. `php` from `PATH` is the last
- * resort, as before.
+ * on every run of both engines, so the guard of a run with no gate kind uses it. `php` from `PATH` is
+ * the last resort, as before.
  *
  * @returns {string}
  */
@@ -160,8 +161,8 @@ function runHook(script, args, input, failure = FAILURE_REASON) {
 }
 
 /**
- * The guard-only mode: the run has no gate kind, so the secret guard runs alone and no session history
- * is read. The hook denies a command that carries a secret and allows every ordinary one.
+ * The secret guard of every run, with or without a gate kind: the hook denies a command that carries a
+ * secret and allows every ordinary one. No session history is read: the guard needs none.
  *
  * @param {any} event
  * @returns {Decision}
@@ -201,15 +202,26 @@ function gateVariablesWithoutKind() {
 }
 
 /**
- * The whole gate of a run that carries a gate kind: the review-commit flag of the run, then the dumped
- * history, the PM gate and, where the flag is `1`, the commit hook. Every path out of it that is not an
- * explicit allow denies.
+ * The whole check of a run that carries a gate kind: the secret guard first, then the review-commit flag
+ * of the run, the dumped history, the PM gate and, where the flag is `1`, the commit hook. The guard goes
+ * first because the PM gate records an applied skip: a skip must not be counted for a command the guard
+ * then denies. A guard deny is final. Every path out of it that is not an explicit allow denies.
  *
  * @param {any} event
  * @param {any} history
  * @returns {Decision}
  */
 function decide(event, history) {
+    let guarded;
+    try {
+        guarded = guard(event);
+    } catch (error) {
+        return {deny: true, reason: GUARD_FAILURE_REASON + " " + messageOf(error)};
+    }
+    if (guarded.deny) {
+        return guarded;
+    }
+
     const stateDir = env(STATE_ENV);
     const kind = env(KIND_ENV);
     const runId = env(RUN_ENV);
@@ -267,8 +279,8 @@ function apply(event, decision) {
 }
 
 /**
- * Evaluates one shell call: the guard alone when the run carries no gate kind, the gate otherwise. The
- * session history of a gated run is read synchronously when the API returns it directly, and awaited
+ * Evaluates one shell call: the guard alone when the run carries no gate kind, the guard and the gate
+ * otherwise. The session history of a gated run is read synchronously when the API returns it directly, and awaited
  * when it returns a promise; the PHP hooks always run synchronously.
  *
  * @param {any} ctx

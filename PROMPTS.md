@@ -83,8 +83,9 @@ parts, in order:
 same list, but only when there is no `AGENTS.md` (OpenCode reads `AGENTS.md` itself and never `CLAUDE.md`).
 The parts and the order are the same on both engines. OpenCode takes no command hooks, so the run directory
 also lists the plugin (`opencode-plugin/`) in the `plugins` of `explicit.json`: a gated run (`pm`, `review`
-and the epic runs) gets the same PHP hooks there as on Claude Code, so the gates hold on both engines, and a
-run with no gate kind (`arch`, `/compact`) runs the secret guard alone.
+and the epic runs) gets the same PHP hooks there as on Claude Code, so the gates hold on both engines. Every
+run starts the secret guard: before the gate in a gated run, alone in a run with no gate kind (`arch`,
+`/compact`).
 
 #### Engine tokens
 
