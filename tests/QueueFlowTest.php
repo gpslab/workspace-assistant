@@ -2918,6 +2918,22 @@ final class QueueFlowTest extends TestCase
         self::assertSame(['context', 'pull', 'push'], $this->memoryCallsAfter($memory, 3));
     }
 
+    /** A run killed by /cancel still pushes its memory: the push runs from the one end-of-run call site. */
+    public function testACancelledRunStillPushesTheMemory(): void
+    {
+        $memory = $this->memoryClient();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, memory3LayerBin: $memory, opencodeModel: 'a/b');
+
+        $this->say(100, 1, 'hi', 10);
+        $this->call('startQueueHead');
+        self::assertSame(['context', 'pull'], $this->memoryCallsAfter($memory, 2));
+
+        $this->command(100, 1, '/cancel');
+        self::assertFalse($this->activeJob());
+
+        self::assertSame(['context', 'pull', 'push'], $this->memoryCallsAfter($memory, 3));
+    }
+
     /** On Claude Code the user scope delivers the memory: the setting must not start anything there. */
     public function testAClaudeInstanceNeverSyncsTheMemory(): void
     {

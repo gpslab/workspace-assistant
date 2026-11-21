@@ -347,8 +347,6 @@ final class JobRunner implements JobLauncher, RunControl
         if ($state === RunnerState::Timeout) {
             $reason = $this->runState->activeJob->timeoutReason();
             $timeoutWarnings = $this->runState->activeJob->promptWarnings();
-            // The run is over, killed or not: its memory goes to the server in the background ({@see MemorySync}).
-            $this->memorySync->start(MemorySync::PUSH);
             $this->finishJobState($chatId, $threadId);
             $this->inbox->deleteInboxFiles($inboxFiles);
             $this->tg->deleteMessage($chatId, $thinkingId);
@@ -396,9 +394,9 @@ final class JobRunner implements JobLauncher, RunControl
             return null;
         }
         // The run is over and is not repeated: what it wrote into the memory goes to the server now, in the
-        // background, exactly as the pull that preceded it ({@see MemorySync}). A repeated turn pushes at
-        // the end of its own run.
-        $this->memorySync->start(MemorySync::PUSH);
+        // background, exactly as the pull that preceded it ({@see MemorySync}). The push itself runs from
+        // finishJobState() below, so every way a run can end (timeout, cancel, exception) pushes too. A
+        // repeated turn pushes at the end of its own run.
         // sendResult() appends the warnings to a normal reply itself; every
         // other outcome (error, epic, compact) gets a separate message.
         $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, $claude->isError || $kind !== RunKind::KIND_CHAT);
@@ -762,6 +760,10 @@ final class JobRunner implements JobLauncher, RunControl
 
     private function finishJobState(int $chatId, int $threadId): void
     {
+        // Every way a run ends lands here (normal finish, timeout, /cancel, the poll() exception path),
+        // so the push of the run's memory has exactly one call site and cannot be missed on any of them.
+        // The background client never fails a run ({@see MemorySync}).
+        $this->memorySync->start(MemorySync::PUSH);
         $this->db->setPid($chatId, $threadId, null);
         if (($gateRunId = $this->runState->jobContext['pm_gate_run_id'] ?? null) !== null) {
             PmGateHook::cleanup($this->config->stateDir, $gateRunId);
