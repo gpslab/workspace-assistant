@@ -6,16 +6,15 @@ namespace GpsLab\WorkspaceAssistant;
 
 /*
  * The secret guard of the OpenCode plugin (`opencode-plugin/`): php bin/secret-guard-hook.php, with the
- * engine-neutral input of the plugin (`{command, engine}`) on stdin. The plugin starts it for every run
- * that carries no gate kind (`arch`, `/compact`), where there is no gate to run — see SecretGuard. It is
- * not called by the bot and has no Claude Code counterpart: there the user and project scope deliver the
- * guard, and an OpenCode run sees neither.
+ * engine-neutral input of the plugin (`{command, engine}`) on stdin. The plugin starts it on every run:
+ * alone in a run with no gate kind (`arch`, `/compact`), and before the PM gate and the review commit
+ * hook in a gated run — see SecretGuard. It is not called by the bot.
  *
  * A command that carries a secret is denied with the deny JSON of PmGateHook::denyJson() on stdout
  * (exit 0); no output with exit 0 allows the call. The reason names the finding types, never a value.
  *
  * Fail-CLOSED, like bin/pm-gate-hook.php: any failure (including the bootstrap not loading) exits 2 with
- * a reason on stderr, which the plugin turns into a deny. It runs on every shell call of an arch run, so
+ * a reason on stderr, which the plugin turns into a deny. It runs on every shell call of every run, so
  * a guard that cannot decide blocks the call instead of letting it through.
  */
 

@@ -32,9 +32,9 @@ use GpsLab\WorkspaceAssistant\Opencode\ToolPermissions;
  * reads the gate environment contract `JobRunner` passes in `$extraEnv` ({@see PmGateHook::STATE_ENV},
  * {@see PmGateHook::KIND_ENV}, {@see PmGateHook::RUN_ENV}, {@see PmGateHook::PHP_ENV}, plus
  * {@see PmGateHook::SKIP_ENV}, {@see ReviewCommitHook::SHAS_ENV} and
- * {@see ReviewCommitHook::ENABLED_ENV} on a review). A run with no gate kind (`arch`, `/compact`) gets
- * the same plugin in its guard-only mode: it runs the secret guard and lets every ordinary command
- * through ({@see SecretGuard}), instead of denying every call as it would without a gate kind.
+ * {@see ReviewCommitHook::ENABLED_ENV} on a review). Every run starts the secret guard first
+ * ({@see SecretGuard}), and a run with no gate kind (`arch`, `/compact`) runs it alone: it lets every
+ * ordinary command through instead of denying every call as it would without a gate kind.
  *
  * The model is pinned by the instance ({@see Config::$opencodeModel}); the `$model` of a
  * {@see JobRunner::launchJob()} call is a Claude Code alias and is deliberately ignored. A resumed
@@ -456,10 +456,10 @@ final class OpencodeRunner implements AgentRunner
      *
      * OpenCode has no command hooks, so a gated run carries its PM gate and its review commit hook
      * through this plugin (see {@see PmGateHook::KIND_ENV}, set by {@see JobRunner} on every gated run);
-     * the plugin starts the same PHP hooks, so the gate logic stays single-source. A run without a gate
-     * kind (`arch`, `/compact`) gets the plugin too and it runs the secret guard alone, so the chat
-     * modes are guarded as well. The plugin reads the gate kind from the environment itself; the runner
-     * does not have to tell the modes apart.
+     * the plugin starts the same PHP hooks, so the gate logic stays single-source. The plugin runs the
+     * secret guard on every run, so a run without a gate kind (`arch`, `/compact`) is guarded too. The
+     * plugin reads the gate kind from the environment itself; the runner does not have to tell the modes
+     * apart.
      */
     private function pluginDir(): string
     {

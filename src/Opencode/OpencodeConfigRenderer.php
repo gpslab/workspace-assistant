@@ -138,8 +138,8 @@ final class OpencodeConfigRenderer
         // so even a name that slipped through as a numeric string could not turn the agents map
         // into a JSON list and drop the name -> permissions binding.
         // OpenCode has no command hooks, so every run lists the plugin: it starts the same PHP hooks as
-        // Claude Code (no logic in JS), running the PM gate and the review commit hook of a run with a
-        // gate kind and the secret guard of a run without one.
+        // Claude Code (no logic in JS), running the secret guard on every run and the PM gate and the
+        // review commit hook of a run with a gate kind.
         return $this->json(['agents' => (object) $agents, 'plugins' => [$this->pluginDir]]);
     }
 

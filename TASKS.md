@@ -146,9 +146,10 @@ Limits, stated plainly:
 - Creating an issue with `curl` or GraphQL is not caught.
 - The `arch` mode is not closed by the gate.
 
-A run whose mode has no gate is not left without the plugin: it runs the secret guard of the same plugin
-instead, which denies a shell call that carries a secret (with the type of the finding, never a value) and
-lets every ordinary command through. A gated run keeps exactly its gate and does not run the guard.
+Every run starts the secret guard of the same plugin: it denies a shell call that carries a secret (with
+the type of the finding, never a value) and lets every ordinary command through. A gated run runs it
+before its gate, so a command the guard denies is never counted as a gate skip; a run whose mode has no
+gate runs it alone.
 
 ## Why write your own `scope-check`
 
