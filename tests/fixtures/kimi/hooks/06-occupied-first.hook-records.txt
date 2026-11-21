@@ -1,8 +1,4 @@
 {"event": "SessionStart", "tool_call_id": null, "tool_name": null, "agent_name": null}
-{"event": "PreToolUse", "tool_call_id": "tool_cs3LWQFuW9PZMXWhayit9amo", "tool_name": "Bash", "agent_name": null}
-{"event": "SessionStart", "tool_call_id": null, "tool_name": null, "agent_name": null}
-{"event": "PreToolUse", "tool_call_id": "tool_Dz9mbMO3QJA93flEMdoSeWWJ", "tool_name": "Bash", "agent_name": null}
-{"event": "PostToolUse", "tool_call_id": "tool_cs3LWQFuW9PZMXWhayit9amo", "tool_name": "Bash", "agent_name": null}
-{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}
-{"event": "PostToolUse", "tool_call_id": "tool_Dz9mbMO3QJA93flEMdoSeWWJ", "tool_name": "Bash", "agent_name": null}
+{"event": "PreToolUse", "tool_call_id": "tool_TAjQR7n8lC3tyrOavXGntIPl", "tool_name": "Bash", "agent_name": null}
+{"event": "PostToolUse", "tool_call_id": "tool_TAjQR7n8lC3tyrOavXGntIPl", "tool_name": "Bash", "agent_name": null}
 {"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}

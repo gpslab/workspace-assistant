@@ -488,8 +488,8 @@ renderer, parser, runner and gate shim rely on. `wire.jsonl` is private and undo
   `{"role":"meta","type":"session.resume_hint","session_id":"session_<uuid>"}` — **only on success**. No usage, no model, no thinking.
   A hook failure is printed once per session as an `assistant` message ("PreToolUse hook … failed to execute …") and the
   `tool_calls` message is then printed again: a parser must not take that notice for the final answer. **stdout is not a faithful
-  history:** for a `run_in_background` sub-agent the `tool` message already says `status: completed … [summary]`, while
-  `wire.jsonl` has `status: running` (`run/14-subagent-background`).
+  history:** for a `run_in_background` sub-agent the `tool` message says `status: completed … [summary]` and is printed
+  after the final answer, while `wire.jsonl` has `status: running` (`run/14-subagent-background`).
 - **Exit codes:** 0 success; 1 for every failure; 4 when the session is in use (`-S` on a live session): stdout gets
   `{"type":"error","code":"session.occupied", …, "details":{"holder":{…}}}`, stderr is empty. A failed provider turn prints only
   `error: failed to run prompt: Prompt turn ended with reason: failed` on stderr. Config-level failures are explicit:
@@ -520,8 +520,7 @@ renderer, parser, runner and gate shim rely on. `wire.jsonl` is private and undo
   are read; `.claude/` is not. `extra_agent_dirs` of `config.toml` **wins over `$HOME/.agents/agents`** for the same name
   (`24-home-agents-precedence`). A sub-agent is called through the `Agent` tool (`subagent_type`); synchronous by default: the
   `tool.result` carries `status: completed` and the answer.
-- **Hooks (`[[hooks]]` of `config.toml`, no project-level file; they run in `-p`):** `SessionStart` (repeated inside a run with
-  sub-agents), `PreToolUse` (`tool_name`, `tool_input`, `tool_call_id`), `PostToolUse`, `SubagentStart` / `SubagentStop`
+- **Hooks (`[[hooks]]` of `config.toml`, no project-level file; they run in `-p`):** `SessionStart`, `PreToolUse` (`tool_name`, `tool_input`, `tool_call_id`), `PostToolUse`, `SubagentStart` / `SubagentStop`
   (`agent_name`; no `tool_call_id`), `Stop` (cannot continue a `-p` turn). **Only exit 2 blocks**, and the model sees stderr
   (`07-hook-deny`). Exit 0, **1, 255**, death by **SIGKILL**, a **timeout** and a **missing binary** all let the call run
   (`08`–`12`). `PreToolUse` also fires for tools used **inside sub-agents** (`15-subagent-bash`); the payload has no agent id, only

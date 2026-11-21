@@ -1,1 +1,1 @@
-MARK-hook-exit1 .
+MARK-hook-exit1

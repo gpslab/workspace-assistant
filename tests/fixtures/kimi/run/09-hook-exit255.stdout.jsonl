@@ -1,8 +1,7 @@
 {"role":"meta","type":"system.version","version":"2.7.2"}
-{"role":"assistant","tool_calls":[{"type":"function","id":"tool_4lx35wDa7PurqPDQIWUCRn5r","function":{"name":"Bash","arguments":"{\"command\":\"echo MARK-hook-exit255\"}"}}]}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_ItwsL5stMnBtAnw53cr46ojo","function":{"name":"Bash","arguments":"{\"command\":\"echo MARK-hook-exit255 .\"}"}}]}
 {"role":"assistant","content":"PreToolUse hook\n\nA PreToolUse hook failed to execute: exited with exit code 255. Hooks always run on this local machine; check that the hook command works locally. Later hook failures in this session are logged without another warning."}
-{"role":"assistant","tool_calls":[{"type":"function","id":"tool_4lx35wDa7PurqPDQIWUCRn5r","function":{"name":"Bash","arguments":"{\"command\":\"echo MARK-hook-exit255\"}"}}]}
-{"role":"tool","tool_call_id":"tool_4lx35wDa7PurqPDQIWUCRn5r","content":"MARK-hook-exit255\n"}
-{"role":"assistant","content":"MARK-hook-exit255"}
-{"role":"meta","type":"session.resume_hint","session_id":"session_904ab411-ef14-4ca1-920d-ab15f3911c3b","command":"kimi -r session_904ab411-ef14-4ca1-920d-ab15f3911c3b","content":"To resume this session: kimi -r session_904ab411-ef14-4ca1-920d-ab15f3911c3b"}
-b4dae"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_ItwsL5stMnBtAnw53cr46ojo","function":{"name":"Bash","arguments":"{\"command\":\"echo MARK-hook-exit255 .\"}"}}]}
+{"role":"tool","tool_call_id":"tool_ItwsL5stMnBtAnw53cr46ojo","content":"MARK-hook-exit255 .\n"}
+{"role":"assistant","content":"MARK-hook-exit255 ."}
+{"role":"meta","type":"session.resume_hint","session_id":"session_5060b796-7cdb-429d-9da4-15de8476a81d","command":"kimi -r session_5060b796-7cdb-429d-9da4-15de8476a81d","content":"To resume this session: kimi -r session_5060b796-7cdb-429d-9da4-15de8476a81d"}
