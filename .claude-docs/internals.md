@@ -472,6 +472,75 @@ its parser and its environment rely on.
 - **Agents:** markdown files in `$OPENCODE_CONFIG_DIR/agents/<name>.md` with `mode: subagent` and `description` are
   callable through the `subagent` tool.
 
+## Kimi (verified facts)
+
+Verified on Kimi Code CLI **2.7.2** (`kimi`), `metadata.protocol_version` `1.5` of `wire.jsonl`; the fixtures are in
+`tests/fixtures/kimi/` (README: scenarios, exit codes). No Kimi code is wired yet; these facts are the contract the planned
+renderer, parser, runner and gate shim rely on. `wire.jsonl` is private and undocumented: any of this can change with a Kimi update.
+
+- **Run:** `kimi -p <prompt> --output-format stream-json [-S <id>] [--agent-file <file>] [-m <alias>]`. `-p` runs under `auto`
+  permission. `KIMI_CODE_HOME` relocates config, credentials, sessions, logs; `KIMI_CODE_NO_AUTO_UPDATE=1` stops the self-update.
+  A home with its own `config.toml` and **symlinks** to the real `credentials/`, `sessions/` and `oauth/` works (a per-run home
+  only logs `projects.json is missing after migration`; `-S` by id still resumes). `$HOME/.agents/{agents,skills}` and
+  `$HOME/.agents/AGENTS.md` are read **regardless of `KIMI_CODE_HOME`**.
+- **stdout (stream-json):** first `{"role":"meta","type":"system.version"}`; `assistant` messages (with `tool_calls` or `content`),
+  `tool` messages (`tool_call_id`, `content`), `meta` `turn.step.retrying` while a provider error is retried; last
+  `{"role":"meta","type":"session.resume_hint","session_id":"session_<uuid>"}` — **only on success**. No usage, no model, no thinking.
+  A hook failure is printed once per session as an `assistant` message ("PreToolUse hook … failed to execute …") and the
+  `tool_calls` message is then printed again: a parser must not take that notice for the final answer. **stdout is not a faithful
+  history:** for a `run_in_background` sub-agent the `tool` message says `status: completed … [summary]` and is printed
+  after the final answer, while `wire.jsonl` has `status: running` (`run/14-subagent-background`).
+- **Exit codes:** 0 success; 1 for every failure; 4 when the session is in use (`-S` on a live session): stdout gets
+  `{"type":"error","code":"session.occupied", …, "details":{"holder":{…}}}`, stderr is empty. A failed provider turn prints only
+  `error: failed to run prompt: Prompt turn ended with reason: failed` on stderr. Config-level failures are explicit:
+  `Model "<alias>" is not configured in config.toml.`, `Session "<id>" not found.` The session lock is by pid liveness: a
+  `kill -9` of the run leaves the session resumable (`20-resume-after-kill`).
+- **Errors are in `wire.jsonl`:** `turn.ended` with `reason: "failed"` and `error{code, message, name, retryable,
+  details.statusCode}`: 403 → `provider.auth_error` (`retryable: false`); 429 rate limit → `provider.rate_limit`
+  (`APIProviderRateLimitError`, `retryable: true`, retried); 429 with a quota message → `provider.api_error`
+  (`APIProviderQuotaExhaustedError`, `retryable: false`, **not** retried: classify quota by `error.name`, not by the code);
+  500 → `provider.api_error` (`retryable: true`). The `30-mock-*` fixtures come from a synthetic server (made-up bodies, real client).
+- **`wire.jsonl`** (`$KIMI_CODE_HOME/sessions/wd_<dir>_<hash>/session_<uuid>/agents/<agent>/wire.jsonl`; `state.json` next to the
+  agents dir): records with `type` `metadata`, `profile.bind` (model alias, full system prompt), `turn.prompt`, `usage.record`
+  (`usage{inputOther, output, inputCacheRead, inputCacheCreation}`, `usageScope: "turn"`), `turn.ended`, `prompt.completed`,
+  and `context.append_loop_event` whose `event.type` is `tool.call` (`toolCallId`, `name`, `args`), `tool.result`
+  (`toolCallId`, `result{output, isError}`), `step.end` (`usage`, `finishReason`). Sub-agents write their **own**
+  `agents/agent-N/wire.jsonl`; the main file has only the `Agent` call and its result. The file is **append-only and cumulative
+  across the runs of a session** (`25-resumed-gated-*`: 1, 2, 3 `tool.call`s while the hook records are per run), so anything that
+  compares it with per-run data must anchor on the file size at launch.
+- **Session id:** the session directory and `state.json` exist from the start and every hook payload carries `session_id`, although
+  stdout prints it last. `-S <id>` resumes (the model remembers earlier runs).
+- **Prompt:** no flag appends to the system prompt. `--agent-file <md>` with `${base_prompt}` in the body keeps Kimi's base prompt,
+  project `AGENTS.md` and adds the file's text (`profile.bind.systemPrompt`). `--agent-file` is **rejected together with `-S`**
+  (exit 1: "Cannot combine --agent/--agent-file with --session/--continue"): the resumed session keeps its first prompt as a snapshot
+  (deleting the file afterwards changes nothing). A changed prompt on resume works as a user message: the bot's
+  instructions-update block carrying the `pm` prompt, sent on an `arch` session, changed the answered role and held on the next run
+  (`23-role-change-*`).
+- **Agents and skills:** project `.agents/agents/*.md` (`name`, `description`, `tools`, body) and `.agents/skills/<name>/SKILL.md`
+  are read; `.claude/` is not. `extra_agent_dirs` of `config.toml` **wins over `$HOME/.agents/agents`** for the same name
+  (`24-home-agents-precedence`). A sub-agent is called through the `Agent` tool (`subagent_type`); synchronous by default: the
+  `tool.result` carries `status: completed` and the answer.
+- **Hooks (`[[hooks]]` of `config.toml`, no project-level file; they run in `-p`):** `SessionStart`, `PreToolUse` (`tool_name`, `tool_input`, `tool_call_id`), `PostToolUse`, `SubagentStart` / `SubagentStop`
+  (`agent_name`; no `tool_call_id`), `Stop` (cannot continue a `-p` turn). **Only exit 2 blocks**, and the model sees stderr
+  (`07-hook-deny`). Exit 0, **1, 255**, death by **SIGKILL**, a **timeout** and a **missing binary** all let the call run
+  (`08`–`12`). `PreToolUse` also fires for tools used **inside sub-agents** (`15-subagent-bash`); the payload has no agent id, only
+  `tool_call_id`. `PreToolUse` fires **before** Kimi's own static `[[permission.rules]]` deny (`21-static-deny`: the hook record exists,
+  the tool result is "denied by permission rule"). A foreground `Agent` result and a background `task.completed` notification are
+  on disk by the next `PreToolUse` (checked by a hook that reads `wire.jsonl` live).
+- **Background and cron:** in `-p`, pending background tasks keep the run alive (`print_background_mode` defaults to `steer`:
+  the completion arrives as a `turn.prompt` notification `task.completed` with the task id and starts a new turn). A pending
+  `CronCreate` job kept `-p` running until the harness killed it after 150 s (`22-pending-cron`): a runner needs its own timeout.
+  The config key `[tools] disabled = [...]` switches tools off globally and is a candidate for `Cron*` and `AskUserQuestion`.
+- **Tools:** 26, one list in `tools.json`. Only `Bash` takes a shell string (`command`); `CronCreate` takes a `prompt` for the model,
+  which later calls `Bash`. `Task*` and `Cron*` are tool families (`TaskList`, `TaskOutput`, `TaskStop`; `CronCreate`, `CronDelete`,
+  `CronList`).
+- **OAuth:** the access token lives 900 s; **the server rotates the refresh token** (the SHA-256 prefix of `refresh_token` changed
+  together with `expires_at` after a refresh through the symlinked `credentials/`). So credentials must be shared, never copied. The
+  refresh lock is a file in `oauth/` of the Kimi home; it works through a symlinked `oauth/` (the shared file was touched at the
+  refresh). Concurrent refreshes from two processes were not tested.
+- **Not obtained:** a real (non-synthetic) rate-limit or quota body; MCP tools (no MCP server was available; MCP is configured in
+  `mcp.json`, not in `config.toml`); whether Kimi ever cleans `sessions/` (nothing found in the config reference).
+
 ## Tests and CI
 
 `composer test` (phpunit), `composer stan`, `composer cs:check`. CI (`.github/workflows/ci.yml`) runs

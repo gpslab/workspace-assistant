@@ -1,0 +1,9 @@
+{"event": "SessionStart", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "PreToolUse", "tool_call_id": "tool_ZDytl2a7NOY8eQzzhmhfjcjN", "tool_name": "Agent", "agent_name": null}
+{"event": "SubagentStart", "tool_call_id": null, "tool_name": null, "agent_name": "shellagent"}
+{"event": "PreToolUse", "tool_call_id": "tool_NMnKllVDF5rQij8sc5qGrQuM", "tool_name": "Bash", "agent_name": null}
+{"event": "PostToolUse", "tool_call_id": "tool_NMnKllVDF5rQij8sc5qGrQuM", "tool_name": "Bash", "agent_name": null}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "SubagentStop", "tool_call_id": null, "tool_name": null, "agent_name": "shellagent"}
+{"event": "PostToolUse", "tool_call_id": "tool_ZDytl2a7NOY8eQzzhmhfjcjN", "tool_name": "Agent", "agent_name": null}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}

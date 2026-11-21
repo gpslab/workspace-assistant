@@ -1,0 +1,207 @@
+[
+ {
+  "name": "Agent",
+  "parameters": [
+   "description",
+   "prompt",
+   "resume",
+   "run_in_background",
+   "subagent_type"
+  ]
+ },
+ {
+  "name": "AgentSwarm",
+  "parameters": [
+   "description",
+   "items",
+   "prompt_template",
+   "resume_agent_ids",
+   "subagent_type"
+  ]
+ },
+ {
+  "name": "AskUserQuestion",
+  "parameters": [
+   "background",
+   "questions"
+  ]
+ },
+ {
+  "name": "Bash",
+  "parameters": [
+   "command",
+   "cwd",
+   "description",
+   "disable_timeout",
+   "run_in_background",
+   "timeout"
+  ]
+ },
+ {
+  "name": "CreateGoal",
+  "parameters": [
+   "completionCriterion",
+   "objective",
+   "replace"
+  ]
+ },
+ {
+  "name": "CronCreate",
+  "parameters": [
+   "cron",
+   "prompt",
+   "recurring"
+  ]
+ },
+ {
+  "name": "CronDelete",
+  "parameters": [
+   "id"
+  ]
+ },
+ {
+  "name": "CronList",
+  "parameters": []
+ },
+ {
+  "name": "Edit",
+  "parameters": [
+   "new_string",
+   "old_string",
+   "path",
+   "replace_all"
+  ]
+ },
+ {
+  "name": "ExitPlanMode",
+  "parameters": [
+   "options"
+  ]
+ },
+ {
+  "name": "FetchURL",
+  "parameters": [
+   "url"
+  ]
+ },
+ {
+  "name": "GetGoal",
+  "parameters": []
+ },
+ {
+  "name": "Glob",
+  "parameters": [
+   "head_limit",
+   "include_dirs",
+   "include_ignored",
+   "offset",
+   "path",
+   "pattern"
+  ]
+ },
+ {
+  "name": "Grep",
+  "parameters": [
+   "-A",
+   "-B",
+   "-C",
+   "-i",
+   "-n",
+   "glob",
+   "head_limit",
+   "include_ignored",
+   "multiline",
+   "offset",
+   "output_mode",
+   "path",
+   "pattern",
+   "type"
+  ]
+ },
+ {
+  "name": "Read",
+  "parameters": [
+   "column_offset",
+   "line_offset",
+   "max_chars",
+   "n_lines",
+   "path"
+  ]
+ },
+ {
+  "name": "ReadMediaFile",
+  "parameters": [
+   "full_resolution",
+   "path",
+   "region"
+  ]
+ },
+ {
+  "name": "SetGoalBudget",
+  "parameters": [
+   "unit",
+   "value"
+  ]
+ },
+ {
+  "name": "Skill",
+  "parameters": [
+   "args",
+   "path",
+   "skill"
+  ]
+ },
+ {
+  "name": "TaskList",
+  "parameters": [
+   "active_only",
+   "limit"
+  ]
+ },
+ {
+  "name": "TaskOutput",
+  "parameters": [
+   "task_id"
+  ]
+ },
+ {
+  "name": "TaskStop",
+  "parameters": [
+   "reason",
+   "task_id"
+  ]
+ },
+ {
+  "name": "TodoList",
+  "parameters": [
+   "todos"
+  ]
+ },
+ {
+  "name": "UpdateGoal",
+  "parameters": [
+   "status"
+  ]
+ },
+ {
+  "name": "WaitFor",
+  "parameters": [
+   "task_id",
+   "timeout"
+  ]
+ },
+ {
+  "name": "WebSearch",
+  "parameters": [
+   "query"
+  ]
+ },
+ {
+  "name": "Write",
+  "parameters": [
+   "content",
+   "mode",
+   "path"
+  ]
+ }
+]

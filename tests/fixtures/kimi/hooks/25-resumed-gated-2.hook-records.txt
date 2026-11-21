@@ -1,0 +1,4 @@
+{"event": "SessionStart", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "PreToolUse", "tool_call_id": "tool_rzNtmHjZWt4z4OOahlBS0247", "tool_name": "Bash", "agent_name": null}
+{"event": "PostToolUse", "tool_call_id": "tool_rzNtmHjZWt4z4OOahlBS0247", "tool_name": "Bash", "agent_name": null}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}

@@ -1,0 +1,2 @@
+{"role":"meta","type":"system.version","version":"2.7.2"}
+{"role":"meta","type":"turn.step.retrying","failed_attempt":1,"next_attempt":2,"max_attempts":2,"delay_ms":555.8262117722498,"error_name":"status","error_message":"Internal server error","status_code":500}
