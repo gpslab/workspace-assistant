@@ -262,14 +262,16 @@ one line in the log and never delays or fails a run.
   that names no readable file gives no block at all and no warning — a project without memory yet is normal.
 - **Sync** — `Memory\MemorySync`, one instance in `Bot`, handed to `JobRunner`. `launchJob()` starts `pull`
   once the run is alive: the prompt of that run is already built, so the refreshed data belongs to the NEXT
-  run. `JobRunner::poll()` starts `push` when a run ends (finished, or killed by its timeout), and `Bot::tick()` calls
+  run. `JobRunner::finishJobState()` starts `push` — the one call site every way a run ends reaches (finished,
+  killed by its timeout, `/cancel` or the `poll()` exception path) — and `Bot::tick()` calls
   `MemorySync::poll()` on every pass to reap the child outside the job. The client runs through `proc_open`
   with argv `[<bin>, pull|push]` and its output redirected to `<STATE_DIR>/memory-3layer.log`, so no pipe can
   fill up and block it. One sync at a time for the whole instance: a non-blocking `flock` of
   `<STATE_DIR>/memory-3layer.lock`, held while a sync runs and released when it is reaped (the system
-  releases it even if the bot dies). A second sync — the other verb, or another bot process — is skipped with
-  a log line instead of running next to the first, and a client still alive after
-  `MemorySync::DEFAULT_TIMEOUT_SEC` is killed.
+  releases it even if the bot dies). A second sync wanted by this instance while its own client still runs
+  is deferred, not dropped — `poll()` starts it once the client is reaped, so a run that ends sooner than its
+  pull still gets its push out — while a sync another bot process holds the lock for is skipped with a log
+  line, and a client still alive after `MemorySync::DEFAULT_TIMEOUT_SEC` is killed.
 
 ---
 
