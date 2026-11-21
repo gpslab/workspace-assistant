@@ -185,6 +185,33 @@ What differs from a Claude instance:
   after the run has launched its first sub-agent: OpenCode waits for sub-agents in silence, so silence then
   no longer means "hung" (the Claude runner never sees this, its sub-agent calls are progress lines).
 
+### Memory
+
+An OpenCode run reads no user scope, so it gets no memory of the instance the way a Claude Code run does
+from the hooks and the `~/.claude/CLAUDE.md` of the deployment. `MEMORY_3LAYER_BIN` closes that gap: with
+the **absolute** path of the `memory-3layer` client set (a non-interactive shell has no `~/.local/bin` on
+`PATH`, so a bare name does not resolve), the bot
+
+- runs `memory-3layer context`, which prints the **paths** of the memory files — L0 (`IDENTITY.md`), the
+  project's `SESSION.md` and `project.md`;
+- reads those files itself (they live outside the managed repository, in the data directory of
+  memory-3layer) and puts their **content**, never the paths, into the system prompt of every OpenCode run
+  as the memory block ([PROMPTS.md](PROMPTS.md#memory)); the run needs no permission to read anything
+  outside the repository. A file larger than `MEMORY_3LAYER_CONTEXT_MAX_BYTES` is injected from its newest
+  end;
+- pulls the memory before a run — that is, the data is refreshed for the **next** run, never for the one
+  already started — and pushes it after a run, both in the background. One sync at a time for the whole
+  instance (`state/memory-3layer.lock`), and a skipped or failed sync is not retried here: the next run
+  does it again.
+
+A client that is missing, exits non-zero or hangs changes nothing about the run: the run goes on, and the
+bot writes one line to its log; the output of the last sync is in `state/memory-3layer.log`. With
+`ENGINE=claude` the setting changes nothing at all — that engine takes memory from the user scope, so the
+bot neither injects anything nor syncs.
+
+L0 (`IDENTITY.md`) reaches the model provider that `OPENCODE_MODEL` names, exactly as it already does on
+Claude; nothing filters the injected memory.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -202,6 +229,8 @@ What differs from a Claude instance:
 | `OPENCODE_BIN` | `opencode` | Path or name of the `opencode` binary (`ENGINE=opencode`) |
 | `OPENCODE_MODEL` | empty | Model of every OpenCode run as `provider/model[#variant]`; empty = the model of your OpenCode configuration. Changing it starts a new session |
 | `OPENCODE_EXTRA_ARGS` | empty | Extra `opencode` arguments, comma-separated; they are added after the ones the bot passes itself |
+| `MEMORY_3LAYER_BIN` | empty | Absolute path of the `memory-3layer` client. Set = the bot injects the memory of the instance into the system prompt of an OpenCode run and syncs it in the background; with `ENGINE=claude` the setting changes nothing. Empty = off (default). See [Memory](#memory) |
+| `MEMORY_3LAYER_CONTEXT_MAX_BYTES` | `32768` | Ceiling of the injected part of ONE memory file, bytes; above it only the newest part is injected. 0 = no injection |
 | `CLAUDE_TIMEOUT` | `0` | Overall limit of one Claude call, seconds (0 = off) |
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |
 | `CLAUDE_EXTRA_ARGS` | `--dangerously-skip-permissions` | Extra `claude` arguments, comma-separated |

@@ -1,6 +1,6 @@
 # Prompts
 
-The bot's prompts are files in `prompts/`: 23 texts (`prompts/*.md.dist`) and 6 built-in agents
+The bot's prompts are files in `prompts/`: 24 texts (`prompts/*.md.dist`) and 6 built-in agents
 (`prompts/agents/*.md.dist`). This page says which file is used in which run, how the prompt of a run is
 assembled from the files, the settings in `.env` and the texts built in code, and how to override each
 file. The settings are in [INSTALL.md](INSTALL.md), the built-in agents in
@@ -41,6 +41,7 @@ There are three kinds of file:
 | `role_pm`                           | persona  | Role block of the `pm` mode (`SystemPrompt`)                        |                                 |
 | `default_file_prompt`               | setting  | A file sent without text (`Inbox`)                                  |                                 |
 | `forge_gitlab`                      | setting  | End of the system prompt of every mode when `FORGE=gitlab` (`SystemPrompt`) |                         |
+| `memory_context`                    | setting  | System prompt of an OpenCode run with `MEMORY_3LAYER_BIN` set (`Memory\MemoryContext`) | `{memory_context}`     |
 | `agents/acceptor`                   | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/critic`                     | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/editor`                     | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
@@ -61,7 +62,7 @@ has one model for everything, `OPENCODE_MODEL`.
 
 ### System prompt of every run
 
-`SystemPrompt::build` assembles parts 1–6; the runner appends 7 and 8 and hands the result to the CLI. The
+`SystemPrompt::build` assembles parts 1–6; the runner appends 7–9 and hands the result to the CLI. The
 parts, in order:
 
 1. `common`;
@@ -71,8 +72,10 @@ parts, in order:
 5. the role block of the mode;
 6. `forge_gitlab` (only with `FORGE=gitlab`; it maps the `gh` commands of the prompts to `glab`, and with
    `FORGE=github` nothing is added);
-7. `CLAUDE_APPEND_SYSTEM_PROMPT` from `.env`;
-8. `language_line`, always last, so it wins over a persona.
+7. `memory_context` — the memory of the instance (`MEMORY_3LAYER_BIN`), on OpenCode only and only when the
+   setting is set (see [Memory](#memory)); nothing is added otherwise;
+8. `CLAUDE_APPEND_SYSTEM_PROMPT` from `.env`;
+9. `language_line`, always last, so it wins over a persona.
 
 `ClaudeRunner` passes the whole text with one `--append-system-prompt`. `OpencodeRunner` writes it to
 `system-prompt.md` in its per-run config directory (`state/opencode-<runId>/`) and lists that file in the
@@ -101,6 +104,25 @@ These two texts are why the tokens exist: `common` and `contract_review` are `lo
 substitution runs over the whole assembled text, so a persona file may use the tokens as well. On Claude
 Code the values are that text exactly as it was before the tokens, byte for byte; on OpenCode the wording
 names the mechanics of that engine, which has neither a Stop hook nor `run_in_background`.
+
+#### Memory
+
+OpenCode reads no user scope: a run gets no memory from the hooks or the `~/.claude/CLAUDE.md` of the
+deployment, the way a Claude Code run does. With `MEMORY_3LAYER_BIN` set the bot fills that gap. It runs
+`memory-3layer context`, which prints the PATHS of the instance's memory files (L0, the project's
+SESSION.md and project.md); the bot reads those files itself and injects their CONTENT as part 7, so the run
+needs no permission to read outside the managed repository. Only content is injected, never the paths.
+
+Each file becomes a block of its own: a `### <file name>` heading and the text. A file longer than
+`MEMORY_3LAYER_CONTEXT_MAX_BYTES` is injected from its newest end, and its heading carries
+`(cut: the newest part only)` — a long-lived project has a SESSION.md of hundreds of KB, and the model must
+not read a cut as the whole file. The headings and that marker are built in code next to the rendered
+`{memory_context}`. Both the call and the reading are best-effort: a client that is missing, fails or hangs
+gives no block at all and one line in the log of the bot, never a failed or delayed run.
+
+With `ENGINE=claude` the part is never added, whatever the setting says: the user scope delivers the memory
+of the instance there. The background pull before a run and push after it are in
+[internals.md](.claude-docs/internals.md#memory); they do not touch the prompt of a run.
 
 ### Chat message
 
@@ -184,7 +206,8 @@ no longer become an extra task.
   - *Override warning.* A local override of any of the 17 contract names is reported in the reply of every
     run, whatever the mode or kind of run. `default_file_prompt` is a setting and gets no warning.
   - *Content checks.* Only the files of the system prompt (`common`, `common_limits`, `contract_review`,
-    `language_line`, the persona files), `session_update` and `pm_runbook` are checked, and a run that
+    `language_line`, the persona files), `session_update`, `pm_runbook` and `memory_context` are checked,
+    and a run that
     uses them adds a warning for: an empty or unreadable local file (the `.dist` is used instead), a
     placeholder that differs from the `.dist` and a placeholder the code does not fill. For
     `review_status_reason*`, `compact_*`, `secret_blocked` and `epic_runbook` a placeholder mistake passes silently (only the

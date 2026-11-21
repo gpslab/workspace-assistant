@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeAgent;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeConfigRenderer;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeLimit;
@@ -133,6 +134,11 @@ final class OpencodeRunner implements AgentRunner
         private readonly string $opencodeModel = '',
         /** Age limit of the evidence kept for a run that ended with an engine error; 0 = no age limit */
         private readonly int $failedRunEvidenceDays = 14,
+        /**
+         * Memory of the instance (`MEMORY_3LAYER_BIN`), injected into the system prompt: this engine
+         * reads no user scope, so the memory comes from the bot. Null = the feature is off.
+         */
+        private readonly ?MemoryContext $memory = null,
     ) {
     }
 
@@ -368,6 +374,10 @@ final class OpencodeRunner implements AgentRunner
     /**
      * The assembled system prompt, exactly as {@see ClaudeRunner::start()} builds it: mode contract and
      * personas, the instance's `CLAUDE_APPEND_SYSTEM_PROMPT` and the chat-language line last.
+     *
+     * Right after the mode prompt comes the memory of the instance, when `MEMORY_3LAYER_BIN` is set: this
+     * engine reads no user scope, so the memory the other engine gets from its hooks and
+     * `~/.claude/CLAUDE.md` is injected here, as content ({@see MemoryContext}).
      */
     private function systemPrompt(): string
     {
@@ -381,6 +391,10 @@ final class OpencodeRunner implements AgentRunner
         );
         $this->promptWarnings = $built['warnings'];
         $systemPrompt = $built['text'];
+        $memory = $this->memory?->block($this->promptWarnings) ?? '';
+        if ($memory !== '') {
+            $systemPrompt .= "\n\n".$memory;
+        }
         if ($this->appendSystemPrompt !== '') {
             $systemPrompt .= "\n\n".$this->appendSystemPrompt;
         }

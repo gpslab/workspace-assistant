@@ -240,6 +240,36 @@ a change of the model (or of the engine) resets the session and adds the usual n
   run kind (`tick`, `final`, `epic_review`), so the shim of the plugin bullet above gates it like any other
   run. `ModelChoice::isPinned()` is always true, so an epic run takes `OPENCODE_MODEL` and `MODEL_EPIC_*` is
   never applied — `Config` names a set key in one startup warning.
+- The memory of the instance is injected here, because this engine reads no user scope (see [Memory](#memory)).
+
+---
+
+## Memory
+
+`MEMORY_3LAYER_BIN` — the absolute path of the `memory-3layer` client — is opt-in and off by default
+(`~/.local/bin` is not on the `PATH` of a non-interactive shell, hence the absolute path).
+`Config::memoryBin()` hands it out on an engine that reads no user scope only, so with `ENGINE=claude` the
+key changes nothing at all. Two pieces, both best-effort: a client that is missing, fails or hangs leaves
+one line in the log and never delays or fails a run.
+
+- **Injection** — `Memory\MemoryContext`, built by `RunnerFactory::memory()` and passed to `OpencodeRunner`.
+  `memory-3layer context` prints the PATHS of L0, the project's SESSION.md and project.md; the bot reads
+  those files itself and appends their CONTENT, rendered from `prompts/memory_context.md.dist`, right after
+  the mode prompt and before `CLAUDE_APPEND_SYSTEM_PROMPT`, so an OpenCode agent needs no read access
+  outside the managed repository. Each call is bounded by `MemoryContext::DEFAULT_TIMEOUT_SEC` (the client is
+  SIGKILLed on expiry) and each file is capped at `MEMORY_3LAYER_CONTEXT_MAX_BYTES` bytes taken from its
+  NEWEST end, the heading then carrying `(cut: the newest part only)`; `0` turns the injection off. A client
+  that names no readable file gives no block at all and no warning — a project without memory yet is normal.
+- **Sync** — `Memory\MemorySync`, one instance in `Bot`, handed to `JobRunner`. `launchJob()` starts `pull`
+  once the run is alive: the prompt of that run is already built, so the refreshed data belongs to the NEXT
+  run. `JobRunner::poll()` starts `push` when a run ends (finished, or killed by its timeout), and `Bot::tick()` calls
+  `MemorySync::poll()` on every pass to reap the child outside the job. The client runs through `proc_open`
+  with argv `[<bin>, pull|push]` and its output redirected to `<STATE_DIR>/memory-3layer.log`, so no pipe can
+  fill up and block it. One sync at a time for the whole instance: a non-blocking `flock` of
+  `<STATE_DIR>/memory-3layer.lock`, held while a sync runs and released when it is reaped (the system
+  releases it even if the bot dies). A second sync — the other verb, or another bot process — is skipped with
+  a log line instead of running next to the first, and a client still alive after
+  `MemorySync::DEFAULT_TIMEOUT_SEC` is killed.
 
 ---
 
@@ -256,7 +286,9 @@ a change of the model (or of the engine) resets the session and adds the usual n
    per cold-finding id, chat verdict of at most three lines starting with 🟢 or 🔴).
 4. **Persona**: the common block (`PROMPTS_DIR/common.md` → `prompts/persona_common.md` → `.dist`), then
    the role block of the mode (`PROMPTS_DIR/<mode>.md` → `prompts/role_<mode>.md` → `.dist`).
-5. Optional `CLAUDE_APPEND_SYSTEM_PROMPT`, then the chat-language line (`languageLine`), always last.
+5. Optional `CLAUDE_APPEND_SYSTEM_PROMPT`, then the chat-language line (`languageLine`), always last. On
+   OpenCode `OpencodeRunner` adds the memory of the instance (part 7 of [PROMPTS.md](../PROMPTS.md#assembly))
+   between the mode prompt and that text; with `ENGINE=claude` it is never added.
 
 All texts are loaded by `PromptFiles` (`prompts/<name>.md`, else `prompts/<name>.md.dist`) on every run;
 `PROMPTS_DIR` files (relative to `REPO_PATH`) sit on top for the persona. A missing or empty persona file
@@ -341,12 +373,14 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `OPENCODE_BIN`          | path to the opencode binary (`ENGINE=opencode`; the installer checks this one instead of `CLAUDE_BIN`) | `opencode` |
 | `OPENCODE_MODEL`        | model of every run, `provider/model`; empty = the OpenCode default; changing it starts a new session | empty      |
 | `OPENCODE_EXTRA_ARGS`   | extra opencode arguments, comma-separated, after the bot's own flags | empty                        |
+| `MEMORY_3LAYER_BIN`     | absolute path of the `memory-3layer` client; off unless set, and ignored on `ENGINE=claude` (that engine reads the user scope) — see [Memory](#memory) | empty |
+| `MEMORY_3LAYER_CONTEXT_MAX_BYTES` | ceiling of the injected part of one memory file, newest bytes first; 0 = no injection | `32768` |
 | `CLAUDE_TIMEOUT`        | overall call timeout, seconds (`0` = off)                      | `0`                              |
 | `CLAUDE_STALL_TIMEOUT`  | no output for N seconds → hung, kill (`0` = off)               | `900`                            |
 | `CLAUDE_EXTRA_ARGS`     | extra claude arguments, comma-separated                        | `--dangerously-skip-permissions` |
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | text appended to the system prompt (not split on commas) | empty                            |
 | `PROMPTS_DIR`           | persona files, relative to `REPO_PATH`                         | empty (texts from `prompts/`)    |
-| `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/` and `agents/`, failed-run `failed-runs/`, the per-run `opencode-<runId>/` config directories | `./state` |
+| `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/` and `agents/`, failed-run `failed-runs/`, the per-run `opencode-<runId>/` config directories, the memory `memory-3layer.lock` / `.log` | `./state` |
 | `FAILED_RUN_EVIDENCE_DAYS` | days the masked evidence of a failed run is kept (0 = no age limit; the newest 20 are always kept) | `14` |
 | `POLL_TIMEOUT`          | idle long-poll timeout, seconds                                | `30`                             |
 | `GIT_TIMEOUT`           | network git timeout, seconds                                   | `120`                            |

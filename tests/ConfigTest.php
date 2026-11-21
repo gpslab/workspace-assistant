@@ -88,6 +88,41 @@ final class ConfigTest extends TestCase
         self::assertSame(0, Config::load($this->envFile)->failedRunEvidenceDays);
     }
 
+    /** Off unless the key is set, and never handed to a run of the engine that reads the user scope itself. */
+    public function testTheMemorySettingIsOffByDefaultAndIgnoredOnClaude(): void
+    {
+        $this->writeEnv();
+        $default = Config::load($this->envFile);
+        self::assertSame('', $default->memory3LayerBin);
+        self::assertSame('', $default->memoryBin());
+        self::assertSame(Config::DEFAULT_MEMORY_CONTEXT_MAX_BYTES, $default->memory3LayerContextMaxBytes);
+
+        $this->writeEnv("MEMORY_3LAYER_BIN=/usr/local/bin/memory-3layer\nMEMORY_3LAYER_CONTEXT_MAX_BYTES=1024");
+        $config = Config::load($this->envFile);
+        self::assertSame('/usr/local/bin/memory-3layer', $config->memory3LayerBin);
+        self::assertSame(1024, $config->memory3LayerContextMaxBytes);
+        self::assertSame('', $config->memoryBin(), 'a Claude Code run takes its memory from the user scope');
+
+        $this->writeEnv('MEMORY_3LAYER_CONTEXT_MAX_BYTES=-5');
+        self::assertSame(0, Config::load($this->envFile)->memory3LayerContextMaxBytes);
+    }
+
+    public function testTheMemorySettingReachesAnOpencodeInstance(): void
+    {
+        $this->writeEnv("ENGINE=opencode\nMEMORY_3LAYER_BIN=/usr/local/bin/memory-3layer");
+
+        self::assertSame('/usr/local/bin/memory-3layer', Config::load($this->envFile)->memoryBin());
+    }
+
+    /** The client is started without a shell, so a name that is not an absolute path is a startup warning. */
+    public function testARelativeMemoryBinIsWarnedAboutAtStartup(): void
+    {
+        $this->writeEnv('MEMORY_3LAYER_BIN=memory-3layer');
+        $warnings = implode("\n", Config::load($this->envFile)->startupWarnings());
+
+        self::assertStringContainsString('MEMORY_3LAYER_BIN=memory-3layer is not an absolute path', $warnings);
+    }
+
     public function testEpicQuietMinutesDefaultsToTen(): void
     {
         $this->writeEnv();

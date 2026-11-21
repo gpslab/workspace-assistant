@@ -269,6 +269,82 @@ final class RunnerFactoryTest extends TestCase
         );
     }
 
+    /**
+     * `MEMORY_3LAYER_BIN` is set but the instance runs Claude Code: the user scope already delivers memory
+     * there, so the client is not even started and the prompt of the run does not carry it.
+     */
+    public function testTheMemorySettingChangesNothingOnClaude(): void
+    {
+        $memory = $this->memoryClient('the instance identity');
+
+        ['argv' => $argv] = $this->recordedRun(
+            [SystemPrompt::MODE_ARCH, '', [], Locale::DEFAULT, false, false, null, null],
+            self::RESULT_BODY,
+            memory3LayerBin: $memory['bin'],
+        );
+
+        $appendAt = array_search('--append-system-prompt', $argv, true);
+        self::assertIsInt($appendAt);
+        self::assertStringNotContainsString('the instance identity', $argv[$appendAt + 1]);
+        self::assertFileDoesNotExist($memory['calls'], 'a Claude run must not touch the memory client');
+
+        self::removeTree($memory['dir']);
+    }
+
+    /** The same setting on the engine that reads no user scope: the client is asked for the context. */
+    public function testTheMemorySettingReachesAnOpencodeRun(): void
+    {
+        $memory = $this->memoryClient('the instance identity');
+
+        $this->recordedRun(
+            [SystemPrompt::MODE_ARCH, '', [], Locale::DEFAULT, false, false, null, null],
+            self::OPENCODE_RESULT_BODY,
+            engine: Config::ENGINE_OPENCODE,
+            memory3LayerBin: $memory['bin'],
+        );
+
+        self::assertSame(['context'], $this->memoryCalls($memory['calls']));
+
+        self::removeTree($memory['dir']);
+    }
+
+    /**
+     * A fake `memory-3layer`: it records every verb it was called with and prints the path of a memory
+     * file holding $content (that is what `memory-3layer context` does).
+     *
+     * @return array{bin: string, calls: string, dir: string}
+     */
+    private function memoryClient(string $content): array
+    {
+        $dir = sys_get_temp_dir().'/factory-memory-'.uniqid('', true);
+        self::assertTrue(mkdir($dir));
+        $session = $dir.'/SESSION.md';
+        file_put_contents($session, $content);
+        $calls = $dir.'/calls';
+        $bin = $dir.'/memory-3layer';
+        file_put_contents(
+            $bin,
+            '#!'.PHP_BINARY."\n<?php\n"
+            .'file_put_contents('.(string) var_export($calls, true).', $argv[1]."\n", FILE_APPEND);'."\n"
+            .'echo '.var_export($session, true).'."\n";'."\n",
+        );
+        chmod($bin, 0o755);
+
+        return ['bin' => $bin, 'calls' => $calls, 'dir' => $dir];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function memoryCalls(string $path): array
+    {
+        if (!is_file($path)) {
+            return [];
+        }
+
+        return array_values(array_filter(explode("\n", (string) file_get_contents($path)), static fn (string $l): bool => $l !== ''));
+    }
+
     /** Seeds an old evidence file, runs a failed run through the factory with retention 1, asserts pruning. */
     private function assertRetentionWiredThrough(string $engine, string $fakeBody): void
     {
@@ -346,6 +422,7 @@ final class RunnerFactoryTest extends TestCase
         string $opencodeModel = '',
         array $opencodeExtraArgs = [],
         int $failedRunEvidenceDays = 14,
+        string $memory3LayerBin = '',
     ): Config {
         return new Config(
             botToken: 't',
@@ -367,6 +444,7 @@ final class RunnerFactoryTest extends TestCase
             opencodeModel: $opencodeModel,
             opencodeExtraArgs: $opencodeExtraArgs,
             failedRunEvidenceDays: $failedRunEvidenceDays,
+            memory3LayerBin: $memory3LayerBin,
         );
     }
 
@@ -389,6 +467,7 @@ final class RunnerFactoryTest extends TestCase
         string $engine = 'claude',
         string $opencodeModel = '',
         array $opencodeExtraArgs = [],
+        string $memory3LayerBin = '',
     ): array {
         $argvFile = tempnam(sys_get_temp_dir(), 'factory-argv-');
         $bin = tempnam(sys_get_temp_dir(), 'factory-claude-');
@@ -413,6 +492,7 @@ final class RunnerFactoryTest extends TestCase
                 stateDir: $stateDir,
                 claudeTimeout: $timeout,
                 claudeStallTimeout: $stall,
+                memory3LayerBin: $memory3LayerBin,
             ))->create(...$createArgs);
             $runner->start('hello', $sessionId);
             while ($runner->poll() === RunnerState::Running) {

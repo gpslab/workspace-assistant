@@ -120,7 +120,7 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $opencodeModel = ''): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $opencodeModel = '', string $memory3LayerBin = ''): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -148,6 +148,7 @@ final class QueueFlowTest extends TestCase
             'engine' => $engine,
             'anthropicBaseUrl' => $anthropicBaseUrl,
             'anthropicModel' => $anthropicModel,
+            'memory3LayerBin' => $memory3LayerBin,
         ] + ($locale === null ? [] : ['botLocale' => $locale]));
 
         return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github, runnerFactory: $this->runnerFactoryFor($config));
@@ -2895,5 +2896,76 @@ final class QueueFlowTest extends TestCase
         $this->finishJob();
 
         self::assertSame(1, $this->launches());
+    }
+
+    /**
+     * The memory of the instance is synchronized around a run of an engine that reads no user scope:
+     * `pull` once the run is alive (the prompt of that run is already built, so the data belongs to the
+     * NEXT run) and `push` when it ends. Both are background processes of the bot loop, not of the run.
+     */
+    public function testTheMemoryIsPulledForTheNextRunAndPushedAfterARun(): void
+    {
+        $memory = $this->memoryClient();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_OPENCODE, memory3LayerBin: $memory, opencodeModel: 'a/b');
+
+        $this->say(100, 1, 'hi', 10);
+        $this->call('startQueueHead');
+        // The run read its context while starting; the pull follows it and refreshes the data for the
+        // next run, which is why the order is `context`, `pull`.
+        self::assertSame(['context', 'pull'], $this->memoryCallsAfter($memory, 2));
+
+        $this->finishJob();
+        self::assertSame(['context', 'pull', 'push'], $this->memoryCallsAfter($memory, 3));
+    }
+
+    /** On Claude Code the user scope delivers the memory: the setting must not start anything there. */
+    public function testAClaudeInstanceNeverSyncsTheMemory(): void
+    {
+        $memory = $this->memoryClient();
+        $this->bot = $this->makeBot(memory3LayerBin: $memory);
+
+        $this->runChat('hi', 10);
+        usleep(200000);
+
+        self::assertFileDoesNotExist($this->root.'/memory.calls');
+    }
+
+    /**
+     * A fake `memory-3layer` recording every verb it is called with, and the path of that file.
+     */
+    private function memoryClient(): string
+    {
+        $calls = $this->root.'/memory.calls';
+        $bin = $this->root.'/memory-3layer';
+        file_put_contents(
+            $bin,
+            "#!/bin/sh\necho \"\$1\" >> ".escapeshellarg($calls)."\n",
+        );
+        chmod($bin, 0o755);
+
+        return $bin;
+    }
+
+    /**
+     * The verbs the fake memory client was called with, once it has at least $expected of them (the
+     * client is a background process, so the calls land a moment after the run).
+     *
+     * @return list<string>
+     */
+    private function memoryCallsAfter(string $bin, int $expected): array
+    {
+        $path = dirname($bin).'/memory.calls';
+        $lines = [];
+        for ($i = 0; $i < 100; ++$i) {
+            $lines = is_file($path)
+                ? array_values(array_filter(explode("\n", (string) file_get_contents($path)), static fn (string $l): bool => $l !== ''))
+                : [];
+            if (count($lines) >= $expected) {
+                break;
+            }
+            usleep(50000);
+        }
+
+        return $lines;
     }
 }

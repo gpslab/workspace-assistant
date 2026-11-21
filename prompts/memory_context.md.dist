@@ -1,0 +1,8 @@
+## Memory of the instance (memory-3layer)
+
+This instance keeps its memory outside this repository: L0 (the identity), the project's SESSION.md and
+project.md. The bot read those files and pasted their content below, because this run cannot read them
+itself. Treat the text below as the memory you have: it is the whole of it, those paths are not files you
+can open, and a part marked as cut is the newest end of a longer file, not the whole file.
+
+{memory_context}

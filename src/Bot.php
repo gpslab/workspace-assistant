@@ -36,6 +36,7 @@ use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Epic\RunLifecycle;
 use GpsLab\WorkspaceAssistant\Epic\RunPrompt;
 use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
+use GpsLab\WorkspaceAssistant\Memory\MemorySync;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 
@@ -82,6 +83,7 @@ final class Bot implements LoopControl
     private readonly RunResult $runResult;
     private readonly SecretBlocker $secretBlocker;
     private readonly JobRunner $jobRunner;
+    private readonly MemorySync $memorySync;
     private readonly ?Orchestrator $orchestrator;
     private readonly Locales $locales;
     private readonly QueueScheduler $queueScheduler;
@@ -119,7 +121,11 @@ final class Bot implements LoopControl
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
         $this->epicChat = new ChatSurface($db, $tg, $config, $git, $this->epicCard, $this->locale);
         $this->queueTexts = new QueueTexts($this->locale);
-        $this->jobRunner = new JobRunner($config, $db, $tg, $git, $this->delivery, $this->locale, $this->inbox, $this->subRepoSync, $this->queueTexts, $this->epicCard, $this->runState, $runnerFactory ?? new RunnerFactory($config, $this->locale));
+        // Memory of the instance: off unless MEMORY_3LAYER_BIN is set, and off on Claude whatever the
+        // setting says, because that engine reads the user scope itself (Config::memoryBin()). JobRunner
+        // starts a pull before a run and a push after it; the loop reaps them here, outside the job.
+        $this->memorySync = new MemorySync($config->memoryBin(), $config->stateDir, $config->repoPath);
+        $this->jobRunner = new JobRunner($config, $db, $tg, $git, $this->delivery, $this->locale, $this->inbox, $this->subRepoSync, $this->queueTexts, $this->epicCard, $this->runState, $runnerFactory ?? new RunnerFactory($config, $this->locale), $this->memorySync);
         $this->modeAndLang = new ModeAndLang($db, $tg, $this->locale, $this->jobRunner, $this->locales);
         $this->modelSwitcher = new ModelSwitcher($config, $db, $tg, $this->locale, $this->jobRunner);
         $this->dirtyTree = new DirtyTreeDecision($config, $db, $tg, $git, $this->delivery, $this->locale, $this->queueTexts, $this->runResult, $this->secretBlocker);
@@ -273,6 +279,9 @@ final class Bot implements LoopControl
 
         $this->flushReadyAlbums();
         $this->pollEpics();
+        // The memory sync of the instance runs outside the job: its client is reaped (and killed at its
+        // timeout) here, whatever the state of the job and the queue.
+        $this->memorySync->poll();
 
         if ($this->runState->activeJob !== null) {
             $this->pollJob();

@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\Command\RunControl;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Run;
+use GpsLab\WorkspaceAssistant\Memory\MemorySync;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 
 /**
@@ -42,6 +43,7 @@ final class JobRunner implements JobLauncher, RunControl
         private readonly Card $epicCard,
         private readonly RunState $runState,
         private readonly RunnerFactory $runnerFactory,
+        private readonly MemorySync $memorySync,
     ) {
         $this->claudeErrorText = new ClaudeErrorText($locale);
     }
@@ -279,6 +281,10 @@ final class JobRunner implements JobLauncher, RunControl
         $this->runState->repoSnapshot = $this->subRepoSync->snapshotSubRepos();
         $this->db->setPid($chatId, $threadId, $runner->pid());
 
+        // Memory of the instance, refreshed for the NEXT run: the prompt of this one is already built, so
+        // the pull goes to the background and the run neither waits for it nor fails with it ({@see MemorySync}).
+        $this->memorySync->start(MemorySync::PULL);
+
         return null;
     }
 
@@ -341,6 +347,8 @@ final class JobRunner implements JobLauncher, RunControl
         if ($state === RunnerState::Timeout) {
             $reason = $this->runState->activeJob->timeoutReason();
             $timeoutWarnings = $this->runState->activeJob->promptWarnings();
+            // The run is over, killed or not: its memory goes to the server in the background ({@see MemorySync}).
+            $this->memorySync->start(MemorySync::PUSH);
             $this->finishJobState($chatId, $threadId);
             $this->inbox->deleteInboxFiles($inboxFiles);
             $this->tg->deleteMessage($chatId, $thinkingId);
@@ -387,6 +395,10 @@ final class JobRunner implements JobLauncher, RunControl
 
             return null;
         }
+        // The run is over and is not repeated: what it wrote into the memory goes to the server now, in the
+        // background, exactly as the pull that preceded it ({@see MemorySync}). A repeated turn pushes at
+        // the end of its own run.
+        $this->memorySync->start(MemorySync::PUSH);
         // sendResult() appends the warnings to a normal reply itself; every
         // other outcome (error, epic, compact) gets a separate message.
         $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, $claude->isError || $kind !== RunKind::KIND_CHAT);
