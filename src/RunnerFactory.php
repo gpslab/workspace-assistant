@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
+
 /**
  * Builds the runner for the configured engine.
  *
@@ -93,6 +95,11 @@ class RunnerFactory
      * config renderer and applies a changed instructions file itself, so `updateOnResume` is not
      * wired either. The timeouts and `CLAUDE_APPEND_SYSTEM_PROMPT` are shared by both engines.
      *
+     * The memory of the instance is the one thing the Claude runner does NOT need: OpenCode reads no user
+     * scope, so with `MEMORY_3LAYER_BIN` set the bot reads the memory files and injects their content
+     * ({@see MemoryContext}). That runner is never built on the other engine, which is why the setting
+     * cannot reach a Claude run ({@see Config::memoryBin()}).
+     *
      * @param array<string, string> $extraEnv
      */
     protected function createOpencodeRunner(string $mode, string $localeCode, array $extraEnv, bool $withAgents): OpencodeRunner
@@ -114,6 +121,25 @@ class RunnerFactory
             forge: $this->config->forge,
             opencodeModel: $this->config->opencodeModel,
             failedRunEvidenceDays: $this->config->failedRunEvidenceDays,
+            memory: $this->memory(),
+        );
+    }
+
+    /**
+     * The memory of the instance for an OpenCode run, or null when `MEMORY_3LAYER_BIN` is not set
+     * ({@see Config::DEFAULT_MEMORY_CONTEXT_MAX_BYTES} caps the injected part of one file; 0 turns the
+     * injection off as well).
+     */
+    private function memory(): ?MemoryContext
+    {
+        if ($this->config->memoryBin() === '') {
+            return null;
+        }
+
+        return new MemoryContext(
+            $this->config->memoryBin(),
+            $this->config->repoPath,
+            $this->config->memory3LayerContextMaxBytes,
         );
     }
 }

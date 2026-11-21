@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\FailedRunEvidence;
 use GpsLab\WorkspaceAssistant\GitHooks;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
 use GpsLab\WorkspaceAssistant\OpencodeRunner;
 use GpsLab\WorkspaceAssistant\RunnerState;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
@@ -407,6 +408,63 @@ final class OpencodeRunnerTest extends TestCase
         }
     }
 
+    /**
+     * This engine reads no user scope, so the memory of the instance reaches it as CONTENT injected into
+     * the system prompt, not as the paths the client prints: the run cannot read those files itself.
+     */
+    public function testTheMemoryOfTheInstanceIsInjectedIntoTheSystemPrompt(): void
+    {
+        $memory = $this->root.'/memory-3layer';
+        $session = $this->root.'/memory/SESSION.md';
+        mkdir(dirname($session), 0o777, true);
+        file_put_contents($session, 'the session remembers issue #188');
+        file_put_contents($memory, '#!'.PHP_BINARY."\n<?php\n".'echo "SESSION.md: '.$session.'\n";');
+        chmod($memory, 0o755);
+
+        $runner = $this->runner(
+            $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000),
+            memory: new MemoryContext($memory, $this->root.'/repo', 4096),
+        );
+
+        try {
+            // The memory is in the prompt of the run itself, as content: the paths the client prints are
+            // not readable from the repository, so a path would be worthless to the agent.
+            $prompt = $this->systemPromptOfALiveRun($runner);
+            self::assertStringContainsString('the session remembers issue #188', $prompt);
+            self::assertStringNotContainsString($this->root.'/memory/SESSION.md', $prompt);
+        } finally {
+            $runner->kill();
+        }
+    }
+
+    public function testWithoutTheMemorySettingTheSystemPromptHasNoMemoryBlock(): void
+    {
+        $runner = $this->runner($this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000));
+
+        try {
+            self::assertStringNotContainsString('Memory of the instance', $this->systemPromptOfALiveRun($runner));
+        } finally {
+            $runner->kill();
+        }
+    }
+
+    /**
+     * A missing or hung client must never fail a run: the run finishes as usual, without a memory block,
+     * and the bot only writes a line to its log.
+     */
+    public function testARunWithABrokenMemoryClientStillFinishes(): void
+    {
+        $runner = $this->runner(
+            $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000),
+            memory: new MemoryContext($this->root.'/gone', $this->root.'/repo', 4096, 1),
+        );
+
+        self::assertStringNotContainsString('Memory of the instance', $this->systemPromptOfALiveRun($runner));
+        $this->waitDone($runner);
+
+        self::assertFalse($runner->result()->isError);
+    }
+
     public function testSilenceBeforeAnySubagentEndsTheRun(): void
     {
         $bin = $this->fake(self::FIXTURES.'/plain.ndjson', sleepAfterUs: 3_000_000);
@@ -593,6 +651,7 @@ final class OpencodeRunnerTest extends TestCase
         bool $withAgents = false,
         array $extraArgs = [],
         string $mode = SystemPrompt::MODE_ARCH,
+        ?MemoryContext $memory = null,
     ): OpencodeRunner {
         return new OpencodeRunner(
             opencodeBin: $bin,
@@ -606,7 +665,23 @@ final class OpencodeRunnerTest extends TestCase
             withAgents: $withAgents,
             homeDir: '',
             opencodeModel: $opencodeModel,
+            memory: $memory,
         );
+    }
+
+    /**
+     * The system prompt of a run that is still alive: the per-run config directory is removed together
+     * with the run files, so the prompt has to be read before the run ends.
+     */
+    private function systemPromptOfALiveRun(OpencodeRunner $runner): string
+    {
+        $runner->start('hello', null);
+        $this->waitForFile($this->doneFile());
+        self::assertSame(RunnerState::Running, $runner->poll(), 'the fake stays alive for the check');
+        $dirs = glob($this->root.'/state/opencode-*') ?: [];
+        self::assertCount(1, $dirs, 'the run must leave exactly one config directory');
+
+        return (string) file_get_contents($dirs[0].'/system-prompt.md');
     }
 
     /**

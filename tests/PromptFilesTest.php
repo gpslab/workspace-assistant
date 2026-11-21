@@ -44,6 +44,7 @@ final class PromptFilesTest extends TestCase
         'epic_runbook' => true,
         'pm_runbook' => true,
         'forge_gitlab' => false,
+        'memory_context' => false,
     ];
 
     /** sha256 of the texts as they were assembled from the PHP constants, before they moved to files. */
@@ -202,6 +203,7 @@ final class PromptFilesTest extends TestCase
             'review_status_reason' => ['verdict' => '🟢', 'state' => 'Approve', 'problem' => 'p'],
             'review_status_reason_ids' => ['ids' => 'C1'],
             'review_status_reason_ids_gitlab' => ['ids' => 'C1'],
+            'memory_context' => ['memory_context' => '### SESSION.md'],
         ];
         // `common` and `contract_review` are load-ed, not rendered: their placeholders are the engine
         // tokens, which SystemPrompt::build replaces in one step over the assembled prompt.

@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\Command\RunControl;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Run;
+use GpsLab\WorkspaceAssistant\Memory\MemorySync;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 
 /**
@@ -42,6 +43,7 @@ final class JobRunner implements JobLauncher, RunControl
         private readonly Card $epicCard,
         private readonly RunState $runState,
         private readonly RunnerFactory $runnerFactory,
+        private readonly MemorySync $memorySync,
     ) {
         $this->claudeErrorText = new ClaudeErrorText($locale);
     }
@@ -279,6 +281,10 @@ final class JobRunner implements JobLauncher, RunControl
         $this->runState->repoSnapshot = $this->subRepoSync->snapshotSubRepos();
         $this->db->setPid($chatId, $threadId, $runner->pid());
 
+        // Memory of the instance, refreshed for the NEXT run: the prompt of this one is already built, so
+        // the pull goes to the background and the run neither waits for it nor fails with it ({@see MemorySync}).
+        $this->memorySync->start(MemorySync::PULL);
+
         return null;
     }
 
@@ -387,6 +393,10 @@ final class JobRunner implements JobLauncher, RunControl
 
             return null;
         }
+        // The run is over and is not repeated: what it wrote into the memory goes to the server now, in the
+        // background, exactly as the pull that preceded it ({@see MemorySync}). The push itself runs from
+        // finishJobState() below, so every way a run can end (timeout, cancel, exception) pushes too. A
+        // repeated turn pushes at the end of its own run.
         // sendResult() appends the warnings to a normal reply itself; every
         // other outcome (error, epic, compact) gets a separate message.
         $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, $claude->isError || $kind !== RunKind::KIND_CHAT);
@@ -750,6 +760,10 @@ final class JobRunner implements JobLauncher, RunControl
 
     private function finishJobState(int $chatId, int $threadId): void
     {
+        // Every way a run ends lands here (normal finish, timeout, /cancel, the poll() exception path),
+        // so the push of the run's memory has exactly one call site and cannot be missed on any of them.
+        // The background client never fails a run ({@see MemorySync}).
+        $this->memorySync->start(MemorySync::PUSH);
         $this->db->setPid($chatId, $threadId, null);
         if (($gateRunId = $this->runState->jobContext['pm_gate_run_id'] ?? null) !== null) {
             PmGateHook::cleanup($this->config->stateDir, $gateRunId);

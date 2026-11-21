@@ -24,6 +24,12 @@ final class Config
     /** Engine name of an instance that runs OpenCode instead of Claude Code. */
     public const string ENGINE_OPENCODE = 'opencode';
 
+    /**
+     * Ceiling of the memory context injected into one system prompt, per file (`MEMORY_3LAYER_CONTEXT_MAX_BYTES`).
+     * The SESSION.md of a long-lived project is hundreds of KB; only its newest part is injected.
+     */
+    public const int DEFAULT_MEMORY_CONTEXT_MAX_BYTES = 32768;
+
     public const array DEFAULT_HOSTS = [
         self::FORGE_GITHUB => 'github.com',
         self::FORGE_GITLAB => 'gitlab.com',
@@ -96,6 +102,10 @@ final class Config
         public readonly ?string $anthropicModel = null,
         /** Days the masked evidence of a failed run is kept (`FAILED_RUN_EVIDENCE_DAYS`); 0 = no age limit */
         public readonly int $failedRunEvidenceDays = 14,
+        /** Absolute path of the `memory-3layer` client (`MEMORY_3LAYER_BIN`); '' = the memory integration is off */
+        public readonly string $memory3LayerBin = '',
+        /** Ceiling of the injected part of one memory file (`MEMORY_3LAYER_CONTEXT_MAX_BYTES`) */
+        public readonly int $memory3LayerContextMaxBytes = self::DEFAULT_MEMORY_CONTEXT_MAX_BYTES,
     ) {
     }
 
@@ -193,6 +203,14 @@ final class Config
 
         $epicsDir = trim((string) $env->get('EPICS_DIR', '.workspace-assistant/epics'), '/') ?: '.workspace-assistant/epics';
 
+        // Path of the memory-3layer client. Empty = the feature is off, which is the default; the value
+        // is used as it is, so an absolute path is the only form that works from a service manager:
+        // a non-interactive shell has no `~/.local/bin` on PATH, and that is what a bare name means.
+        $memory3LayerBin = trim((string) $env->get('MEMORY_3LAYER_BIN', ''));
+        if ($memory3LayerBin !== '' && !str_starts_with($memory3LayerBin, '/')) {
+            $configWarnings[] = "MEMORY_3LAYER_BIN={$memory3LayerBin} is not an absolute path: a non-interactive shell resolves it against PATH, where `~/.local/bin` usually is not.";
+        }
+
         $claudeExtraArgs = $env->list('CLAUDE_EXTRA_ARGS', '--dangerously-skip-permissions');
         $claudeModels = array_values(array_unique($env->list('CLAUDE_MODELS', implode(',', self::DEFAULT_CLAUDE_MODELS))));
         $modelEpicTick = trim((string) $env->get('MODEL_EPIC_TICK', ''));
@@ -274,6 +292,8 @@ final class Config
             anthropicBaseUrl: trim((string) $env->get('ANTHROPIC_BASE_URL', '')) !== '' ? trim((string) $env->get('ANTHROPIC_BASE_URL')) : null,
             anthropicModel: trim((string) $env->get('ANTHROPIC_MODEL', '')) !== '' ? trim((string) $env->get('ANTHROPIC_MODEL')) : null,
             failedRunEvidenceDays: max(0, (int) $env->get('FAILED_RUN_EVIDENCE_DAYS', '14')),
+            memory3LayerBin: $memory3LayerBin,
+            memory3LayerContextMaxBytes: max(0, (int) $env->get('MEMORY_3LAYER_CONTEXT_MAX_BYTES', (string) self::DEFAULT_MEMORY_CONTEXT_MAX_BYTES)),
         );
     }
 
@@ -397,6 +417,17 @@ final class Config
     public function isOpencode(): bool
     {
         return $this->engine === self::ENGINE_OPENCODE;
+    }
+
+    /**
+     * `MEMORY_3LAYER_BIN` for the run: the path of the `memory-3layer` client on an engine that does not
+     * read the user scope ({@see self::ENGINE_OPENCODE}), '' otherwise. Claude Code takes its memory from
+     * the user scope (its hooks and `~/.claude/CLAUDE.md`), so on that engine the setting changes nothing —
+     * neither the injected context nor the background sync.
+     */
+    public function memoryBin(): string
+    {
+        return $this->isOpencode() ? $this->memory3LayerBin : '';
     }
 
     /** Command line client of the forge: gh or glab. */
