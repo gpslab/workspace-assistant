@@ -383,7 +383,7 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `CLAUDE_APPEND_SYSTEM_PROMPT` | text appended to the system prompt (not split on commas) | empty                            |
 | `PROMPTS_DIR`           | persona files, relative to `REPO_PATH`                         | empty (texts from `prompts/`)    |
 | `STATE_DIR`             | SQLite, outbox, inbox, epic signals, log, claude `runs/` and `agents/`, failed-run `failed-runs/`, the per-run `opencode-<runId>/` config directories, the memory `memory-3layer.lock` / `.log` | `./state` |
-| `FAILED_RUN_EVIDENCE_DAYS` | days the masked evidence of a failed run is kept (0 = no age limit; the newest 20 are always kept) | `14` |
+| `FAILED_RUN_EVIDENCE_DAYS` | days the masked evidence of a failed run is kept (0 = no age limit; at most the newest 20 failed runs are kept) | `14` |
 | `POLL_TIMEOUT`          | idle long-poll timeout, seconds                                | `30`                             |
 | `GIT_TIMEOUT`           | network git timeout, seconds                                   | `120`                            |
 | `AUTO_COMMIT`           | `1` pull/commit/push around runs; `0` the bot does not touch git in the managed repository | `1`                              |
