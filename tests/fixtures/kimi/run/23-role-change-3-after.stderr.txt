@@ -1,0 +1,10 @@
+?? .agents/
+?? a.txt
+/work/proj
+total 4
+drwxr-xr-x 4 REDACTED REDACTED 100 Nov 22 01:44 .
+drwxr-xr-x 6 REDACTED REDACTED 460 Nov 22 01:50 ..
+drwxr-xr-x 3 REDACTED REDACTED  60 Nov 22 01:44 .agents
+drwxr-xr-x 6 REDACTED REDACTED 180 Nov 22 01:51 .git
+-rw-r--r-- 1 REDACTED REDACTED   6 Nov 22 01:44 a.txt
+true

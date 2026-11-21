@@ -1,0 +1,2 @@
+{"event": "PreToolUse", "tool_call_id": "tool_tuW2IJuz33Iq3DBQuf0eliYb", "tool_name": "Bash", "agent_name": null}
+{"event": "PreToolUse", "tool_call_id": "tool_4lx35wDa7PurqPDQIWUCRn5r", "tool_name": "Bash", "agent_name": null}

@@ -1,0 +1,2 @@
+{"role":"meta","type":"system.version","version":"2.7.2"}
+{"role":"meta","type":"turn.step.retrying","failed_attempt":1,"next_attempt":2,"max_attempts":2,"delay_ms":522.8372613269956,"error_name":"rate_limit","error_message":"Rate limit reached for requests, please retry later","status_code":429}

@@ -1,0 +1,8 @@
+{"event": "SessionStart", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "PreToolUse", "tool_call_id": "tool_GwGSfGwj9LFucKnx2oe5QGzZ", "tool_name": "Read", "agent_name": null}
+{"event": "PostToolUse", "tool_call_id": "tool_GwGSfGwj9LFucKnx2oe5QGzZ", "tool_name": "Read", "agent_name": null}
+{"event": "SessionStart", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "PreToolUse", "tool_call_id": "tool_GHfYR2bu4ARV3YL922jUEIhc", "tool_name": "Read", "agent_name": null}
+{"event": "PostToolUse", "tool_call_id": "tool_GHfYR2bu4ARV3YL922jUEIhc", "tool_name": "Read", "agent_name": null}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}

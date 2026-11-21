@@ -1,0 +1,14 @@
+{"event": "SessionStart", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "PreToolUse", "tool_call_id": "tool_eIDeiROGU77f7hZE72ZrBTOS", "tool_name": "Agent", "agent_name": null}
+{"event": "SubagentStart", "tool_call_id": null, "tool_name": null, "agent_name": "critic"}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "SubagentStop", "tool_call_id": null, "tool_name": null, "agent_name": "critic"}
+{"event": "PostToolUse", "tool_call_id": "tool_eIDeiROGU77f7hZE72ZrBTOS", "tool_name": "Agent", "agent_name": null}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "SessionStart", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "PreToolUse", "tool_call_id": "tool_bAxskljaE6JRn3Lu1IimxXWH", "tool_name": "Agent", "agent_name": null}
+{"event": "SubagentStart", "tool_call_id": null, "tool_name": null, "agent_name": "critic"}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}
+{"event": "SubagentStop", "tool_call_id": null, "tool_name": null, "agent_name": "critic"}
+{"event": "PostToolUse", "tool_call_id": "tool_bAxskljaE6JRn3Lu1IimxXWH", "tool_name": "Agent", "agent_name": null}
+{"event": "Stop", "tool_call_id": null, "tool_name": null, "agent_name": null}

@@ -1,0 +1,5 @@
+{"role":"meta","type":"system.version","version":"2.7.2"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_GHfYR2bu4ARV3YL922jUEIhc","function":{"name":"Read","arguments":"{\"path\":\"a.txt\"}"}}]}
+{"role":"tool","tool_call_id":"tool_GHfYR2bu4ARV3YL922jUEIhc","content":"1\thello"}
+{"role":"assistant","content":"hello"}
+{"role":"meta","type":"session.resume_hint","session_id":"session_d1e21513-6d5b-435b-a2be-1eabda2f0841","command":"kimi -r session_d1e21513-6d5b-435b-a2be-1eabda2f0841","content":"To resume this session: kimi -r session_d1e21513-6d5b-435b-a2be-1eabda2f0841"}
