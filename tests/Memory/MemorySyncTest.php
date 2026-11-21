@@ -74,8 +74,12 @@ final class MemorySyncTest extends TestCase
         self::assertSame(['pull', 'push'], $this->calls());
     }
 
-    /** Push and pull share one lock: a second sync is skipped, not run next to the first. */
-    public function testASecondSyncIsSkippedWhileOneIsRunning(): void
+    /**
+     * Push and pull share one lock: a second sync cannot run next to the first, but a verb of THIS
+     * instance is deferred, not dropped, and runs as soon as the first one is reaped. A short run whose
+     * pull is still in flight must still get its push out.
+     */
+    public function testASyncIsDeferredWhileAnotherOfThisInstanceRuns(): void
     {
         $sync = $this->sync(sleepMs: 700);
         self::assertTrue($sync->start(MemorySync::PULL));
@@ -87,8 +91,22 @@ final class MemorySyncTest extends TestCase
         $this->wait($sync);
 
         self::assertSame('no', $second);
-        self::assertStringContainsString('another sync is running, skipped', $log);
-        self::assertSame(['pull'], $this->calls());
+        self::assertStringContainsString('another sync is running, deferred', $log);
+        // Both ran, in order: the pull finished, then the deferred push was started by the bot's poll().
+        self::assertSame(['pull', 'push'], $this->calls());
+    }
+
+    /** A pull that arrives while a push is already deferred must not overwrite it: a push lost loses data. */
+    public function testAPendingPushIsNotOverwrittenByANewPull(): void
+    {
+        $sync = $this->sync(sleepMs: 700);
+        self::assertTrue($sync->start(MemorySync::PULL));
+        self::assertFalse($sync->start(MemorySync::PUSH)); // deferred
+        self::assertFalse($sync->start(MemorySync::PULL)); // must not clobber the deferred push
+
+        $this->wait($sync);
+
+        self::assertSame(['pull', 'push'], $this->calls());
     }
 
     /**
@@ -135,7 +153,9 @@ final class MemorySyncTest extends TestCase
 
     public function testAFailedClientIsLoggedWithItsExitCodeAndItsOutput(): void
     {
-        $sync = $this->sync(exitCode: 3, stderr: 'the server refused the token');
+        // A client that talks to both streams: two separate ['file', $log, 'w'] opens would truncate the
+        // log at two offsets and one stream would overwrite the other, so both must survive here.
+        $sync = $this->sync(exitCode: 3, stdout: 'Pulling…', stderr: 'the server refused the token');
 
         self::assertTrue($sync->start(MemorySync::PUSH));
         $log = $this->capturedLog(fn () => $this->wait($sync));
@@ -144,7 +164,9 @@ final class MemorySyncTest extends TestCase
         self::assertStringContainsString('exited with code 3', $log);
         self::assertStringContainsString('state/'.MemorySync::LOG_FILE, $log);
         // What the client said is kept, not sent anywhere: it is the file the log line points at.
-        self::assertStringContainsString('the server refused the token', (string) file_get_contents($this->root.'/state/'.MemorySync::LOG_FILE));
+        $output = (string) file_get_contents($this->root.'/state/'.MemorySync::LOG_FILE);
+        self::assertStringContainsString('Pulling…', $output);
+        self::assertStringContainsString('the server refused the token', $output);
     }
 
     public function testASuccessfulSyncIsNotLogged(): void
@@ -179,10 +201,11 @@ final class MemorySyncTest extends TestCase
         self::assertSame([$this->root.'/repo'], $this->calls());
     }
 
-    private function sync(int $sleepMs = 0, int $timeoutSec = 30, int $exitCode = 0, string $stderr = '', ?string $body = null): MemorySync
+    private function sync(int $sleepMs = 0, int $timeoutSec = 30, int $exitCode = 0, string $stderr = '', string $stdout = '', ?string $body = null): MemorySync
     {
         if ($body === null) {
             $body = 'file_put_contents('.var_export($this->calls, true).', $argv[1]."\n", FILE_APPEND);'
+                .($stdout !== '' ? ' fwrite(STDOUT, '.var_export($stdout, true).');' : '')
                 .($stderr !== '' ? ' fwrite(STDERR, '.var_export($stderr, true).');' : '')
                 .($sleepMs > 0 ? ' usleep('.($sleepMs * 1000).');' : '')
                 .' exit('.$exitCode.');';
