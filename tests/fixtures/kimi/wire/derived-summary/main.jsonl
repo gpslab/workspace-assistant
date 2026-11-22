@@ -1,0 +1,5 @@
+{"type": "metadata", "agentId": "main", "protocol_version": "1.5", "time": 1795400000000}
+{"type": "profile.bind", "agentId": "main", "modelAlias": "kimi-code/kimi-for-coding", "time": 1795400000001}
+{"type": "turn.prompt", "agentId": "main", "input": [{"type": "text", "text": "Call the critic sub-agent, then reply with its answer."}], "origin": {"kind": "user"}, "promptId": "msg_01DERIVED00000000000000001", "turnId": 0, "trigger": "normal", "time": 1795400000002}
+{"type": "context.append_loop_event", "agentId": "main", "event": {"type": "tool.call", "toolCallId": "tool_SummaryAAAA1111BBBB2222", "name": "Agent", "args": {"subagent_type": "critic", "prompt": "Review a claim", "description": "Critique"}}, "time": 1795400000010}
+{"type": "context.append_loop_event", "agentId": "main", "event": {"type": "tool.result", "toolCallId": "tool_SummaryAAAA1111BBBB2222", "result": {"output": "agent_id: agent-0\nactual_subagent_type: critic\nstop_reason: error\n\n[summary]\nstatus: completed\nThe sub-agent wrote this text."}}, "time": 1795400000020}
