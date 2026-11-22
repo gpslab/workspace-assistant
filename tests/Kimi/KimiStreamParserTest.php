@@ -218,9 +218,21 @@ final class KimiStreamParserTest extends TestCase
         self::assertSame('TaskList', $stream->progressLines[0]);
         self::assertSame('Bash', $stream->progressLines[1]);
         // 80 characters of the argument, the ellipsis and "Read " before them.
-        self::assertSame(mb_strlen('Read') + 1 + 81, mb_strlen($stream->progressLines[2]));
-        self::assertStringEndsWith('…', $stream->progressLines[2]);
+        self::assertSame('Read '.str_repeat('a', 80).'…', $stream->progressLines[2]);
         self::assertSame('Tool', $stream->progressLines[3]);
+    }
+
+    /**
+     * A multi-line or double-spaced argument is collapsed to one line of single spaces: a raw line
+     * break (a heredoc, or `cd x\nmake`) must not break the progress line.
+     */
+    public function testProgressLineCollapsesWhitespaceToOneLine(): void
+    {
+        $stream = KimiStreamParser::parse([
+            '{"role":"assistant","tool_calls":[{"type":"function","id":"tool_1","function":{"name":"Bash","arguments":"{\"command\":\"cd /work\\\\n\\\\n  make   test\"}"}}]}',
+        ]);
+
+        self::assertSame('Bash cd /work make test', $stream->progressLines[0]);
     }
 
     public function testOnlyTheFirstVersionAndTheFirstSessionIdAreKept(): void
