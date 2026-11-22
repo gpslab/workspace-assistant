@@ -18,7 +18,9 @@ use GpsLab\WorkspaceAssistant\PmGateHook;
  * A stage is a `tool.call` of the `Agent` tool, the stage agent being `args.subagent_type`. Its result
  * is the call's own `tool.result`:
  * - a foreground call is returned when that result reports `status: completed` — the status is a line
- *   of the result output, which is a string, or the list of text parts a background launch reports;
+ *   of the header of the result output (the leading `key: value` block, up to the first empty line or
+ *   the `[summary]` marker: the model-written text after it is not read), which is a string, or the
+ *   list of text parts a background launch reports; a result the engine flags as an error never counts;
  * - a `run_in_background` call reports `status: running` at launch, and a running call never counts:
  *   it is returned only when the completion notification of its task arrives as a later `turn.prompt`
  *   (`origin.kind: "task"`, `origin.status: "completed"`), matched to the call by the task id of its
@@ -110,7 +112,9 @@ final class KimiHistoryReader
                 $result = is_array($result) ? $result : [];
                 $output = self::output($result['output'] ?? null);
                 if (isset($calls[$id]) && !$calls[$id]['completed']) {
-                    if (self::status($output) === 'completed') {
+                    // Only the header block of the output is read (the model-written `[summary]` and the
+                    // rest are untrusted), and a result the engine flags as an error never completes.
+                    if (($result['isError'] ?? false) !== true && self::status($output) === 'completed') {
                         $calls[$id]['resultAt'] = $record->index;
                         $calls[$id]['completed'] = true;
                     }
@@ -215,15 +219,35 @@ final class KimiHistoryReader
         return $text;
     }
 
-    /** The `status:` line of a sub-agent result output (`completed`, `running`, …), or null when it has none. */
-    private static function status(string $output): ?string
+    /**
+     * The header block of a sub-agent result output: the leading `key: value` lines, up to the first
+     * empty line or the `[summary]` marker. Only this block carries the fields the reader trusts
+     * (`status:`, `task_id:`); the text after it is the sub-agent's own (or the launch instructions),
+     * which the model writes and which must not steer the reader.
+     */
+    private static function header(string $output): string
     {
-        return preg_match('/^\s*status:\s*(?<status>\S+)/m', $output, $status) === 1 ? $status['status'] : null;
+        $header = [];
+        foreach (preg_split('/\r\n|\r|\n/', $output) ?: [] as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '' || str_starts_with($trimmed, '[summary]')) {
+                break;
+            }
+            $header[] = $line;
+        }
+
+        return implode("\n", $header);
     }
 
-    /** The task id a background launch reports in its output (`task_id: agent-…`), or null when it reports none. */
+    /** The `status:` line of a sub-agent result header (`completed`, `running`, …), or null when it has none. */
+    private static function status(string $output): ?string
+    {
+        return preg_match('/^\s*status:\s*(?<status>\S+)/m', self::header($output), $status) === 1 ? $status['status'] : null;
+    }
+
+    /** The task id a background launch reports in its header (`task_id: agent-…`), or null when it reports none. */
     private static function taskId(string $output): ?string
     {
-        return preg_match('/^\s*task_id:\s*(?<task>\S+)/m', $output, $task) === 1 ? $task['task'] : null;
+        return preg_match('/^\s*task_id:\s*(?<task>\S+)/m', self::header($output), $task) === 1 ? $task['task'] : null;
     }
 }

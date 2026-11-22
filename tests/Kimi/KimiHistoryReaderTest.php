@@ -22,6 +22,34 @@ final class KimiHistoryReaderTest extends TestCase
     }
 
     /**
+     * Only the header block of a result output is read: a `status: completed` line the sub-agent wrote
+     * after the `[summary]` marker (or a blank line) is untrusted text and does not complete the call.
+     * The file is derived from `13-subagent-foreground`: its header `status: completed` line is removed
+     * and the same line is planted inside the summary.
+     */
+    public function testAStatusLineInsideTheSummaryDoesNotCompleteTheCall(): void
+    {
+        self::assertSame(
+            [['agent' => 'critic', 'callAt' => 3, 'resultAt' => null, 'completed' => false, 'asyncLaunched' => false, 'isSidechain' => false]],
+            KimiHistoryReader::agentCalls(self::lines('derived-summary')),
+        );
+    }
+
+    /** A result the engine flags as an error never completes the call, whatever its header reports. */
+    public function testAnErrorResultDoesNotCompleteTheCall(): void
+    {
+        $lines = [
+            self::agentCall('tool_one', 'critic'),
+            self::agentResult('tool_one', "agent_id: agent-0\nstatus: completed\nstop_reason: error", true),
+        ];
+
+        self::assertSame(
+            [['agent' => 'critic', 'callAt' => 0, 'resultAt' => null, 'completed' => false, 'asyncLaunched' => false, 'isSidechain' => false]],
+            KimiHistoryReader::agentCalls($lines),
+        );
+    }
+
+    /**
      * A `run_in_background` call is launched with `status: running` and returns only when the
      * completion notification of its task arrives — a later `turn.prompt` at 33, not the launch
      * result at 20.
@@ -62,6 +90,48 @@ final class KimiHistoryReaderTest extends TestCase
         self::assertSame(
             [['agent' => 'critic', 'callAt' => 16, 'resultAt' => 32, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => false]],
             KimiHistoryReader::agentCalls($lines),
+        );
+    }
+
+    /**
+     * A notification completes only the call whose task id matches it: two background calls, task A
+     * and task B, and only A's notification arrives — B stays pending, it must not ride on A's
+     * notification.
+     */
+    public function testANotificationCompletesOnlyTheCallOfItsOwnTask(): void
+    {
+        $calls = KimiHistoryReader::agentCalls([
+            self::backgroundAgentCall('tool_a', 'arch'),
+            self::spawned('tool_a', 'agent-a'),
+            self::launchResult('tool_a', 'agent-a'),
+            self::backgroundAgentCall('tool_b', 'critic'),
+            self::spawned('tool_b', 'agent-b'),
+            self::launchResult('tool_b', 'agent-b'),
+            self::taskCompleted('agent-a'),
+        ]);
+
+        self::assertSame(
+            [
+                ['agent' => 'arch', 'callAt' => 0, 'resultAt' => 6, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => false],
+                ['agent' => 'critic', 'callAt' => 3, 'resultAt' => null, 'completed' => false, 'asyncLaunched' => false, 'isSidechain' => false],
+            ],
+            $calls,
+        );
+    }
+
+    /** A notification reaches only calls made before it: an Agent call made after it is not completed by it. */
+    public function testANotificationDoesNotCompleteACallMadeAfterIt(): void
+    {
+        $calls = KimiHistoryReader::agentCalls([
+            self::taskCompleted('agent-a'),
+            self::backgroundAgentCall('tool_a', 'arch'),
+            self::spawned('tool_a', 'agent-a'),
+            self::launchResult('tool_a', 'agent-a'),
+        ]);
+
+        self::assertSame(
+            [['agent' => 'arch', 'callAt' => 1, 'resultAt' => null, 'completed' => false, 'asyncLaunched' => false, 'isSidechain' => false]],
+            $calls,
         );
     }
 
@@ -180,12 +250,58 @@ final class KimiHistoryReaderTest extends TestCase
         ], JSON_THROW_ON_ERROR);
     }
 
-    /** One line of the `tool.result` of a sub-agent that completed, as `wire.jsonl` wraps it. */
-    private static function agentResult(string $id): string
+    /** One line of the `tool.result` of a sub-agent, as `wire.jsonl` wraps it. */
+    private static function agentResult(string $id, string $output = 'status: completed', bool $isError = false): string
     {
         return json_encode([
             'type' => 'context.append_loop_event',
-            'event' => ['type' => 'tool.result', 'toolCallId' => $id, 'result' => ['output' => 'status: completed']],
+            'event' => ['type' => 'tool.result', 'toolCallId' => $id, 'result' => ['output' => $output, 'isError' => $isError]],
+        ], JSON_THROW_ON_ERROR);
+    }
+
+    /** One line of a `tool.call` of the `Agent` tool that runs in background, as `wire.jsonl` wraps it. */
+    private static function backgroundAgentCall(string $id, string $agent): string
+    {
+        return json_encode([
+            'type' => 'context.append_loop_event',
+            'event' => [
+                'type' => 'tool.call',
+                'toolCallId' => $id,
+                'name' => 'Agent',
+                'args' => ['subagent_type' => $agent, 'run_in_background' => true],
+            ],
+        ], JSON_THROW_ON_ERROR);
+    }
+
+    /** One line of a `subagent.spawned` record tying a call to the task id of its sub-agent. */
+    private static function spawned(string $parentId, string $taskId): string
+    {
+        return json_encode([
+            'type' => 'subagent.spawned',
+            'parentToolCallId' => $parentId,
+            'taskId' => $taskId,
+        ], JSON_THROW_ON_ERROR);
+    }
+
+    /** One line of the launch `tool.result` of a background sub-agent (`status: running` + `task_id:`). */
+    private static function launchResult(string $id, string $taskId): string
+    {
+        return json_encode([
+            'type' => 'context.append_loop_event',
+            'event' => [
+                'type' => 'tool.result',
+                'toolCallId' => $id,
+                'result' => ['output' => "task_id: {$taskId}\nstatus: running"],
+            ],
+        ], JSON_THROW_ON_ERROR);
+    }
+
+    /** One line of the `turn.prompt` completion notification of a background task. */
+    private static function taskCompleted(string $taskId): string
+    {
+        return json_encode([
+            'type' => 'turn.prompt',
+            'origin' => ['kind' => 'task', 'status' => 'completed', 'taskId' => $taskId],
         ], JSON_THROW_ON_ERROR);
     }
 
