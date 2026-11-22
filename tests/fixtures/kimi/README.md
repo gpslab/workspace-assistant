@@ -17,6 +17,9 @@ The facts these files demonstrate are in `.claude-docs/internals.md`, section "K
 - `hooks/<scenario>.hook-records.txt` — one JSON record per hook call of the probe hook (`event`, `tool_call_id`, `tool_name`, `agent_name`).
   Named without `.log`: the repository `.gitignore` swallows `*.log`.
 - `tools.json` — the 26 tools of 2.7.2 with the names of their parameters.
+- `config.toml` — the user's configuration the run-home filter is pinned against: provider and model tables, comments,
+  multi-line arrays, inline tables, `[[permission.rules]]`, user `[[hooks]]` and `extra_agent_dirs` / `extra_skill_dirs`.
+  Local paths and keys are `REDACTED`; it is redacted, not a byte-for-byte capture.
 
 ## Scenarios and exit codes
 

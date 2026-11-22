@@ -25,6 +25,12 @@ final class Config
     public const string ENGINE_OPENCODE = 'opencode';
 
     /**
+     * Engine name of a Kimi Code run. Not selectable yet: the runner does not exist, so `ENGINE`
+     * still accepts only {@see DEFAULT_ENGINE_FINGERPRINT} and {@see ENGINE_OPENCODE}.
+     */
+    public const string ENGINE_KIMI = 'kimi';
+
+    /**
      * Ceiling of the memory context injected into one system prompt, per file (`MEMORY_3LAYER_CONTEXT_MAX_BYTES`).
      * The SESSION.md of a long-lived project is hundreds of KB; only its newest part is injected.
      */
