@@ -14,6 +14,8 @@ The facts these files demonstrate are in `.claude-docs/internals.md`, section "K
 - `run/<scenario>.stdout.jsonl` — stdout of `kimi -p … --output-format stream-json`; `run/<scenario>.stderr.txt` — stderr, only when non-empty.
 - `wire/<scenario>/<agent>.jsonl` — `agents/<agent>/wire.jsonl` of the session after the run (`main`, `agent-0`, …). The file is append-only and
   cumulative across the runs of a session.
+- `wire/derived-*/<agent>.jsonl` — **not** a capture: a wire built from a captured one by inserting records, for rules no single run shows.
+  The scenarios of the table below are captures only; the test reading a derived file says how it was made.
 - `hooks/<scenario>.hook-records.txt` — one JSON record per hook call of the probe hook (`event`, `tool_call_id`, `tool_name`, `agent_name`).
   Named without `.log`: the repository `.gitignore` swallows `*.log`.
 - `tools.json` — the 26 tools of 2.7.2 with the names of their parameters.
