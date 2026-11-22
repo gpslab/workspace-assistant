@@ -71,6 +71,7 @@ final class PmGateHook
     /** Engine values of the neutral hook input; the Claude Code PreToolUse input carries none. */
     public const string ENGINE_CLAUDE = 'claude';
     public const string ENGINE_OPENCODE = 'opencode';
+    public const string ENGINE_KIMI = 'kimi';
 
     /** Shell keywords, wrappers and `VAR=value` assignments that may precede the command itself. */
     private const string PREFIX_RE = '/^(?:env(?:\s+(?:-(?:[uCS]|-unset|-chdir|-split-string)\s+\S+|-\S+))*(?=\s)|timeout(?:\s+(?:-[ks]\s+\S+|--?[A-Za-z]\S*))*\s+[\d.]+[smhd]?(?=\s)|(?:(?:if|then|elif|else|do|while|until|time|command|exec|xargs|sudo|nohup)(?:\s+-[^\s=]+)*|[!{])(?=\s)|[A-Za-z_]\w*=(?:"[^"]*"|\'[^\']*\'|\$(?<sub>\((?:[^()]++|(?&sub))*\))|`[^`]*`|\S)*+)\s*/';
@@ -608,6 +609,9 @@ final class PmGateHook
         $engine = $input['engine'] ?? self::ENGINE_CLAUDE;
         if ($engine === self::ENGINE_OPENCODE) {
             return self::decideOnCalls(OpencodeHistoryReader::fromFile((string) ($input['history'] ?? '')), $config, $kind, $skipReason, self::ENGINE_OPENCODE);
+        }
+        if ($engine === self::ENGINE_KIMI) {
+            return self::decideOnCalls(KimiHistoryReader::fromFile((string) ($input['history'] ?? '')), $config, $kind, $skipReason, self::ENGINE_KIMI);
         }
 
         return self::decide(self::transcriptLines((string) ($input['transcript_path'] ?? '')), $config, $kind, $skipReason);
