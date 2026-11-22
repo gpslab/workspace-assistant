@@ -798,6 +798,187 @@ final class FlowTest extends TestCase
         self::assertNotSame('blocked', $statuses['a#1']);
     }
 
+    /** Fails the run like a provider error: no result, so the outcome goes to the failure path. */
+    private function failRun(): void
+    {
+        $this->claudeOutput('{"type":"result","is_error":true,"result":"boom","session_id":"s","usage":{}}');
+    }
+
+    /** An orchestrator with the epic's a#1 PR open, quiet and ready for the hot review on `h1`. */
+    private function orchestratorWithOpenPr(): \GpsLab\WorkspaceAssistant\Epic\Orchestrator
+    {
+        require_once __DIR__.'/OrchestratorTest.php';
+        $gh = new FakeGitHub();
+        $gh->states['a#1'] = new TaskState(
+            'a#1', [], TaskState::OPEN, 5, 'h1', TaskState::CHECKS_GREEN, TaskState::MERGEABLE_YES,
+            lastActivityAt: time() - 3600, coldReviewDone: true,
+        );
+        $this->buildBot(0, '', null, $gh);
+        $orchestrator = (new \ReflectionProperty(Bot::class, 'orchestrator'))->getValue($this->bot);
+        self::assertInstanceOf(\GpsLab\WorkspaceAssistant\Epic\Orchestrator::class, $orchestrator);
+
+        return $orchestrator;
+    }
+
+    public function testFailedReviewRunClearsReviewedHeadAndQueuesTheReviewAgain(): void
+    {
+        $this->startEpic();
+        $this->orchestratorWithOpenPr();
+        $this->storeCold([], 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->failRun();
+
+        $this->runEpic(Run::REVIEW, 'a#5');
+
+        $counters = $this->counters();
+        self::assertSame('', $counters['reviewed_head']);
+        self::assertSame('h1:1', $counters['review_failures']);
+        // The next poll offers the same head for review again.
+        $this->orchestratorWithOpenPr()->poll();
+        self::assertSame(['a#5'], $this->db->epicReviewPrs('demo'));
+    }
+
+    public function testSecondFailedReviewRunOnSameHeadBlocksTaskAndNotifiesOnce(): void
+    {
+        $this->startEpic();
+        $this->storeCold([], 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->failRun();
+        $this->runEpic(Run::REVIEW, 'a#5');
+        // The next poll re-queues the review and writes the mark again.
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->runEpic(Run::REVIEW, 'a#5');
+
+        $statuses = array_column($this->db->epicTasks('demo'), 'status', 'task');
+        self::assertSame('blocked', $statuses['a#1']);
+        $counters = $this->counters();
+        self::assertSame('h1:2', $counters['review_failures']);
+        self::assertSame('h1', $counters['reviewed_head']);
+        self::assertSame(1, substr_count($this->allText(), 'the epic review of the pull request failed 2 times'));
+    }
+
+    public function testFailedReviewRunOnNewHeadRestartsCountWithoutBlocking(): void
+    {
+        $this->startEpic();
+        $this->storeCold([], 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->failRun();
+        $this->runEpic(Run::REVIEW, 'a#5');
+        self::assertSame('h1:1', $this->counters()['review_failures']);
+
+        $this->storeCold([], 'h2');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h2');
+        $this->runEpic(Run::REVIEW, 'a#5');
+
+        self::assertSame('h2:1', $this->counters()['review_failures']);
+        self::assertSame('', $this->counters()['reviewed_head']);
+        $statuses = array_column($this->db->epicTasks('demo'), 'status', 'task');
+        self::assertNotSame('blocked', $statuses['a#1']);
+    }
+
+    public function testRequeuedReviewRunDoesNotTouchReviewCounters(): void
+    {
+        $this->startEpic();
+        $this->storeCold([], 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->claudeOutput('{"type":"result","is_error":true,"result":"You\'ve hit your usage limit","session_id":"s","usage":{}}');
+
+        $this->runEpic(Run::REVIEW, 'a#5');
+
+        $counters = $this->counters();
+        self::assertSame('h1', $counters['reviewed_head']);
+        self::assertArrayNotHasKey('review_failures', $counters);
+        self::assertGreaterThan(0, $this->db->getLimitPauseUntil());
+        self::assertStringContainsString('Claude limit', (string) file_get_contents($this->root.'/state/epics/demo/failures.log'));
+    }
+
+    public function testFailedTickRunDoesNotTouchReviewCounters(): void
+    {
+        $this->startEpic();
+        $this->storeCold([], 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->failRun();
+
+        $this->runEpic(Run::TICK);
+
+        $counters = $this->counters();
+        self::assertSame('h1', $counters['reviewed_head']);
+        self::assertArrayNotHasKey('review_failures', $counters);
+    }
+
+    public function testFailedReviewRunWithoutSavedFindingsChangesNothing(): void
+    {
+        $this->startEpic();
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->failRun();
+
+        $this->runEpic(Run::REVIEW, 'a#5');
+
+        $counters = $this->counters();
+        self::assertSame('h1', $counters['reviewed_head']);
+        self::assertArrayNotHasKey('review_failures', $counters);
+    }
+
+    public function testFailedReviewRunForAnotherHeadChangesNothing(): void
+    {
+        $this->startEpic();
+        $this->storeCold([], 'h2');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->failRun();
+
+        $this->runEpic(Run::REVIEW, 'a#5');
+
+        $counters = $this->counters();
+        self::assertSame('h1', $counters['reviewed_head']);
+        self::assertArrayNotHasKey('review_failures', $counters);
+    }
+
+    public function testReviewRunWithoutSignalFileCountsAsFailedReviewRun(): void
+    {
+        $this->startEpic();
+        $this->storeCold([], 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+
+        $this->runEpic(Run::REVIEW, 'a#5');
+
+        $counters = $this->counters();
+        self::assertSame('', $counters['reviewed_head']);
+        self::assertSame('h1:1', $counters['review_failures']);
+        self::assertStringContainsString('invalid signal', (string) file_get_contents($this->root.'/state/epics/demo/failures.log'));
+    }
+
+    public function testSuccessfulReviewRunClearsReviewFailures(): void
+    {
+        $this->startEpic();
+        $this->storeCold([], 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'review_failures', 'h1:1');
+        $this->signal('{"verdict":"approve","cold_findings":[]}');
+
+        $this->runEpic(Run::REVIEW, 'a#5');
+
+        $counters = $this->counters();
+        self::assertSame('', $counters['review_failures']);
+        self::assertSame('h1', $counters['coverage_head']);
+    }
+
+    public function testResumeAfterReviewFailureBlockQueuesTheReviewAgain(): void
+    {
+        $this->startEpic();
+        $this->storeCold([], 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'reviewed_head', 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'review_failures', 'h1:2');
+        $this->db->epicSetTaskStatus('demo', 'a#1', 'blocked');
+
+        $this->db->epicResume('demo');
+
+        $counters = $this->counters();
+        self::assertSame('', $counters['review_failures']);
+        self::assertSame('', $counters['reviewed_head']);
+        $this->orchestratorWithOpenPr()->poll();
+        self::assertSame(['a#5'], $this->db->epicReviewPrs('demo'));
+    }
+
     public function testEpicRunIsIsolatedFromTopicSession(): void
     {
         $this->startEpic();

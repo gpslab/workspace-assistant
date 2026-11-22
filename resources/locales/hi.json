@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ एपिक रन {slug} विफल: सिग्नल अमान्य है — {error}",
     "epicrun.tails_ceiling": "एपिक {slug}: अनुवर्ती कार्यों का तीसरा दौर शुरू नहीं होता, सिग्नल के अतिरिक्त कार्य हटा दिए गए (सीमा — {rounds} दौर)।",
     "epicrun.task_not_in_epic": "कार्य {ref} एपिक का हिस्सा नहीं है",
+    "gate.review_failed": "{task}: समान head पर एपिक समीक्षा {count} बार विफल रही और बीच में कोई सफल समीक्षा नहीं हुई — कार्य रोक दिया गया (blocked)। कारण एपिक की failures.log में है; कारण ठीक करें और /epic resume करें।",
     "cancel.epic_paused": "एपिक {slug} रोक दिया गया (जारी रखने के लिए /epic resume)।",
     "cancel.epic_paused_queue_empty": "एपिक {slug} रोक दिया गया (जारी रखने के लिए /epic resume)। टॉपिक की कतार खाली है।",
     "cancel.item_removed": "🚫 /cancel से हटाया गया",

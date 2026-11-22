@@ -559,7 +559,8 @@ final class Bot implements LoopControl
             $this->delivery->deliver($outcome->chatId, $outcome->threadId, $outcome->notice);
         }
         if ($outcome->failure !== null || $outcome->result === null) {
-            $this->afterFailedRun($outcome->chatId, $outcome->threadId, $outcome->epicSlug, (string) $outcome->failure);
+            // A requeued run will be repeated: its failure must not touch the epic review counters.
+            $this->afterFailedRun($outcome->chatId, $outcome->threadId, $outcome->epicSlug, (string) $outcome->failure, $outcome->requeued ? null : $outcome->epicRun);
 
             return;
         }
@@ -601,15 +602,17 @@ final class Bot implements LoopControl
      * With AUTO_COMMIT=1 a failed regular request gets the commit/discard buttons and a queue
      * pause (with 0 it gets neither); an epic run failure is handled without a human, see
      * {@see RunLifecycle::failRemembering()}.
+     *
+     * @param array{run:string, pr:?string}|null $epicRun
      */
-    private function afterFailedRun(int $chatId, int $threadId, ?string $epicSlug, string $reason): void
+    private function afterFailedRun(int $chatId, int $threadId, ?string $epicSlug, string $reason, ?array $epicRun = null): void
     {
         if ($epicSlug === null) {
             $this->dirtyTree->offerDecisionIfDirty($chatId, $threadId);
 
             return;
         }
-        $this->runLifecycle->failRemembering($chatId, $threadId, $epicSlug, $reason);
+        $this->runLifecycle->failRemembering($chatId, $threadId, $epicSlug, $reason, $epicRun);
     }
 
     /**

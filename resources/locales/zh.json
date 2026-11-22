@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ 史诗运行 {slug} 失败：信号无效 — {error}",
     "epicrun.tails_ceiling": "史诗 {slug}：不再开始第三轮后续任务，信号中的额外任务已丢弃（上限 — {rounds} 轮）。",
     "epicrun.task_not_in_epic": "任务 {ref} 不属于该史诗",
+    "gate.review_failed": "{task}：同一 head 上的史诗审查失败了 {count} 次，其间没有成功的审查 — 任务已停止（blocked）。原因见史诗的 failures.log；请修复原因后 /epic resume。",
     "cancel.epic_paused": "史诗 {slug} 已暂停（/epic resume 继续）。",
     "cancel.epic_paused_queue_empty": "史诗 {slug} 已暂停（/epic resume 继续）。话题队列为空。",
     "cancel.item_removed": "🚫 已被 /cancel 移除",

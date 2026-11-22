@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ L'exécution de l'epic {slug} a échoué : le signal est invalide — {error}",
     "epicrun.tails_ceiling": "Epic {slug} : le troisième tour de tâches de suivi ne démarre pas, les tâches supplémentaires du signal ont été écartées (plafond — {rounds} tours).",
     "epicrun.task_not_in_epic": "la tâche {ref} ne fait pas partie de l'epic",
+    "gate.review_failed": "{task} : la revue de l'epic de la pull request a échoué {count} fois sur le même head sans revue réussie entre-temps — la tâche est arrêtée (blocked). La raison figure dans failures.log de l'epic ; corrigez la cause puis /epic resume.",
     "cancel.epic_paused": "L'epic {slug} est en pause (/epic resume pour continuer).",
     "cancel.epic_paused_queue_empty": "L'epic {slug} est en pause (/epic resume pour continuer). La file du sujet est vide.",
     "cancel.item_removed": "🚫 Retiré par /cancel",

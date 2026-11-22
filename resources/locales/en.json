@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ Epic run {slug} failed: the signal is invalid — {error}",
     "epicrun.tails_ceiling": "Epic {slug}: the third round of follow-up tasks does not start, extra tasks from the signal were discarded (ceiling — {rounds} rounds).",
     "epicrun.task_not_in_epic": "task {ref} is not part of the epic",
+    "gate.review_failed": "{task}: the epic review of the pull request failed {count} times on the same head with no successful review in between — the task is stopped (blocked). The reason is in the epic's failures.log; fix the cause and /epic resume.",
     "cancel.epic_paused": "Epic {slug} is paused (/epic resume to continue).",
     "cancel.epic_paused_queue_empty": "Epic {slug} is paused (/epic resume to continue). The topic queue is empty.",
     "cancel.item_removed": "🚫 Removed by /cancel",

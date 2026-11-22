@@ -22,6 +22,9 @@ use GpsLab\WorkspaceAssistant\SecretBlocker;
  */
 final class RunLifecycle
 {
+    /** Failed hot-review runs on one head before the task is blocked. */
+    public const int GATE_REVIEW_FAILURES = 2;
+
     public function __construct(
         private readonly Config $config,
         private readonly Database $db,
@@ -52,10 +55,14 @@ final class RunLifecycle
         }
     }
 
-    /** Failed epic run, handled without a human: see {@see fail()}; then the fingerprint is remembered. */
-    public function failRemembering(int $chatId, int $threadId, string $slug, string $reason): void
+    /**
+     * Failed epic run, handled without a human: see {@see fail()}; then the fingerprint is remembered.
+     *
+     * @param array{run:string, pr:?string}|null $epicRun
+     */
+    public function failRemembering(int $chatId, int $threadId, string $slug, string $reason, ?array $epicRun = null): void
     {
-        $this->fail($chatId, $threadId, $slug, $reason);
+        $this->fail($chatId, $threadId, $slug, $reason, $epicRun);
         $this->orchestrator?->rememberAfterRun($slug);
     }
 
@@ -107,7 +114,7 @@ final class RunLifecycle
         } catch (\InvalidArgumentException $e) {
             Log::line("epic {$slug}: run failed: ".$e->getMessage());
             $this->delivery->deliver($chatId, $threadId, $this->locale->t('epicrun.signal_invalid', ['slug' => $slug, 'error' => $e->getMessage()]));
-            $this->fail($chatId, $threadId, $slug, 'invalid signal: '.$e->getMessage());
+            $this->fail($chatId, $threadId, $slug, 'invalid signal: '.$e->getMessage(), $epicRun);
 
             return;
         }
@@ -207,6 +214,8 @@ final class RunLifecycle
             if ($signal->verdict === Signal::VERDICT_APPROVE && $result['open'] === []) {
                 $this->db->epicSetTaskCounter($slug, $cold['task'], 'coverage_head', $cold['head']);
             }
+            // The review of this head is done: the failed-review budget starts over.
+            $this->db->epicSetTaskCounter($slug, $cold['task'], 'review_failures', '');
 
             return true;
         }
@@ -247,9 +256,18 @@ final class RunLifecycle
      * there is no patch and the tree is left as is. A record goes to `failures.log`.
      * There are no buttons or queue pause, and the failure is not committed to the
      * repository. The epic continues.
+     *
+     * A failed `review` run does not leave the PR marked as reviewed for good: see
+     * {@see handleFailedReview()}.
+     *
+     * @param array{run:string, pr:?string}|null $epicRun
      */
-    private function fail(int $chatId, int $threadId, string $slug, string $reason): void
+    private function fail(int $chatId, int $threadId, string $slug, string $reason, ?array $epicRun = null): void
     {
+        if ($epicRun !== null && $epicRun['run'] === Run::REVIEW && $epicRun['pr'] !== null) {
+            $this->handleFailedReview($slug, $epicRun['pr']);
+        }
+
         $dir = $this->config->stateDir.'/epics/'.$slug;
         if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
             Log::line("epic {$slug}: cannot create {$dir}");
@@ -300,6 +318,50 @@ final class RunLifecycle
         $this->db->clearSecretBlock();
         $this->failLog($dir, $reason, $patchName);
         Log::line("epic {$slug}: run failed: {$reason}".($patchName !== null ? " (patch {$patchName})" : ''));
+    }
+
+    /**
+     * A failed `review` run left `reviewed_head` = the head of the PR: the orchestrator does not offer
+     * that head for review again, so one transient failure (a quota, a network error, a CLI crash)
+     * would stall the task for good. The task and the head come from the cold-findings file saved
+     * before the review was enqueued; with no file (or a head that no longer matches) nothing changes.
+     *
+     * The counter `review_failures` (`head:N`, N restarts on a new head) gives the review a second
+     * attempt: below {@see GATE_REVIEW_FAILURES} the mark is cleared, so the next poll enqueues the
+     * review again. On the last attempt the task is blocked with the mark kept, and the topic is told
+     * once. The message carries no error text on purpose: a provider error may quote an API key URL.
+     *
+     * @param string $pr `repo#N`
+     */
+    private function handleFailedReview(string $slug, string $pr): void
+    {
+        $cold = ColdFindings::load(ColdFindings::path($this->config->stateDir, $slug, $pr));
+        if ($cold === null) {
+            return;
+        }
+
+        $counters = [];
+        foreach ($this->db->epicTasks($slug) as $task) {
+            if ($task['task'] === $cold['task']) {
+                $counters = $task['counters'];
+            }
+        }
+        if (($counters['reviewed_head'] ?? null) !== $cold['head']) {
+            return;
+        }
+
+        [$prevHead, $prevCount] = array_pad(explode(':', (string) ($counters['review_failures'] ?? ''), 2), 2, '');
+        $failures = ($prevHead === $cold['head'] ? (int) $prevCount : 0) + 1;
+        $this->db->epicSetTaskCounter($slug, $cold['task'], 'review_failures', $cold['head'].':'.$failures);
+
+        if ($failures >= self::GATE_REVIEW_FAILURES) {
+            $this->db->epicSetTaskStatus($slug, $cold['task'], 'blocked');
+            $this->notifier->notifyEpic($slug, $this->locale->t('gate.review_failed', ['task' => $cold['task'], 'count' => $failures]));
+            $this->card->update($slug);
+
+            return;
+        }
+        $this->db->epicSetTaskCounter($slug, $cold['task'], 'reviewed_head', '');
     }
 
     private function failLog(string $dir, string $reason, ?string $patchName): void
