@@ -24,9 +24,6 @@ final class Config
     /** Engine name of an instance that runs OpenCode instead of Claude Code. */
     public const string ENGINE_OPENCODE = 'opencode';
 
-    /** Engine name of an instance that runs Kimi Code instead of Claude Code. */
-    public const string ENGINE_KIMI = 'kimi';
-
     /**
      * Engine name of a Kimi Code run. Not selectable yet: the runner does not exist, so `ENGINE`
      * still accepts only {@see DEFAULT_ENGINE_FINGERPRINT} and {@see ENGINE_OPENCODE}.
