@@ -125,9 +125,18 @@ final class SessionFilesTest extends TestCase
     {
         // Only `session_<uuid>` names a Kimi session: a bare uuid, a wrong prefix, an id with uppercase
         // hex and a path-traversal id must not delete anything (a glob or a stray `..` must not escape
-        // the home).
-        mkdir($this->kimiHome.'/sessions/wd_-work-repo_0a1b2c3d/'.self::KIMI_A, 0777, true);
-        mkdir($this->kimiHome.'/sessions/wd_-work-repo_0a1b2c3d/session_'.strtoupper(self::UUID_A), 0777, true);
+        // the home). Each rejected id has a fixture directory that an unguarded glob would delete, so
+        // the assertions fail if the id check is removed.
+        $bucket = $this->kimiHome.'/sessions/wd_-work-repo_0a1b2c3d';
+        mkdir($bucket.'/'.self::UUID_A, 0777, true);
+        mkdir($bucket.'/session_short', 0777, true);
+        mkdir($bucket.'/session_'.strtoupper(self::UUID_A), 0777, true);
+
+        // A traversal id resolves to `<home>/etc` once the `session_..` component exists in a bucket;
+        // the sentinel there must survive.
+        mkdir($bucket.'/session_..', 0777, true);
+        mkdir($this->kimiHome.'/etc', 0777, true);
+        file_put_contents($this->kimiHome.'/etc/sentinel.txt', 'keep');
 
         $sessionFiles = $this->sessionFiles();
         $sessionFiles->delete(self::UUID_A, Config::ENGINE_KIMI, $this->kimiHome);
@@ -137,8 +146,10 @@ final class SessionFilesTest extends TestCase
         $sessionFiles->delete('*', Config::ENGINE_KIMI, $this->kimiHome);
         $sessionFiles->delete('', Config::ENGINE_KIMI, $this->kimiHome);
 
-        self::assertDirectoryExists($this->kimiHome.'/sessions/wd_-work-repo_0a1b2c3d/'.self::KIMI_A);
-        self::assertDirectoryExists($this->kimiHome.'/sessions/wd_-work-repo_0a1b2c3d/session_'.strtoupper(self::UUID_A));
+        self::assertDirectoryExists($bucket.'/'.self::UUID_A);
+        self::assertDirectoryExists($bucket.'/session_short');
+        self::assertDirectoryExists($bucket.'/session_'.strtoupper(self::UUID_A));
+        self::assertFileExists($this->kimiHome.'/etc/sentinel.txt');
     }
 
     public function testKimiSessionOutsideABucketIsNotDeleted(): void
