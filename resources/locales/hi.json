@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "नहीं मिला",
     "gate.changes_ceiling": "{task}: एपिक रिव्यू ने {count} बार बदलाव माँगे — कार्य रोका गया (blocked)। क्या करें: टिप्पणियाँ हाथ से देखें और /epic resume?",
     "gate.conflict_comment": "पड़ोसी एपिक PR के merge होने के बाद इस PR में `master` से टकराव है। `master` को ब्रांच में मिलाएँ और टकराव सुलझाएँ।",
-    "gate.conflict_unresolved": "{task}: master से टकराव एक पुनरावृत्ति में नहीं सुलझा — कार्य रोका गया (blocked)। टकराव हाथ से सुलझाएँ?",
+    "gate.conflict_unresolved": "{task}: अनुरोध के बाद भी master से टकराव अभी सुलझा नहीं है — कार्य रोका गया (blocked)। टकराव हाथ से सुलझाएँ?",
     "gate.failed_runs_failed": "{repo}: {cli} से master CI के विफल रन नहीं मिल सके ({error})",
     "gate.master_no_fix": "{repo} का master लाल है और {ticks} टिक में सुधार का कार्य नहीं आया",
     "gate.master_red_hours": "{repo} का master {hours} घंटे से लाल है, सुधार से मदद नहीं मिली",

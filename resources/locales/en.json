@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "not found",
     "gate.changes_ceiling": "{task}: the epic review requested changes {count} times — the task is stopped (blocked). What to do: go through the remarks manually and /epic resume?",
     "gate.conflict_comment": "After a neighbouring epic PR was merged, this PR conflicts with `master`. Merge `master` into the branch and resolve the conflict.",
-    "gate.conflict_unresolved": "{task}: the conflict with master was not resolved within one iteration — the task is stopped (blocked). Resolve the conflict manually?",
+    "gate.conflict_unresolved": "{task}: the conflict with master is still unresolved after the request — the task is stopped (blocked). Resolve the conflict manually?",
     "gate.failed_runs_failed": "{repo}: could not get the failed master CI runs via {cli} ({error})",
     "gate.master_no_fix": "master of {repo} is red and no fix task appeared within {ticks} ticks",
     "gate.master_red_hours": "master of {repo} has been red for {hours} h, the fix did not help",

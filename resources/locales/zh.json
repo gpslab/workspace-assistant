@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "未找到",
     "gate.changes_ceiling": "{task}：史诗审查已 {count} 次要求修改 — 任务已停止（blocked）。怎么办：手动处理这些意见后 /epic resume？",
     "gate.conflict_comment": "相邻的史诗 PR 合并后，此 PR 与 `master` 冲突。请把 `master` 合并进该分支并解决冲突。",
-    "gate.conflict_unresolved": "{task}：一次迭代内未能解决与 master 的冲突 — 任务已停止（blocked）。手动解决冲突？",
+    "gate.conflict_unresolved": "{task}：请求后仍未解决与 master 的冲突 — 任务已停止（blocked）。手动解决冲突？",
     "gate.failed_runs_failed": "{repo}：无法通过 {cli} 获取 master CI 失败的运行（{error}）",
     "gate.master_no_fix": "{repo} 的 master 已失败，且 {ticks} 次触发内没有出现修复任务",
     "gate.master_red_hours": "{repo} 的 master 已失败 {hours} 小时，修复未见效",

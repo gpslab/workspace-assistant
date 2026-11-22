@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "topilmadi",
     "gate.changes_ceiling": "{task}: epik taqrizi {count} marta o'zgartirishlar talab qildi — vazifa to'xtatildi (blocked). Nima qilish kerak: izohlarni qo'lda ko'rib chiqib, /epic resume?",
     "gate.conflict_comment": "Epikning qo'shni PR'i birlashtirilgandan so'ng bu yerda `master` bilan konflikt paydo bo'ldi. `master`ni shoxga qo'shib, konfliktni hal qiling.",
-    "gate.conflict_unresolved": "{task}: master bilan konflikt bir iteratsiyada hal qilinmadi — vazifa to'xtatildi (blocked). Konfliktni qo'lda hal qilasizmi?",
+    "gate.conflict_unresolved": "{task}: so'rovdan keyin master bilan konflikt hali hal qilinmadi — vazifa to'xtatildi (blocked). Konfliktni qo'lda hal qilasizmi?",
     "gate.failed_runs_failed": "{repo}: master CI'ning muvaffaqiyatsiz ishga tushirishlarini {cli} orqali olib bo'lmadi ({error})",
     "gate.master_no_fix": "{repo} master'i qizil, {ticks} tik ichida tuzatish vazifasi paydo bo'lmadi",
     "gate.master_red_hours": "{repo} master'i {hours} soat qizil, tuzatish yordam bermadi",

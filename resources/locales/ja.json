@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "見つかりません",
     "gate.changes_ceiling": "{task}：エピックのレビューで {count} 回変更が要求されました — タスクを停止しました（blocked）。対処：指摘を手動で確認して /epic resume しますか？",
     "gate.conflict_comment": "隣接するエピックの PR がマージされたため、この PR は `master` と競合しています。`master` をブランチにマージして競合を解消してください。",
-    "gate.conflict_unresolved": "{task}：master との競合が1回のイテレーションで解消されませんでした — タスクを停止しました（blocked）。競合を手動で解消しますか？",
+    "gate.conflict_unresolved": "{task}：依頼後も master との競合が解決していません — タスクを停止しました（blocked）。競合を手動で解消しますか？",
     "gate.failed_runs_failed": "{repo}：失敗した master の CI 実行を {cli} で取得できませんでした（{error}）",
     "gate.master_no_fix": "{repo} の master は失敗状態ですが、{ticks} 回のティック内に修正タスクが現れませんでした",
     "gate.master_red_hours": "{repo} の master は {hours} 時間失敗状態が続いており、修正でも直りませんでした",

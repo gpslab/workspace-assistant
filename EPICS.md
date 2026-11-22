@@ -142,7 +142,7 @@ The forum topic is created by the author; the bot does not create topics and doe
 |----------------------|--------|
 | `/epic start <slug>` | Start the epic in this topic (status `running`). An invalid plan is rejected with the reason and no epic is created |
 | `/epic pause`        | Pause (`paused`) |
-| `/epic resume`       | Clears `paused` and `blocked` on the epic and `blocked` on tasks (including on a `running` epic when the reply names tasks). For the unblocked tasks the `REQUEST_CHANGES` ceiling counter and `conflict_head` are reset: the author answered in the topic (a chat run recorded the decision in the journal) and explicitly resumed the epic. It also resets the stagnation counter (`stale_ticks = 0`, the last-activity moment is set to now), so the next timer tick comes `EPIC_TICK_MINUTES` after the resume (ticks driven by attention are immediate), and the merge gate's `merge_failures` counters |
+| `/epic resume`       | Clears `paused` and `blocked` on the epic and `blocked` on tasks (including on a `running` epic when the reply names tasks). For the unblocked tasks the `REQUEST_CHANGES` ceiling counter and `conflict_head`/`conflict_changes` are reset: the author answered in the topic (a chat run recorded the decision in the journal) and explicitly resumed the epic. It also resets the stagnation counter (`stale_ticks = 0`, the last-activity moment is set to now), so the next timer tick comes `EPIC_TICK_MINUTES` after the resume (ticks driven by attention are immediate), and the merge gate's `merge_failures` counters |
 | `/epic status`       | State of the topic's epic: status, tasks, hold, blocked, time of the last GitHub poll, journal path |
 | `/epic`              | Without an argument: a keyboard of the actions that apply to the topic's epic now, under the same conditions as the text commands: pause if the epic is neither `paused` nor `done`; resume if the epic is not `done` and is either not running or has blocked tasks; status whenever the topic has an epic (including `done`); start if the topic has no epic or it is `done`, and there are plans that can be started. Start takes two steps: a plan list, then a confirmation. The list holds `EPICS_DIR/*.md` files that are not journals, have a valid slug and have no epic yet, new ones first, at most 10; if the chosen plan is invalid, the bot shows the error and no start button. A button whose `callback_data` would exceed Telegram's 64 bytes is not shown; if it is a plan in the list, a hint is printed under the list; with a long slug such actions are available only as text commands. With no buttons left, `/epic` replies with `epic.nothing_to_do` and `epic.usage` below it. Every press re-reads the state: a stale keyboard gets only a toast when the topic no longer has that epic (none or another one), or when start is no longer possible at the list or plan-choice step; otherwise the reply is the same as for the matching text command |
 
@@ -473,10 +473,13 @@ unless the PR comes from a fork or the branch is the default one. A failure of t
 merged epic task:
 
 - `mergeable` = `CONFLICTING`: the bot once posts a comment with the epic marker on the PR ("merge
-  `master` and resolve the conflict") and remembers the head. If the conflict remains and the head
-  changed (an iteration happened, the conflict is unresolved) — the task is `blocked`. While the head
-  is the same, the bot waits.
-- `MERGEABLE` clears the remembered head, and the next conflict starts again with a comment.
+  `master` and resolve the conflict") and remembers the head the PR has at the moment of posting.
+  After the comment, a head change while the PR is still `CONFLICTING` is first forgiven
+  (`conflict_changes` = 1): an iteration may already be in flight when the request arrives. The task
+  is `blocked` only when the second head change is observed (`GATE_CONFLICT_CHANGES = 2`) and the
+  conflict is still there. While the head is the same, the bot waits.
+- `MERGEABLE` clears the remembered head and the head-change counter (`conflict_head`,
+  `conflict_changes`), and the next conflict starts again with a comment.
 
 **Red `master` CI.** After each epic merge the repository is marked "unchecked". The mark stays
 until a green default-branch CI (`SUCCESS`) is seen for it. The epic does not stop because of a red
@@ -533,7 +536,7 @@ Then:
   reviews with the epic marker: several on one commit are one round, `MAX_CHANGES_REQUESTED = 3`) moves the task to `blocked`; a question on what to do
   goes to the topic. Only the task is blocked; the epic stays `running`. `/epic resume` clears
   `blocked` on tasks, also on a `running` epic (the reply names tasks), and resets the counter and
-  the post-merge gate's `conflict_head`: afterwards only epic `REQUEST_CHANGES` reviews submitted
+  the post-merge gate's `conflict_head` and `conflict_changes`: afterwards only epic `REQUEST_CHANGES` reviews submitted
   after the resume are counted (a review with an unknown time counts as fresh), so a last review in
   state `CHANGES_REQUESTED` does not block the task at once. If there are no blocked tasks,
   `/epic resume` on a `running` epic refuses ("not paused and not blocked"), on a `done` epic —

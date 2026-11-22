@@ -223,6 +223,11 @@ final class GatesTest extends TestCase
         return count($this->notified);
     }
 
+    private function notifiedText(int $index): string
+    {
+        return $this->notified[$index][1];
+    }
+
     /**
      * @return array<string, array{array<string, mixed>, string}>
      */
@@ -363,29 +368,148 @@ final class GatesTest extends TestCase
         return ['awaiting-answer' => ['openronin:awaiting-answer'], 'in-progress' => ['openronin:in-progress']];
     }
 
-    public function testConflictCommentThenBlockedWhenNotResolved(): void
+    /**
+     * @return array<string, TaskState>
+     */
+    private function conflictStates(string $head): array
     {
-        $states = ['a#1' => self::pr('a#1', ['prState' => 'merged']), 'a#2' => self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false'])];
+        return [
+            'a#1' => self::pr('a#1', ['prState' => 'merged']),
+            'a#2' => self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => $head]),
+        ];
+    }
+
+    /**
+     * @return array{task: string, status: string, counters: array<string, string>}
+     */
+    private function task(string $ref): array
+    {
+        foreach ($this->db->epicTasks('epic') as $task) {
+            if ($task['task'] === $ref) {
+                return $task;
+            }
+        }
+        self::fail("no task {$ref}");
+    }
+
+    public function testConflictCommentReadsTheHeadAtCommentTimeAndTheNextPollDoesNotBlock(): void
+    {
+        // The pass snapshot is older than the comment: a review-fix push landed just before it.
+        $this->gh->heads['a#7'] = 'h2';
+        $states = $this->conflictStates('h1');
+
         self::assertTrue($this->runGates($states));
         self::assertSame(['a#2 7'], $this->gh->commented);
+        $stored = $this->task('a#2')['counters']['conflict_head'];
+        self::assertSame('h2', $stored);
 
-        // same head: we wait, we do not comment a second time
+        // The next poll sees the stored head: no head change, the task is not blocked.
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h2']);
         $this->runGates($states);
+
+        $task = $this->task('a#2');
+        self::assertSame('open', $task['status']);
+        self::assertSame('h2', $task['counters']['conflict_head']);
+        self::assertSame(0, (int) ($task['counters']['conflict_changes'] ?? 0));
         self::assertSame(['a#2 7'], $this->gh->commented);
         self::assertSame([], $this->notified);
+    }
 
-        // openronin made an iteration (head changed), the conflict remains
-        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h9']);
+    public function testOneConflictHeadChangeIsForgivenAndTheSecondBlocks(): void
+    {
+        $this->gh->heads['a#7'] = 'h1';
+        $states = $this->conflictStates('h1');
         $this->runGates($states);
-        $task = array_values(array_filter($this->db->epicTasks('epic'), static fn (array $t): bool => $t['task'] === 'a#2'))[0];
+        self::assertSame(['a#2 7'], $this->gh->commented);
+
+        // An iteration happened after the comment (an answer or an unrelated review fix): forgiven.
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h2']);
+        $this->runGates($states);
+        $task = $this->task('a#2');
+        self::assertSame('open', $task['status']);
+        self::assertSame('h2', $task['counters']['conflict_head']);
+        self::assertSame(1, (int) $task['counters']['conflict_changes']);
+        self::assertSame([], $this->notified);
+
+        // The same head again is not a new change.
+        $this->runGates($states);
+        self::assertSame(1, (int) $this->task('a#2')['counters']['conflict_changes']);
+        self::assertSame([], $this->notified);
+
+        // A second change while the conflict remains: the task is blocked.
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h3']);
+        $this->runGates($states);
+        $task = $this->task('a#2');
         self::assertSame('blocked', $task['status']);
+        self::assertSame(2, (int) $task['counters']['conflict_changes']);
         self::assertSame(1, $this->notifiedCount());
+        self::assertSame('a#2: the conflict with master is still unresolved after the request — the task is stopped (blocked). Resolve the conflict manually?', $this->notifiedText(0));
+    }
+
+    public function testMergeableClearsConflictHeadAndCounterSoTheNextConflictCommentsAgain(): void
+    {
+        $this->gh->heads['a#7'] = 'h1';
+        $states = $this->conflictStates('h1');
+        $this->runGates($states);
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h2']);
+        $this->runGates($states);
+        self::assertSame(1, (int) $this->task('a#2')['counters']['conflict_changes']);
+
+        // The conflict is resolved.
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'true', 'head' => 'h2']);
+        $this->runGates($states);
+        $task = $this->task('a#2');
+        self::assertSame('open', $task['status']);
+        self::assertSame('', $task['counters']['conflict_head']);
+        self::assertSame(0, (int) $task['counters']['conflict_changes']);
+
+        // A new conflict starts again with a comment.
+        $this->gh->heads['a#7'] = 'h3';
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h3']);
+        $this->runGates($states);
+        self::assertCount(2, $this->gh->commentBodies);
+        $task = $this->task('a#2');
+        self::assertSame('h3', $task['counters']['conflict_head']);
+        self::assertSame(0, (int) ($task['counters']['conflict_changes'] ?? 0));
+        self::assertSame('open', $task['status']);
+    }
+
+    public function testFailedConflictHeadRereadSkipsTheTaskWithoutAComment(): void
+    {
+        $this->gh->failHeads[] = 'a#7';
+        $states = $this->conflictStates('h1');
+
+        $this->runGates($states);
+
+        self::assertSame([], $this->gh->commented);
+        $task = $this->task('a#2');
+        self::assertSame('open', $task['status']);
+        self::assertArrayNotHasKey('conflict_head', $task['counters']);
+        self::assertArrayNotHasKey('conflict_changes', $task['counters']);
+        self::assertSame([], $this->notified);
+    }
+
+    public function testUnknownMergeableLeavesTheConflictHeadAndCounterUntouched(): void
+    {
+        $this->gh->heads['a#7'] = 'h1';
+        $states = $this->conflictStates('h1');
+        $this->runGates($states);
+
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'unknown', 'head' => 'h2']);
+        $this->runGates($states);
+
+        $task = $this->task('a#2');
+        self::assertSame('open', $task['status']);
+        self::assertSame('h1', $task['counters']['conflict_head']);
+        self::assertSame(0, (int) ($task['counters']['conflict_changes'] ?? 0));
+        self::assertSame([], $this->notified);
     }
 
     public function testConflictCommentAndNoticeAreEnglishByDefault(): void
     {
         $this->locale = null;
-        $states = ['a#1' => self::pr('a#1', ['prState' => 'merged']), 'a#2' => self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false'])];
+        $this->gh->heads['a#7'] = 'h1';
+        $states = $this->conflictStates('h1');
         $this->runGates($states);
         self::assertCount(1, $this->gh->commentBodies);
         self::assertStringStartsWith(
@@ -393,9 +517,13 @@ final class GatesTest extends TestCase
             $this->gh->commentBodies[0],
         );
 
+        // The first head change is forgiven, the second blocks.
         $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h9']);
         $this->runGates($states);
-        self::assertSame('a#2: the conflict with master was not resolved within one iteration — the task is stopped (blocked). Resolve the conflict manually?', $this->notified[0][1]);
+        self::assertSame([], $this->notified);
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h8']);
+        $this->runGates($states);
+        self::assertSame('a#2: the conflict with master is still unresolved after the request — the task is stopped (blocked). Resolve the conflict manually?', $this->notifiedText(0));
     }
 
     public function testRussianConflictCommentIsUnchanged(): void
@@ -700,7 +828,7 @@ final class GatesTest extends TestCase
         $this->runGates($states);
         self::assertSame('blocked', $this->db->epicTasks('epic')[0]['status']);
         self::assertSame(1, $this->notifiedCount());
-        self::assertStringContainsString('a#1', $this->notified[0][1]);
+        self::assertStringContainsString('a#1', $this->notifiedText(0));
     }
 
     public function testMergeSuccessResetsFailureCounter(): void
@@ -917,14 +1045,18 @@ final class GatesTest extends TestCase
 
     public function testResumeClearsConflictHeadSoAfterMergeGateRestarts(): void
     {
-        $states = ['a#1' => self::pr('a#1', ['prState' => 'merged']), 'a#2' => self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false'])];
+        $this->gh->heads['a#7'] = 'h1';
+        $states = $this->conflictStates('h1');
         $this->runGates($states);
-        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h9']);
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h2']);
+        $this->runGates($states);
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => 'h3']);
         $this->runGates($states);
         $statuses = array_column($this->db->epicTasks('epic'), 'status', 'task');
         self::assertSame('blocked', $statuses['a#2']);
 
         self::assertSame(['a#2'], $this->db->epicResume('epic'));
+        $this->gh->heads['a#7'] = 'h3';
         $this->runGates($states);
         $statuses = array_column($this->db->epicTasks('epic'), 'status', 'task');
         self::assertSame('open', $statuses['a#2']);

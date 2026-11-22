@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "no encontrado",
     "gate.changes_ceiling": "{task}: la revisión de la épica solicitó cambios {count} veces — la tarea se detuvo (blocked). ¿Qué hacer: revisar las observaciones manualmente y /epic resume?",
     "gate.conflict_comment": "Tras fusionarse un PR vecino de la épica, este PR tiene conflicto con `master`. Fusiona `master` en la rama y resuelve el conflicto.",
-    "gate.conflict_unresolved": "{task}: el conflicto con master no se resolvió en una iteración — la tarea se detuvo (blocked). ¿Resolver el conflicto manualmente?",
+    "gate.conflict_unresolved": "{task}: el conflicto con master sigue sin resolverse tras la solicitud — la tarea se detuvo (blocked). ¿Resolver el conflicto manualmente?",
     "gate.failed_runs_failed": "{repo}: no se pudieron obtener con {cli} las ejecuciones fallidas de CI en master ({error})",
     "gate.master_no_fix": "master de {repo} está en rojo y no apareció ninguna tarea de corrección en {ticks} ciclos",
     "gate.master_red_hours": "master de {repo} lleva {hours} h en rojo, la corrección no ayudó",

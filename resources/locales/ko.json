@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "찾을 수 없음",
     "gate.changes_ceiling": "{task}: 에픽 리뷰가 수정을 {count}번 요청했습니다 — 작업이 중단되었습니다 (blocked). 어떻게 할까요: 지적 사항을 직접 처리하고 /epic resume?",
     "gate.conflict_comment": "인접한 에픽 PR이 머지된 뒤 이 PR이 `master`와 충돌합니다. `master`를 브랜치에 병합하고 충돌을 해결하세요.",
-    "gate.conflict_unresolved": "{task}: master와의 충돌을 한 번의 반복 안에 해결하지 못했습니다 — 작업이 중단되었습니다 (blocked). 충돌을 직접 해결할까요?",
+    "gate.conflict_unresolved": "{task}: 요청 후에도 master와의 충돌이 아직 해결되지 않았습니다 — 작업이 중단되었습니다 (blocked). 충돌을 직접 해결할까요?",
     "gate.failed_runs_failed": "{repo}: {cli} 명령으로 master CI의 실패한 실행을 가져오지 못했습니다 ({error})",
     "gate.master_no_fix": "{repo}의 master가 빨간색인데 {ticks}틱 동안 수정 작업이 생기지 않았습니다",
     "gate.master_red_hours": "{repo}의 master가 {hours}시간째 빨간색이며, 수정이 도움이 되지 않았습니다",

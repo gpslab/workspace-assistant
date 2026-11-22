@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "не найден",
     "gate.changes_ceiling": "{task}: ревью эпика запрашивало изменения (раз: {count}) — задача остановлена (blocked). Что делать: разобрать замечания вручную и /epic resume?",
     "gate.conflict_comment": "После мержа соседнего PR эпика здесь конфликт с `master`. Влей `master` в ветку и разреши конфликт.",
-    "gate.conflict_unresolved": "{task}: конфликт с master не разрешён за итерацию — задача остановлена (blocked). Разобрать конфликт вручную?",
+    "gate.conflict_unresolved": "{task}: конфликт с master после запроса не разрешён — задача остановлена (blocked). Разобрать конфликт вручную?",
     "gate.failed_runs_failed": "{repo}: не удалось получить упавшие прогоны CI master через {cli} ({error})",
     "gate.master_no_fix": "master {repo} красный, а задача на исправление не появилась (тиков ожидания: {ticks})",
     "gate.master_red_hours": "master {repo} красный {hours} ч, исправление не помогло",

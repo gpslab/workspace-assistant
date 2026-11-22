@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "introuvable",
     "gate.changes_ceiling": "{task} : la relecture de l'epic a demandé des modifications {count} fois — la tâche est arrêtée (blocked). Que faire : parcourir les remarques à la main et /epic resume ?",
     "gate.conflict_comment": "Après la fusion d'une PR voisine de l'epic, cette PR est en conflit avec `master`. Fusionnez `master` dans la branche et résolvez le conflit.",
-    "gate.conflict_unresolved": "{task} : le conflit avec master n'a pas été résolu en une itération — la tâche est arrêtée (blocked). Résoudre le conflit à la main ?",
+    "gate.conflict_unresolved": "{task} : le conflit avec master n'est toujours pas résolu après la demande — la tâche est arrêtée (blocked). Résoudre le conflit à la main ?",
     "gate.failed_runs_failed": "{repo} : impossible d'obtenir via {cli} les exécutions CI en échec de master ({error})",
     "gate.master_no_fix": "master de {repo} est rouge et aucune tâche de correction n'est apparue en {ticks} cycles",
     "gate.master_red_hours": "master de {repo} est rouge depuis {hours} h, la correction n'a pas aidé",
