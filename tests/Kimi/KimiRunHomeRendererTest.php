@@ -53,6 +53,28 @@ final class KimiRunHomeRendererTest extends TestCase
         self::assertStringContainsString("\${base_prompt}\n\nmode prompt\n\ninstance addition\n\nlanguage line", $files[KimiRunHomeRenderer::AGENT_FILE]);
     }
 
+    /**
+     * An empty shim path means "no gate shim installed yet": the config is rendered without hook
+     * tables, while the rest of the run home is the same.
+     */
+    public function testAnEmptyShimPathRendersNoHookTables(): void
+    {
+        $files = (new KimiRunHomeRenderer(
+            (string) file_get_contents(dirname(__DIR__).'/fixtures/kimi/config.toml'),
+            $this->runHome,
+            '',
+            'mode prompt',
+            '',
+            '',
+            $this->root.'/repo',
+            $this->root.'/home',
+        ))->render();
+
+        self::assertStringNotContainsString('[[hooks]]', $files[KimiRunHomeRenderer::CONFIG_FILE]);
+        self::assertStringContainsString('extra_agent_dirs = ["'.$this->runHome.'/agents"]', $files[KimiRunHomeRenderer::CONFIG_FILE]);
+        self::assertArrayHasKey(KimiRunHomeRenderer::AGENT_FILE, $files);
+    }
+
     public function testAMissingShimIsAnError(): void
     {
         unlink($this->shim);

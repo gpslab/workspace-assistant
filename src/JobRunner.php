@@ -9,6 +9,8 @@ use GpsLab\WorkspaceAssistant\Command\RunControl;
 use GpsLab\WorkspaceAssistant\Epic\Card;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Run;
+use GpsLab\WorkspaceAssistant\Kimi\DeferredRunHome;
+use GpsLab\WorkspaceAssistant\Kimi\KimiErrorClass;
 use GpsLab\WorkspaceAssistant\Memory\MemorySync;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 
@@ -66,8 +68,12 @@ final class JobRunner implements JobLauncher, RunControl
             $inboxFiles = $this->runState->jobContext['inbox_files'];
             $queueId = $this->runState->jobContext['queue_id'];
 
-            $this->runState->activeJob->kill();
+            $job = $this->runState->activeJob;
+            $job->kill();
             $this->finishJobState($chatId, $threadId);
+            if ($job instanceof DeferredRunHome) {
+                $job->purgeRunHome();
+            }
             $this->runState->repoSnapshot = null;
             $this->inbox->deleteInboxFiles($inboxFiles);
             if ($queueId > 0) {
@@ -257,6 +263,8 @@ final class JobRunner implements JobLauncher, RunControl
             'last_progress_at' => time(),
             'shown_count' => 0,
             'compact_old_session_id' => $compactOldSessionId,
+            // The session this run reuses, if any: a `Session "…" not found.` reply drops it.
+            'session_id' => $sessionId,
             'session_saved' => false,
             'inbox_files' => [],
             'mode' => $mode,
@@ -381,6 +389,27 @@ final class JobRunner implements JobLauncher, RunControl
                 $claude = new RunAnswer(true, $this->t('claude.recovered_unusable'), $claude->sessionId, $claude->totals, true, true);
             } elseif ($kind === RunKind::KIND_CHAT) {
                 $claude = new RunAnswer(false, $claude->text."\n\n".$this->t('claude.recovered_note'), $claude->sessionId, $claude->totals, true, true);
+            }
+        }
+        // The stored session is gone on the engine's side: drop it and rerun the same request in a
+        // new session. This is the only Kimi failure that resets the session; an occupied or refused
+        // one keeps it (see the error branch below).
+        if ($claude->isError
+            && $claude->errorClass === KimiErrorClass::SessionNotFound->value
+            && $kind === RunKind::KIND_CHAT
+            && ($this->runState->jobContext['session_id'] ?? null) !== null
+        ) {
+            $launchError = $this->restartAfterMissingSession($prompt, $inboxFiles);
+            if ($launchError === null) {
+                $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, true);
+
+                return null;
+            }
+            // The stored session was dropped but the rerun did not start: report the launch failure
+            // instead of the stale "Session … not found." reply (the new session never began, so no
+            // "new session" notice was sent either — see restartAfterMissingSession()).
+            if ($launchError !== '') {
+                $claude = new RunAnswer(true, $launchError, null);
             }
         }
         // Post-run review status check (see repeatReviewRun()): only an engine with no Stop hooks needs
@@ -648,6 +677,89 @@ final class JobRunner implements JobLauncher, RunControl
         $this->runState->jobContext['inbox_files'] = $inboxFiles;
         $this->runState->jobContext['prompt'] = $prompt;
         $this->runState->jobContext['review_repeated'] = true;
+    }
+
+    /**
+     * The stored session does not exist on the engine's side: drop it and rerun the request in a
+     * new session, telling the user as `/new` does. Only `Session "…" not found.` lands here; a run
+     * that failed in any other way (an occupied session included) keeps its session.
+     *
+     * Returns null when the rerun was launched: the caller returns without finishing this job (the
+     * new run owns it now). Otherwise the launch error is returned and the caller reports it instead
+     * of the stale "Session … not found." reply. The `session.new_started` notice goes out only after
+     * `launchJob()` succeeded, so a failed launch does not announce a session that never started.
+     *
+     * @param list<string> $inboxFiles inbox files of the finished run, to be restored onto the rerun
+     */
+    private function restartAfterMissingSession(string $prompt, array $inboxFiles): ?string
+    {
+        $context = $this->runState->jobContext;
+        if ($context === null) {
+            return 'no job context';
+        }
+
+        $previous = $this->runState->activeJob;
+        Log::line('session '.(string) ($context['session_id'] ?? '').' not found: dropping it and starting a new session');
+        $this->db->resetSession($context['chat_id'], $context['thread_id']);
+
+        try {
+            $error = $this->launchJob(
+                $context['chat_id'],
+                $context['thread_id'],
+                RunKind::KIND_CHAT,
+                $prompt,
+                null,
+                $context['thinking_id'],
+                null,
+                $context['mode'],
+                $context['queue_id'],
+                localeCode: $context['locale'],
+                idsPath: $context['ids_path'] ?? null,
+                model: $context['model'],
+                clearOutbox: false,
+            );
+        } catch (\Throwable $e) {
+            // The rerun may already be alive and tracked — then it goes on, as a repeat does.
+            if ($this->runState->activeJob !== $previous) {
+                $this->handOverAfterMissingSession($inboxFiles, $context['pm_gate_run_id']);
+
+                throw $e;
+            }
+            Log::line('a new session after the missing one did not start: '.$e->getMessage());
+
+            return $e->getMessage();
+        }
+
+        if ($error !== null) {
+            Log::line('a new session after the missing one did not start: '.$error);
+
+            return $error;
+        }
+
+        // The rerun is alive and owns the job now: only then is the user told about the new session.
+        $this->delivery->deliver($context['chat_id'], $context['thread_id'], $this->t('session.new_started'));
+        $this->handOverAfterMissingSession($inboxFiles, $context['pm_gate_run_id']);
+
+        return null;
+    }
+
+    /**
+     * The rerun takes over the inbox files and keeps the original prompt (launchJob() starts a
+     * context without them). The finished run's gate files go here: launchJob() already replaced
+     * jobContext, so finishJobState() will run only for the rerun.
+     *
+     * @param list<string> $inboxFiles
+     */
+    private function handOverAfterMissingSession(array $inboxFiles, ?string $previousGateRunId): void
+    {
+        if ($this->runState->jobContext === null) {
+            return;
+        }
+        if ($previousGateRunId !== null) {
+            PmGateHook::cleanup($this->config->stateDir, $previousGateRunId);
+            ReviewCommitHook::cleanup($this->config->stateDir, $previousGateRunId);
+        }
+        $this->runState->jobContext['inbox_files'] = $inboxFiles;
     }
 
     /**

@@ -158,10 +158,13 @@ final class QueueFlowTest extends TestCase
         return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github, runnerFactory: $this->runnerFactoryFor($config));
     }
 
-    /** Rebuilds the bot so that every job it launches gets $answer instead of a real engine run. */
-    private function useFixedRunner(RunAnswer $answer): void
+    /**
+     * Rebuilds the bot so that every job it launches gets $answer instead of a real engine run.
+     * Several answers serve a run that is followed by another one (each launch takes the next).
+     */
+    private function useFixedRunner(RunAnswer ...$answers): void
     {
-        $this->fixedRunner = new FixedRunner($answer);
+        $this->fixedRunner = new FixedRunner(...$answers);
         $this->bot = $this->makeBot();
     }
 
@@ -1721,6 +1724,97 @@ final class QueueFlowTest extends TestCase
         self::assertStringContainsString('This request requires more credits.', $reply);
     }
 
+    /**
+     * A session held by another instance (exit 4) is shown, does not pause the queue and must NOT
+     * drop the stored session: the session is alive, and a new one would fork the topic.
+     */
+    public function testAnOccupiedSessionIsShownAndKeepsTheStoredSession(): void
+    {
+        $this->db->setSessionId(100, 1, 's-live');
+        $this->useFixedRunner(new RunAnswer(
+            true,
+            'This session is in use by another Kimi Code CLI instance.',
+            's-live',
+            errorClass: 'occupied',
+        ));
+        $this->say(100, 1, 'resume me', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame('s-live', $this->db->getSessionId(100, 1), 'the session must not be dropped');
+        self::assertSame(0, $this->db->getLimitPauseUntil());
+        self::assertCount(0, $this->db->queueWaiting());
+        self::assertStringContainsString('session is in use', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    /**
+     * A refused account (`provider.auth_error`) is shown like any engine error: no queue pause,
+     * and the stored session is kept.
+     */
+    public function testAnAuthFailureIsShownWithoutPausingOrDroppingTheSession(): void
+    {
+        $this->db->setSessionId(100, 1, 's-live');
+        $this->useFixedRunner(new RunAnswer(
+            true,
+            'Your current subscription does not have access to Kimi Code right now.',
+            's-live',
+            errorClass: 'auth',
+        ));
+        $this->say(100, 1, 'hello', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame('s-live', $this->db->getSessionId(100, 1));
+        self::assertSame(0, $this->db->getLimitPauseUntil());
+        self::assertStringContainsString('does not have access', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    /**
+     * `Session "…" not found.` is the one failure that drops the stored id: the same request is
+     * rerun at once in a new session, with the /new notice.
+     */
+    public function testAMissingSessionIsDroppedAndTheRequestIsRerunInANewSession(): void
+    {
+        $this->db->setSessionId(100, 1, 's-gone');
+        $this->useFixedRunner(
+            new RunAnswer(true, 'Session "s-gone" not found.', 's-gone', errorClass: 'session_not_found'),
+            new RunAnswer(false, 'done', 's-new'),
+        );
+        $this->say(100, 1, 'hello', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+        // The rerun must start a NEW session (null), not resume the dropped id: the canned 's-new'
+        // answer cannot prove that on its own.
+        self::assertNotNull($this->fixedRunner);
+        self::assertSame(['s-gone', null], $this->fixedRunner->startedSessionIds());
+        self::assertStringContainsString('A new session has been started', implode("\n", $this->tg->textsTo(100, 1)));
+        self::assertStringContainsString('done', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    /**
+     * A missing session that cannot be rerun (the new launch fails) reports the launch error only:
+     * no "new session" notice (nothing started) and no stale "Session … not found." reply.
+     */
+    public function testAFailedRerunAfterAMissingSessionReportsTheLaunchError(): void
+    {
+        $this->db->setSessionId(100, 1, 's-gone');
+        $this->useFixedRunner(new RunAnswer(true, 'Session "s-gone" not found.', 's-gone', errorClass: 'session_not_found'));
+        self::assertNotNull($this->fixedRunner);
+        $this->fixedRunner->throwOnStart(2, new \RuntimeException('launch blew up'));
+        $this->say(100, 1, 'hello', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $reply = implode("\n", $this->tg->textsTo(100, 1));
+        self::assertStringNotContainsString('A new session has been started', $reply);
+        self::assertStringNotContainsString('not found.', $reply);
+        self::assertStringContainsString('launch blew up', $reply);
+        // The stored session was dropped even though the rerun failed.
+        self::assertNull($this->db->getSessionId(100, 1));
+    }
+
     public function testForeign429TextWithoutBaseUrlKeepsTodaysBehaviour(): void
     {
         $this->bot = $this->makeBot();
@@ -3059,6 +3153,26 @@ final class QueueFlowTest extends TestCase
         $this->runChat('hi', 10);
 
         self::assertSame(1, $this->launches());
+    }
+
+    /** At bot start the run homes of dead Kimi runs are swept; a live run's home is kept. */
+    public function testBotStartSweepsDeadKimiRunHomesAndKeepsLiveOnes(): void
+    {
+        $dead = $this->root.'/state/kimi-20260101-000000-2147483646-abcd';
+        $live = $this->root.'/state/kimi-20260101-000000-'.getmypid().'-abcd';
+        mkdir($dead, 0700, true);
+        file_put_contents($dead.'/config.toml', '');
+        mkdir($live, 0700, true);
+        file_put_contents($live.'/config.toml', '');
+
+        (new \ReflectionProperty(Bot::class, 'running'))->setValue($this->bot, false);
+        try {
+            $this->bot->run();
+        } catch (\Throwable) {
+        }
+
+        self::assertDirectoryDoesNotExist($dead);
+        self::assertDirectoryExists($live);
     }
 
     /**

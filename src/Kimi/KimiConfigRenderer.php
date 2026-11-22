@@ -41,15 +41,40 @@ final class KimiConfigRenderer
      * @param string $hookTables the rendered `[[hooks]]` tables ({@see KimiHooksRenderer})
      *
      * @throws \RuntimeException when the source cannot be parsed, or an argument would render an
-     *                           invalid or unsafe config
+     *                           invalid or unsafe config (empty hook tables included: a gate must
+     *                           not disappear by accident)
      */
     public function render(string $source, string $agentsDir, string $hookTables): string
     {
-        if (trim($agentsDir) === '') {
-            throw new \RuntimeException('The agents directory of a Kimi run must not be empty.');
-        }
         if (trim($hookTables) === '') {
             throw new \RuntimeException('The hook tables of a Kimi run must not be empty.');
+        }
+
+        return $this->renderConfig($source, $agentsDir, $hookTables);
+    }
+
+    /**
+     * The config of a run whose gate shim is not installed yet: no hooks at all.
+     *
+     * This is a separate entry point on purpose. {@see render()} still refuses empty hook tables,
+     * so a gate cannot disappear through a lost argument; a caller reaches this method only by
+     * stating that the shim does not exist (the runner checks the file itself).
+     *
+     * @throws \RuntimeException when the source cannot be parsed
+     */
+    public function renderWithoutHooks(string $source, string $agentsDir): string
+    {
+        return $this->renderConfig($source, $agentsDir, '');
+    }
+
+    /**
+     * @throws \RuntimeException when the source cannot be parsed, or an argument would render an
+     *                           invalid or unsafe config
+     */
+    private function renderConfig(string $source, string $agentsDir, string $hookTables): string
+    {
+        if (trim($agentsDir) === '') {
+            throw new \RuntimeException('The agents directory of a Kimi run must not be empty.');
         }
 
         $lines = self::lines($source);
@@ -137,7 +162,9 @@ final class KimiConfigRenderer
         if ($body !== '') {
             $rendered .= $body."\n";
         }
-        $rendered .= "\n".rtrim($hookTables, "\n")."\n";
+        if (trim($hookTables) !== '') {
+            $rendered .= "\n".rtrim($hookTables, "\n")."\n";
+        }
         if (!$sawToolsTable) {
             $rendered .= "\n[tools]\ndisabled = ".self::disabledTools()."\n";
         }

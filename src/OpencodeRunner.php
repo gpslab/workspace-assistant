@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\FileSystem\Removal;
 use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeAgent;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeConfigRenderer;
@@ -811,11 +812,11 @@ final class OpencodeRunner implements AgentRunner
         }
         $this->files = [];
         if ($this->configDir !== null) {
-            self::removeTree($this->configDir);
+            Removal::removeTree($this->configDir);
             $this->configDir = null;
         }
         if ($this->tmpDir !== null) {
-            self::removeTree($this->tmpDir);
+            Removal::removeTree($this->tmpDir);
             $this->tmpDir = null;
         }
     }
@@ -836,24 +837,8 @@ final class OpencodeRunner implements AgentRunner
             if (preg_match('/^opencode-\d{8}-\d{6}-(\d+)-/', basename($path), $m) === 1 && self::isAlive((int) $m[1])) {
                 continue;
             }
-            self::removeTree($path);
+            Removal::removeTree($path);
         }
-    }
-
-    private static function removeTree(string $path): void
-    {
-        if (is_link($path) || !is_dir($path)) {
-            @unlink($path);
-
-            return;
-        }
-        foreach (scandir($path) ?: [] as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-            self::removeTree($path.'/'.$entry);
-        }
-        @rmdir($path);
     }
 
     private static function isAlive(int $pid): bool

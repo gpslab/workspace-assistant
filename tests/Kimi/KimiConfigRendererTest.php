@@ -122,6 +122,19 @@ final class KimiConfigRendererTest extends TestCase
         (new KimiConfigRenderer())->render("[tools]\ndisabled = WebSearch\n", self::AGENTS_DIR, self::HOOKS);
     }
 
+    /**
+     * A run whose gate shim is not installed yet gets no hooks through the explicit entry point;
+     * the rest of the bot's config (agents directory and disabled tools) is unchanged.
+     */
+    public function testRenderWithoutHooksAddsNoHookTables(): void
+    {
+        $rendered = (new KimiConfigRenderer())->renderWithoutHooks('', self::AGENTS_DIR);
+
+        self::assertStringNotContainsString('[[hooks]]', $rendered);
+        self::assertStringContainsString('extra_agent_dirs = ["'.self::AGENTS_DIR.'"]', $rendered);
+        self::assertStringContainsString('[tools]', $rendered);
+    }
+
     public function testAnEmptySourceStillYieldsTheBotsConfig(): void
     {
         $rendered = (new KimiConfigRenderer())->render('', self::AGENTS_DIR, self::HOOKS);

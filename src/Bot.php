@@ -36,6 +36,7 @@ use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Epic\RunLifecycle;
 use GpsLab\WorkspaceAssistant\Epic\RunPrompt;
 use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
+use GpsLab\WorkspaceAssistant\Kimi\DeferredRunHome;
 use GpsLab\WorkspaceAssistant\Memory\MemorySync;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
@@ -204,6 +205,7 @@ final class Bot implements LoopControl
         }
         ClaudeRunner::purgeRunFiles($this->config->stateDir);
         OpencodeRunner::purgeRunDirs($this->config->stateDir);
+        KimiRunner::purgeRunHomes($this->config->stateDir);
         $this->commandMenu->register();
         $this->recoverQueueOnStart();
         Log::line('started, listening to Telegram...');
@@ -265,6 +267,9 @@ final class Bot implements LoopControl
         }
 
         $this->runState->activeJob?->kill();
+        if ($this->runState->activeJob instanceof DeferredRunHome) {
+            $this->runState->activeJob->purgeRunHome();
+        }
         Log::line('stopped.');
     }
 
@@ -526,6 +531,9 @@ final class Bot implements LoopControl
         }
         $queueId = $this->runState->jobContext['queue_id'];
         $requeued = false;
+        // The run home of an engine that defers its purge is removed after the post-run checks
+        // (the gate shim task reads the hook records first), not by the runner itself.
+        $runner = $this->runState->activeJob;
 
         try {
             $outcome = $this->jobRunner->poll();
@@ -536,6 +544,11 @@ final class Bot implements LoopControl
             $this->routeOutcome($outcome);
         } finally {
             $this->afterRun($queueId, $requeued);
+            // Only a job that is no longer active has finished: a running one (or one replaced by a
+            // rerun) must keep its run home until its own checks are done.
+            if ($runner instanceof DeferredRunHome && $runner !== $this->runState->activeJob) {
+                $runner->purgeRunHome();
+            }
         }
     }
 

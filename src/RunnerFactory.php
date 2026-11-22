@@ -14,6 +14,10 @@ use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
  * {@see ClaudeRunner} and `opencode` an {@see OpencodeRunner}; every other value is
  * rejected by {@see Config::fromEnv()} at startup, and the default arm fails loudly
  * rather than falling back to an engine the instance did not ask for.
+ *
+ * `kimi` is still rejected by {@see create()}. Its runner is reachable only through
+ * {@see createKimiRunner()}, a test hook: the engine becomes selectable in the task that adds its
+ * keys, fingerprint, installer check and docs.
  */
 class RunnerFactory
 {
@@ -122,6 +126,44 @@ class RunnerFactory
             opencodeModel: $this->config->opencodeModel,
             failedRunEvidenceDays: $this->config->failedRunEvidenceDays,
             memory: $this->memory(),
+        );
+    }
+
+    /**
+     * The Kimi Code runner for the current configuration.
+     *
+     * A test hook, not a selectable engine yet: {@see create()} still rejects `kimi`. The topic's
+     * `$model` is a Claude Code alias and is ignored — the model of a Kimi run is pinned by
+     * `KIMI_MODEL` ({@see Config::$kimiModel}). `$settingsJson` is Claude Code mechanics; Kimi takes
+     * its hooks from the rendered run home, so it is not wired either.
+     *
+     * @param array<string, string> $extraEnv
+     */
+    protected function createKimiRunner(
+        string $mode,
+        array $extraEnv,
+        string $localeCode,
+        bool $updateOnResume,
+        ?string $savedPromptHash,
+    ): KimiRunner {
+        return new KimiRunner(
+            kimiBin: $this->config->kimiBin,
+            repoPath: $this->config->repoPath,
+            timeout: $this->config->claudeTimeout,
+            extraArgs: $this->config->kimiExtraArgs,
+            stallTimeout: $this->config->claudeStallTimeout,
+            appendSystemPrompt: $this->config->claudeAppendSystemPrompt,
+            mode: $mode,
+            extraEnv: $extraEnv,
+            promptsDir: $this->config->promptsDir,
+            locale: $this->locale->with($localeCode),
+            stateDir: $this->config->stateDir,
+            homeDir: (string) getenv('HOME'),
+            updateOnResume: $updateOnResume,
+            savedPromptHash: $savedPromptHash,
+            forge: $this->config->forge,
+            kimiModel: $this->config->kimiModel,
+            kimiHome: $this->config->kimiHome,
         );
     }
 

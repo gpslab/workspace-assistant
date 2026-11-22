@@ -25,6 +25,12 @@ final class RunAnswer
          * matches the wording of a foreign Anthropic-compatible provider.
          */
         public readonly ?string $limitClass = null,
+        /**
+         * The engine parser's error class (`KimiErrorClass` value), null when the engine reported
+         * none or the run is not an error. {@see JobRunner} reacts to `session_not_found` (drop the
+         * stored session and start a new one); every other class is only shown in the chat.
+         */
+        public readonly ?string $errorClass = null,
     ) {
     }
 
@@ -61,13 +67,13 @@ final class RunAnswer
     /** The same result with other totals (a per-run figure instead of the snapshot, or the last result's). */
     public function withTotals(?UsageTotals $totals): self
     {
-        return new self($this->isError, $this->text, $this->sessionId, $totals, $this->exitedWithoutResult, $this->recovered, $this->limitClass);
+        return new self($this->isError, $this->text, $this->sessionId, $totals, $this->exitedWithoutResult, $this->recovered, $this->limitClass, $this->errorClass);
     }
 
     /** The same result with other text (an extra line appended to the reply). */
     public function withText(string $text): self
     {
-        return new self($this->isError, $text, $this->sessionId, $this->totals, $this->exitedWithoutResult, $this->recovered, $this->limitClass);
+        return new self($this->isError, $text, $this->sessionId, $this->totals, $this->exitedWithoutResult, $this->recovered, $this->limitClass, $this->errorClass);
     }
 
     /**

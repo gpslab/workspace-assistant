@@ -8,6 +8,7 @@ use GpsLab\WorkspaceAssistant\AgentRunner;
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\FailedRunEvidence;
+use GpsLab\WorkspaceAssistant\KimiRunner;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\OpencodeRunner;
 use GpsLab\WorkspaceAssistant\RunnerFactory;
@@ -234,6 +235,45 @@ final class RunnerFactoryTest extends TestCase
             null,
             null,
         );
+    }
+
+    /**
+     * The Kimi runner is implemented, but the engine is not selectable yet: the factory still
+     * rejects `kimi` until the task that adds its keys, fingerprint, installer check and docs.
+     */
+    public function testKimiIsStillRejectedByCreate(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Unsupported ENGINE=kimi.');
+
+        $this->factory($this->config(engine: Config::ENGINE_KIMI))->create(
+            SystemPrompt::MODE_ARCH,
+            '',
+            [],
+            Locale::DEFAULT,
+            true,
+            false,
+            null,
+            null,
+        );
+    }
+
+    /** The test hook is the only way to build a KimiRunner; it does not make the engine selectable. */
+    public function testTheTestHookBuildsAKimiRunner(): void
+    {
+        $config = $this->config(engine: Config::ENGINE_KIMI);
+        $factory = new class($config, new Locale()) extends RunnerFactory {
+            /**
+             * @param array<string, string> $extraEnv
+             */
+            public function kimi(string $mode, array $extraEnv, string $localeCode, bool $updateOnResume, ?string $savedPromptHash): KimiRunner
+            {
+                return $this->createKimiRunner($mode, $extraEnv, $localeCode, $updateOnResume, $savedPromptHash);
+            }
+        };
+
+        $runner = $factory->kimi(SystemPrompt::MODE_ARCH, [], Locale::DEFAULT, false, null);
+        self::assertNull($runner->promptHash(), 'a runner built but not started has no prompt hash');
     }
 
     private function factory(Config $config): RunnerFactory
