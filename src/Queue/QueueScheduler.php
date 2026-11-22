@@ -115,7 +115,7 @@ final class QueueScheduler implements QueueControl
         $old = $this->db->getSessionId($chatId, $threadId);
         $this->db->resetSession($chatId, $threadId);
         if ($old !== null) {
-            $this->sessionFiles->delete($old);
+            $this->sessionFiles->delete($old, $this->config->engine, $this->config->kimiHome);
         }
         $this->tg->sendText($chatId, $this->t('session.new_started'), null, $threadId);
     }
@@ -669,7 +669,7 @@ final class QueueScheduler implements QueueControl
         // first run counts from zero and the stale usage snapshot is not subtracted from its totals.
         if ($fingerprintChanged) {
             $this->db->resetSession($chatId, $threadId);
-            $this->sessionFiles->delete($sessionId);
+            $this->sessionFiles->delete($sessionId, $this->config->engine, $this->config->kimiHome);
         }
         $this->startJobOfItem($head, RunKind::KIND_CHAT, $prompt, $fingerprintChanged ? null : $sessionId, $paths, idsPath: $idsPath, reviewShas: $reviewShas, resumeSkipped: $fingerprintChanged);
     }

@@ -71,7 +71,7 @@ Which file to read for which task. Start here when unsure.
 | `src/IncomingFile.php` / `AlbumBuffer.php`       | Incoming files of any type (pure functions); album buffer with debounce                                                          |
 | `src/MarkdownConverter.php`                      | Markdown → Telegram HTML subset                                                                                                  |
 | `src/Database.php`                               | SQLite: sessions `(chat_id, thread_id)`, queue, key-value state                                                                  |
-| `src/SessionFiles.php`                           | Deletes Claude session transcripts on `/new` and `/compact`                                                                      |
+| `src/SessionFiles.php`                           | Deletes the session files of the engine (the Claude transcript, the Kimi session directory) on `/new` and `/compact`             |
 | `src/Config.php` / `Env.php`                     | Configuration from `.env`, no vlucas/phpdotenv                                                                                   |
 | `src/Locale.php` / `resources/locales/*.json`    | Text catalog: `en` is the reference and fallback, `{name}` placeholders                                                          |
 | `src/Log.php` / `Timezone.php`                   | STDERR log with timestamp; time zone selection                                                                                   |

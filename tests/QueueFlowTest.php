@@ -122,7 +122,7 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $opencodeModel = '', string $memory3LayerBin = '', string $kimiModel = ''): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $opencodeModel = '', string $memory3LayerBin = '', string $kimiModel = '', string $kimiHome = ''): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -133,6 +133,7 @@ final class QueueFlowTest extends TestCase
             'opencodeBin' => $this->root.'/opencode',
             'opencodeModel' => $opencodeModel,
             'kimiModel' => $kimiModel,
+            'kimiHome' => $kimiHome,
             'claudeTimeout' => 0,
             'claudeStallTimeout' => 900,
             'claudeExtraArgs' => [],
@@ -3094,6 +3095,59 @@ final class QueueFlowTest extends TestCase
         $this->finishJob();
 
         self::assertSame('s-new', $this->db->getSessionId(100, 1));
+    }
+
+    public function testNewDeletesTheKimiSessionDirectory(): void
+    {
+        // The /new reset passes the instance's engine and Kimi home to SessionFiles, so the Kimi
+        // session directory is removed from disk, not just detached in the DB.
+        $kimiHome = $this->root.'/kimi-home';
+        $session = $kimiHome.'/sessions/wd_-work-repo_0a1b2c3d/session_07e50475-f1e5-4a5a-8c46-14e25ad4cd83';
+        mkdir($session, 0777, true);
+        file_put_contents($session.'/state.json', '{}');
+
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $kimiHome);
+        $this->db->recordRun(100, 1, 'session_07e50475-f1e5-4a5a-8c46-14e25ad4cd83', new UsageTotals(1, 0, 0, 1));
+        $this->command(100, 1, '/new', 20);
+
+        self::assertDirectoryDoesNotExist($session);
+    }
+
+    public function testFingerprintMismatchDeletesTheKimiSessionDirectory(): void
+    {
+        // The fingerprint-change reset (a queued item whose engine fingerprint no longer matches) drops
+        // the old transcript like /new does, in the layout of the current engine.
+        $kimiHome = $this->root.'/kimi-home';
+        $session = $kimiHome.'/sessions/wd_-work-repo_0a1b2c3d/session_07e50475-f1e5-4a5a-8c46-14e25ad4cd83';
+        mkdir($session, 0777, true);
+        file_put_contents($session.'/state.json', '{}');
+
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $kimiHome);
+        $this->db->setMode(100, 1, 'arch');
+        $this->db->recordRun(100, 1, 'session_07e50475-f1e5-4a5a-8c46-14e25ad4cd83', null, null, 'other-engine');
+        $this->runChat('hello', 10);
+
+        self::assertDirectoryDoesNotExist($session);
+    }
+
+    public function testCompactReseedDeletesTheKimiSessionDirectory(): void
+    {
+        // The /compact reseed drops the old transcript in the layout of the current engine, like /new.
+        $kimiHome = $this->root.'/kimi-home';
+        $session = $kimiHome.'/sessions/wd_-work-repo_0a1b2c3d/session_07e50475-f1e5-4a5a-8c46-14e25ad4cd83';
+        mkdir($session, 0777, true);
+        file_put_contents($session.'/state.json', '{}');
+
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $kimiHome);
+        $this->db->recordRun(100, 1, 'session_07e50475-f1e5-4a5a-8c46-14e25ad4cd83', null, null, 'kimi');
+        $this->command(100, 1, '/compact', 30);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $this->startReseedAndCapture();
+        $this->finishJob();
+
+        self::assertDirectoryDoesNotExist($session);
     }
 
     /**
