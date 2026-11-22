@@ -470,12 +470,14 @@ final class Gates
                     try {
                         $head = $this->github->prHeadOid($repo.'#'.$s->prNumber);
                     } catch (\RuntimeException $e) {
+                        Log::line(sprintf('Epic %s: conflict head of %s not re-read, will retry: %s', $slug, $task['task'], $e->getMessage()));
+
                         continue;
                     }
                     $this->github->commentPr($task['task'], $s->prNumber, $this->locale->t('gate.conflict_comment')."\n\n".Run::marker($slug));
                     $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_head', $head);
                     $acted = true;
-                } elseif ($asked !== $s->head) {
+                } elseif ($s->head !== null && $asked !== $s->head) {
                     // The head changed: an iteration may be in flight. Forgive one, block on the next.
                     ++$changes;
                     $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_head', (string) $s->head);

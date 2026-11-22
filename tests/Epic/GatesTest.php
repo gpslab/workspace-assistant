@@ -446,6 +446,26 @@ final class GatesTest extends TestCase
         self::assertSame('a#2: the conflict with master is still unresolved after the request — the task is stopped (blocked). Resolve the conflict manually?', $this->notifiedText(0));
     }
 
+    public function testConflictWithNullSnapshotHeadIsNotCountedAsAChange(): void
+    {
+        $this->gh->heads['a#7'] = 'h1';
+        $states = $this->conflictStates('h1');
+        $this->runGates($states);
+        self::assertSame(['a#2 7'], $this->gh->commented);
+
+        // A partial snapshot without a head must not be read as a new head: no change counted,
+        // no empty head stored, no second comment.
+        $states['a#2'] = self::pr('a#2', ['epicVerdict' => null, 'mergeable' => 'false', 'head' => null]);
+        $this->runGates($states);
+
+        $task = $this->task('a#2');
+        self::assertSame('open', $task['status']);
+        self::assertSame('h1', $task['counters']['conflict_head']);
+        self::assertSame(0, (int) ($task['counters']['conflict_changes'] ?? 0));
+        self::assertSame(['a#2 7'], $this->gh->commented);
+        self::assertSame([], $this->notified);
+    }
+
     public function testMergeableClearsConflictHeadAndCounterSoTheNextConflictCommentsAgain(): void
     {
         $this->gh->heads['a#7'] = 'h1';
