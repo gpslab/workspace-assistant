@@ -43,6 +43,23 @@ final class KimiMainAgentRendererTest extends TestCase
         self::assertStringContainsString("\${base_prompt}\n\nlanguage line\n", $rendered);
     }
 
+    /**
+     * The memory is data, not a template: Kimi substitutes `${name}` over the whole agent-file body, so
+     * a memory file that mentions `${base_prompt}` or `${cwd}` must reach the agent file with the token
+     * broken (a zero-width space after `$`), while the body's own leading `${base_prompt}` stays live.
+     */
+    public function testMemoryTokensAreNeutralizedButTheBodyBasePromptStaysLive(): void
+    {
+        $rendered = (new KimiMainAgentRenderer('mode prompt', 'Keep this verbatim: ${base_prompt} and ${cwd} must not expand.', '', 'language line'))->render();
+
+        // The body's own leading token is still live and the only substitutable `${base_prompt}`.
+        self::assertSame(1, substr_count($rendered, '${base_prompt}'));
+        // The memory's tokens are broken, so no substitutable `${cwd}` survives.
+        self::assertStringNotContainsString('${cwd}', $rendered);
+        self::assertStringContainsString("$\u{200B}{base_prompt}", $rendered);
+        self::assertStringContainsString("$\u{200B}{cwd}", $rendered);
+    }
+
     public function testOnlyTheBasePromptWhenNothingIsAssembled(): void
     {
         $rendered = (new KimiMainAgentRenderer(''))->render();

@@ -195,10 +195,10 @@ on `PATH`, so a bare name does not resolve), the bot
 - runs `memory-3layer context`, which prints the **paths** of the memory files — L0 (`IDENTITY.md`), the
   project's `SESSION.md` and `project.md`;
 - reads those files itself (they live outside the managed repository, in the data directory of
-  memory-3layer) and puts their **content**, never the paths, into the system prompt of every OpenCode or
-  Kimi run as the memory block ([PROMPTS.md](PROMPTS.md#memory)); the run needs no permission to read
-  anything outside the repository. A file larger than `MEMORY_3LAYER_CONTEXT_MAX_BYTES` is injected from
-  its newest end;
+  memory-3layer) and puts their **content**, never the paths, into the system prompt of an OpenCode run
+  and of a new Kimi session as the memory block ([PROMPTS.md](PROMPTS.md#memory)); a resumed Kimi session
+  keeps the snapshot it was created with. The run needs no permission to read anything outside the
+  repository. A file larger than `MEMORY_3LAYER_CONTEXT_MAX_BYTES` is injected from its newest end;
 - pulls the memory before a run — that is, the data is refreshed for the **next** run, never for the one
   already started — and pushes it when a run ends (finishes, is cancelled or is killed), both in the
   background. One sync at a time for the whole instance (`state/memory-3layer.lock`): a sync the bot wants
@@ -231,7 +231,7 @@ Claude; nothing filters the injected memory. The same holds for a Kimi run and t
 | `OPENCODE_BIN` | `opencode` | Path or name of the `opencode` binary (`ENGINE=opencode`) |
 | `OPENCODE_MODEL` | empty | Model of every OpenCode run as `provider/model[#variant]`; empty = the model of your OpenCode configuration. Changing it starts a new session |
 | `OPENCODE_EXTRA_ARGS` | empty | Extra `opencode` arguments, comma-separated; they are added after the ones the bot passes itself |
-| `MEMORY_3LAYER_BIN` | empty | Absolute path of the `memory-3layer` client. Set = the bot injects the memory of the instance into the system prompt of an OpenCode or Kimi run and syncs it in the background; with `ENGINE=claude` the setting changes nothing. Empty = off (default). See [Memory](#memory). Needs a restart |
+| `MEMORY_3LAYER_BIN` | empty | Absolute path of the `memory-3layer` client. Set = the bot injects the memory of the instance into the system prompt of an OpenCode run and of a new Kimi session (a resume keeps that snapshot) and syncs it in the background; with `ENGINE=claude` the setting changes nothing. Empty = off (default). See [Memory](#memory). Needs a restart |
 | `MEMORY_3LAYER_CONTEXT_MAX_BYTES` | `32768` | Ceiling of the injected part of ONE memory file, bytes; above it only the newest part is injected. 0 = no injection. Needs a restart |
 | `CLAUDE_TIMEOUT` | `0` | Overall limit of one Claude call, seconds (0 = off) |
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |

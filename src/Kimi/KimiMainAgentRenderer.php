@@ -52,7 +52,7 @@ final class KimiMainAgentRenderer
     public function render(): string
     {
         $parts = [];
-        foreach ([$this->systemPrompt, $this->memory, $this->appendSystemPrompt, $this->languageLine] as $part) {
+        foreach ([$this->systemPrompt, self::neutralizeMemoryTokens($this->memory), $this->appendSystemPrompt, $this->languageLine] as $part) {
             $part = trim($part);
             if ($part !== '') {
                 $parts[] = $part;
@@ -71,5 +71,24 @@ final class KimiMainAgentRenderer
     private static function yamlString(string $value): string
     {
         return '"'.str_replace(['\\', '"', "\n"], ['\\\\', '\\"', '\\n'], $value).'"';
+    }
+
+    /**
+     * The memory of the instance with its `${name}` tokens broken so Kimi's renderPrompt does not
+     * substitute them.
+     *
+     * Kimi substitutes `${name}` over the whole agent-file body, the memory included, so a memory file
+     * that happens to mention `${base_prompt}` or `${cwd}` would be silently rewritten (and the former
+     * would insert Kimi's whole base prompt). The memory is data, not a template: a zero-width space
+     * after the `$` defeats the substitution regex while the text still reads as the original. A
+     * zero-width space is invisible to a human reading the file.
+     */
+    private static function neutralizeMemoryTokens(string $memory): string
+    {
+        if ($memory === '' || !str_contains($memory, '${')) {
+            return $memory;
+        }
+
+        return str_replace('${', "$\u{200B}{", $memory);
     }
 }

@@ -134,13 +134,13 @@ final class KimiRunnerTest extends TestCase
     }
 
     /**
-     * A resumed session keeps the agent file it was created with, so the fresh memory is handed over
-     * in the message instead: the `-p` prompt carries the memory block before the user's text.
+     * A resumed session keeps the agent file it was created with, so the memory is a session snapshot:
+     * the client is not asked again and neither the `-p` text nor an agent file carries the memory.
      */
-    public function testAResumedRunGetsTheMemoryInTheMessage(): void
+    public function testAResumedRunDoesNotReadTheMemoryAgain(): void
     {
         $session = $this->memoryFile('SESSION.md', 'the session remembers issue #188');
-        $memory = $this->memoryClient($session);
+        [$memory, $calls] = $this->recordingMemoryClient($session);
         $bin = $this->fakeKimi(
             $this->fixtureContent('run/01-plain.stdout.jsonl'),
             wire: 'wire/01-plain/main.jsonl',
@@ -151,14 +151,75 @@ final class KimiRunnerTest extends TestCase
         $runner->start('hello', self::SESSION);
         self::assertSame(RunnerState::Done, $this->finish($runner));
 
-        $argv = $this->record()['argv'];
+        $record = $this->record();
+        $argv = $record['argv'];
         self::assertContains('-S', $argv);
-        self::assertNotContains('--agent-file', $argv);
+        self::assertNotContains('--agent-file', $argv, 'a resume passes no agent file at all');
         $at = array_search('-p', $argv, true);
         self::assertIsInt($at);
-        self::assertStringStartsWith('## Memory of the instance', $argv[$at + 1]);
-        self::assertStringContainsString('the session remembers issue #188', $argv[$at + 1]);
-        self::assertStringEndsWith("\n\nhello", $argv[$at + 1]);
+        self::assertSame('hello', $argv[$at + 1], 'the -p prompt carries the user text alone, no memory');
+        self::assertFileDoesNotExist($calls, 'a resume must not ask the client for the memory again');
+        self::assertStringNotContainsString('Memory of the instance', (string) file_get_contents($record['home'].'/agent.md'));
+
+        $runner->purgeRunHome();
+    }
+
+    /**
+     * The memory of the instance is not part of the prompt hash: a runner with a memory client and one
+     * without it hash the same prompt the same, so a memory change never looks like an operator-changed
+     * prompt (and never triggers the instructions-update block) on a resume.
+     */
+    public function testTheMemoryDoesNotChangeThePromptHash(): void
+    {
+        $session = $this->memoryFile('SESSION.md', 'the session remembers issue #188');
+        $memory = $this->memoryClient($session);
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
+        $bin = $this->fakeKimi($this->fixtureContent('run/01-plain.stdout.jsonl'), wire: 'wire/01-plain/main.jsonl', sessionDir: $sessionDir);
+
+        $withMemory = $this->runner($bin, ['memory' => new MemoryContext($memory, $this->repo, 4096)]);
+        $withMemory->start('hello', null);
+
+        $withoutMemory = $this->runner($bin);
+        $withoutMemory->start('hello', null);
+
+        self::assertSame($withoutMemory->promptHash(), $withMemory->promptHash());
+
+        $withMemory->kill();
+        $withoutMemory->kill();
+        $withMemory->purgeRunHome();
+        $withoutMemory->purgeRunHome();
+    }
+
+    /**
+     * A resume whose saved hash matches the memory-free hash carries no session_update block: the memory
+     * is outside the hash, so the same prompt with the memory set on is still recognised as unchanged.
+     */
+    public function testAResumeWithTheMemoryFreeHashCarriesNoUpdateBlock(): void
+    {
+        $session = $this->memoryFile('SESSION.md', 'the session remembers issue #188');
+        $memory = $this->memoryClient($session);
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
+        $bin = $this->fakeKimi($this->fixtureContent('run/01-plain.stdout.jsonl'), wire: 'wire/01-plain/main.jsonl', sessionDir: $sessionDir);
+
+        // The hash a memory-free run of the same prompt stores.
+        $memoryFree = $this->runner($bin);
+        $memoryFree->start('hello', null);
+        $savedPromptHash = $memoryFree->promptHash();
+        $memoryFree->kill();
+        $memoryFree->purgeRunHome();
+
+        $runner = $this->runner($bin, [
+            'memory' => new MemoryContext($memory, $this->repo, 4096),
+            'updateOnResume' => true,
+            'savedPromptHash' => $savedPromptHash,
+        ]);
+        $runner->start('hello', self::SESSION);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $argv = $this->record()['argv'];
+        $at = array_search('-p', $argv, true);
+        self::assertIsInt($at);
+        self::assertSame('hello', $argv[$at + 1], 'no session_update block and no memory in the resumed -p');
 
         $runner->purgeRunHome();
     }
@@ -564,6 +625,27 @@ final class KimiRunnerTest extends TestCase
         chmod($path, 0o755);
 
         return $path;
+    }
+
+    /**
+     * A fake `memory-3layer` like {@see memoryClient()} that also records each invocation in a file, so
+     * a test can assert the client was not asked for the context.
+     *
+     * @return array{string, string} the client path and the calls-recording path
+     */
+    private function recordingMemoryClient(string $session): array
+    {
+        $calls = $this->root.'/memory.calls';
+        $path = $this->root.'/memory-3layer-rec';
+        file_put_contents(
+            $path,
+            '#!'.PHP_BINARY."\n<?php\n"
+            .'file_put_contents('.var_export($calls, true).", \"context\\n\", FILE_APPEND);\n"
+            .'echo "session: '.$session.'\n";',
+        );
+        chmod($path, 0o755);
+
+        return [$path, $calls];
     }
 
     private function finish(KimiRunner $runner): RunnerState
