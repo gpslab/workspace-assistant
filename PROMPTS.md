@@ -41,7 +41,7 @@ There are three kinds of file:
 | `role_pm`                           | persona  | Role block of the `pm` mode (`SystemPrompt`)                        |                                 |
 | `default_file_prompt`               | setting  | A file sent without text (`Inbox`)                                  |                                 |
 | `forge_gitlab`                      | setting  | End of the system prompt of every mode when `FORGE=gitlab` (`SystemPrompt`) |                         |
-| `memory_context`                    | setting  | System prompt of an OpenCode run with `MEMORY_3LAYER_BIN` set (`Memory\MemoryContext`) | `{memory_context}`     |
+| `memory_context`                    | setting  | System prompt of an OpenCode or Kimi run with `MEMORY_3LAYER_BIN` set (`Memory\MemoryContext`) | `{memory_context}`     |
 | `agents/acceptor`                   | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/critic`                     | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
 | `agents/editor`                     | setting  | Built-in agent (`BuiltinAgents`)                                    |                                 |
@@ -72,8 +72,9 @@ parts, in order:
 5. the role block of the mode;
 6. `forge_gitlab` (only with `FORGE=gitlab`; it maps the `gh` commands of the prompts to `glab`, and with
    `FORGE=github` nothing is added);
-7. `memory_context` — the memory of the instance (`MEMORY_3LAYER_BIN`), on OpenCode only and only when the
-   setting is set (see [Memory](#memory)); nothing is added otherwise;
+7. `memory_context` — the memory of the instance (`MEMORY_3LAYER_BIN`), on the engines that read no user
+   scope (OpenCode, Kimi) and only when the setting is set (see [Memory](#memory)); nothing is added
+   otherwise;
 8. `CLAUDE_APPEND_SYSTEM_PROMPT` from `.env`;
 9. `language_line`, always last, so it wins over a persona.
 
@@ -81,7 +82,9 @@ parts, in order:
 `system-prompt.md` in its per-run config directory (`state/opencode-<runId>/`) and lists that file in the
 `instructions` of the rendered `opencode.json`; it also adds the managed repository's `CLAUDE.md` to the
 same list, but only when there is no `AGENTS.md` (OpenCode reads `AGENTS.md` itself and never `CLAUDE.md`).
-The parts and the order are the same on both engines. OpenCode takes no command hooks, so the run directory
+`KimiRunner` renders the same parts into the run home's `agent.md`, the file the run passes to
+`--agent-file`, right after the `${base_prompt}` token Kimi substitutes. The parts and the order are the
+same on every engine. OpenCode takes no command hooks, so the run directory
 also lists the plugin (`opencode-plugin/`) in the `plugins` of `explicit.json`: a gated run (`pm`, `review`
 and the epic runs) gets the same PHP hooks there as on Claude Code, so the gates hold on both engines. Every
 run starts the secret guard: before the gate in a gated run, alone in a run with no gate kind (`arch`,
@@ -108,8 +111,9 @@ names the mechanics of that engine, which has neither a Stop hook nor `run_in_ba
 
 #### Memory
 
-OpenCode reads no user scope: a run gets no memory from the hooks or the `~/.claude/CLAUDE.md` of the
-deployment, the way a Claude Code run does. With `MEMORY_3LAYER_BIN` set the bot fills that gap. It runs
+OpenCode and Kimi read no user scope: a run of either gets no memory from the hooks or the
+`~/.claude/CLAUDE.md` of the deployment, the way a Claude Code run does. With `MEMORY_3LAYER_BIN` set the
+bot fills that gap. It runs
 `memory-3layer context`, which prints the PATHS of the instance's memory files (L0, the project's
 SESSION.md and project.md); the bot reads those files itself and injects their CONTENT as part 7, so the run
 needs no permission to read outside the managed repository. Only content is injected, never the paths.
@@ -122,8 +126,10 @@ not read a cut as the whole file. The headings and that marker are built in code
 gives no block at all and one line in the log of the bot, never a failed or delayed run.
 
 With `ENGINE=claude` the part is never added, whatever the setting says: the user scope delivers the memory
-of the instance there. The background pull before a run and push after it are in
-[internals.md](.claude-docs/internals.md#memory); they do not touch the prompt of a run.
+of the instance there. The block is not part of the prompt hash of a Kimi session either: it is data that
+changes between runs, so hashing it would make every resume look like a changed prompt. The background pull
+before a run and push after it are in [internals.md](.claude-docs/internals.md#memory); they do not touch
+the prompt of a run.
 
 ### Chat message
 

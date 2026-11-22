@@ -101,8 +101,8 @@ class RunnerFactory
      *
      * The memory of the instance is the one thing the Claude runner does NOT need: OpenCode reads no user
      * scope, so with `MEMORY_3LAYER_BIN` set the bot reads the memory files and injects their content
-     * ({@see MemoryContext}). That runner is never built on the other engine, which is why the setting
-     * cannot reach a Claude run ({@see Config::memoryBin()}).
+     * ({@see MemoryContext}). That runner is never built on Claude Code, which is why the setting cannot
+     * reach a Claude run ({@see Config::memoryBin()}).
      *
      * @param array<string, string> $extraEnv
      */
@@ -137,6 +137,10 @@ class RunnerFactory
      * `KIMI_MODEL` ({@see Config::$kimiModel}). `$settingsJson` is Claude Code mechanics; Kimi takes
      * its hooks from the rendered run home, so it is not wired either.
      *
+     * Like OpenCode, Kimi reads no user scope, so the memory of the instance reaches it as the same
+     * injected block ({@see memory()}): its run home renders no `~/.claude/CLAUDE.md` and no hooks to
+     * read the memory from.
+     *
      * @param array<string, string> $extraEnv
      */
     protected function createKimiRunner(
@@ -164,13 +168,14 @@ class RunnerFactory
             forge: $this->config->forge,
             kimiModel: $this->config->kimiModel,
             kimiHome: $this->config->kimiHome,
+            memory: $this->memory(),
         );
     }
 
     /**
-     * The memory of the instance for an OpenCode run, or null when `MEMORY_3LAYER_BIN` is not set
-     * ({@see Config::DEFAULT_MEMORY_CONTEXT_MAX_BYTES} caps the injected part of one file; 0 turns the
-     * injection off as well).
+     * The memory of the instance for a run of an engine that reads no user scope (OpenCode, Kimi), or
+     * null when `MEMORY_3LAYER_BIN` is not set ({@see Config::DEFAULT_MEMORY_CONTEXT_MAX_BYTES} caps the
+     * injected part of one file; 0 turns the injection off as well).
      */
     private function memory(): ?MemoryContext
     {

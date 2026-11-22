@@ -253,14 +253,17 @@ a change of the model (or of the engine) resets the session and adds the usual n
 key changes nothing at all. Two pieces, both best-effort: a client that is missing, fails or hangs leaves
 one line in the log and never delays or fails a run.
 
-- **Injection** — `Memory\MemoryContext`, built by `RunnerFactory::memory()` and passed to `OpencodeRunner`.
-  `memory-3layer context` prints the PATHS of L0, the project's SESSION.md and project.md; the bot reads
-  those files itself and appends their CONTENT, rendered from `prompts/memory_context.md.dist`, right after
-  the mode prompt and before `CLAUDE_APPEND_SYSTEM_PROMPT`, so an OpenCode agent needs no read access
-  outside the managed repository. Each call is bounded by `MemoryContext::DEFAULT_TIMEOUT_SEC` (the client is
-  SIGKILLed on expiry) and each file is capped at `MEMORY_3LAYER_CONTEXT_MAX_BYTES` bytes taken from its
-  NEWEST end, the heading then carrying `(cut: the newest part only)`; `0` turns the injection off. A client
-  that names no readable file gives no block at all and no warning — a project without memory yet is normal.
+- **Injection** — `Memory\MemoryContext`, built by `RunnerFactory::memory()` and passed to `OpencodeRunner`
+  and `KimiRunner` (the two engines that read no user scope; `Config::readsNoUserScope()` is what both the
+  factory and `memoryBin()` answer to). `memory-3layer context` prints the PATHS of L0, the project's
+  SESSION.md and project.md; the bot reads those files itself and appends their CONTENT, rendered from
+  `prompts/memory_context.md.dist`, right after the mode prompt and before `CLAUDE_APPEND_SYSTEM_PROMPT`, so
+  an agent needs no read access outside the managed repository. OpenCode gets it through the runner's
+  `system-prompt.md`; Kimi through the `agent.md` of its run home. Each call is bounded by
+  `MemoryContext::DEFAULT_TIMEOUT_SEC` (the client is SIGKILLed on expiry) and each file is capped at
+  `MEMORY_3LAYER_CONTEXT_MAX_BYTES` bytes taken from its NEWEST end, the heading then carrying
+  `(cut: the newest part only)`; `0` turns the injection off. A client that names no readable file gives no
+  block at all and no warning — a project without memory yet is normal.
 - **Sync** — `Memory\MemorySync`, one instance in `Bot`, handed to `JobRunner`. `launchJob()` starts `pull`
   once the run is alive: the prompt of that run is already built, so the refreshed data belongs to the NEXT
   run. `JobRunner::finishJobState()` starts `push` — the one call site every way a run ends reaches (finished,
@@ -376,7 +379,7 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `OPENCODE_BIN`          | path to the opencode binary (`ENGINE=opencode`; the installer checks this one instead of `CLAUDE_BIN`) | `opencode` |
 | `OPENCODE_MODEL`        | model of every run, `provider/model`; empty = the OpenCode default; changing it starts a new session | empty      |
 | `OPENCODE_EXTRA_ARGS`   | extra opencode arguments, comma-separated, after the bot's own flags | empty                        |
-| `MEMORY_3LAYER_BIN`     | absolute path of the `memory-3layer` client; off unless set, and ignored on `ENGINE=claude` (that engine reads the user scope) — see [Memory](#memory) | empty |
+| `MEMORY_3LAYER_BIN`     | absolute path of the `memory-3layer` client; off unless set, handed to `ENGINE=opencode` and `ENGINE=kimi` only, and ignored on `ENGINE=claude` (that engine reads the user scope) — see [Memory](#memory) | empty |
 | `MEMORY_3LAYER_CONTEXT_MAX_BYTES` | ceiling of the injected part of one memory file, newest bytes first; 0 = no injection | `32768` |
 | `CLAUDE_TIMEOUT`        | overall call timeout, seconds (`0` = off)                      | `0`                              |
 | `CLAUDE_STALL_TIMEOUT`  | no output for N seconds → hung, kill (`0` = off)               | `900`                            |

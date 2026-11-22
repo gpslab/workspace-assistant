@@ -3045,6 +3045,27 @@ final class QueueFlowTest extends TestCase
     }
 
     /**
+     * The other engine that reads no user scope gets the same sync around its runs: the pull and the push
+     * follow from `Config::memoryBin()`, which answers with the client for `ENGINE=kimi`. The run itself is
+     * the harness fallback for an engine name the factory still rejects, exactly as in the other Kimi tests
+     * of this file.
+     */
+    public function testAKimiInstanceSyncsTheMemoryAroundARun(): void
+    {
+        $memory = $this->memoryClient();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, memory3LayerBin: $memory);
+        // A Kimi instance refuses the gated modes, so the run of this test is an arch one.
+        $this->db->setMode(100, 1, 'arch');
+
+        $this->say(100, 1, 'hi', 10);
+        $this->call('startQueueHead');
+        self::assertSame(['pull'], $this->memoryCallsAfter($memory, 1));
+
+        $this->finishJob();
+        self::assertSame(['pull', 'push'], $this->memoryCallsAfter($memory, 2));
+    }
+
+    /**
      * A fake `memory-3layer` recording every verb it is called with, and the path of that file.
      */
     private function memoryClient(): string

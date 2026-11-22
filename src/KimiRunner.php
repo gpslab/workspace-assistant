@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\Kimi\KimiStreamParser;
 use GpsLab\WorkspaceAssistant\Kimi\KimiVersionGuard;
 use GpsLab\WorkspaceAssistant\Kimi\KimiWire;
 use GpsLab\WorkspaceAssistant\Kimi\KimiWireReader;
+use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
 
 /**
  * Asynchronous launch of Kimi Code in `-p` mode.
@@ -25,7 +26,9 @@ use GpsLab\WorkspaceAssistant\Kimi\KimiWireReader;
  * are symlinks into the source home (`KIMI_HOME`, default `~/.kimi-code`) and `region` / `device_id`
  * are copied from it. The credentials are never copied: the server rotates the refresh token, and a
  * copy would be invalidated by the next refresh. `KIMI_CODE_NO_AUTO_UPDATE=1` keeps the engine from
- * replacing itself in a run.
+ * replacing itself in a run. The agent file carries the assembled system prompt, and with
+ * `MEMORY_3LAYER_BIN` set the memory of the instance as well ({@see MemoryContext}): this engine reads
+ * no user scope, so the memory comes from the bot.
  *
  * The run home is not removed when the process ends: {@see purgeRunHome()} is exposed for the Bot to
  * call after its post-run checks, so the gate shim's records are still there for them.
@@ -141,6 +144,9 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
      *                                               '' means `<homeDir>/.kimi-code`
      * @param string                $hookShimPath    gate shim of the run; '' resolves the bot's
      *                                               `bin/kimi-hook.php`, and a missing file renders no hooks
+     * @param MemoryContext|null    $memory          memory of the instance (`MEMORY_3LAYER_BIN`), injected
+     *                                               into the run home's agent file: this engine reads no
+     *                                               user scope, so the memory comes from the bot. Null = off
      */
     public function __construct(
         private readonly string $kimiBin,
@@ -161,6 +167,7 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         private readonly string $kimiModel = '',
         private readonly string $kimiHome = '',
         private readonly string $hookShimPath = '',
+        private readonly ?MemoryContext $memory = null,
     ) {
     }
 
@@ -200,6 +207,8 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         $languageLine = SystemPrompt::languageLine($this->locale->languageName(), $this->promptWarnings);
         // The same assembly as ClaudeRunner::start(): the hash covers the mode prompt, the instance
         // addition and the language line, so a stored Claude hash and a Kimi hash mean the same thing.
+        // The memory of the instance is NOT part of it: it is data that changes between runs, so
+        // hashing it would make every resume look like a prompt the operator had changed.
         $systemPrompt = $built['text'];
         if ($this->appendSystemPrompt !== '') {
             $systemPrompt .= "\n\n".$this->appendSystemPrompt;
@@ -211,6 +220,10 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
             $prompt = PromptFiles::render('session_update', ['prompt' => $fullPrompt], $this->promptWarnings)."\n\n".$prompt;
         }
 
+        // This engine reads no user scope, so the memory of the instance is injected into the agent file
+        // of the run home, right after the mode prompt, as content ({@see MemoryContext}); null = off.
+        $memory = $this->memory?->block($this->promptWarnings) ?? '';
+
         // The session directories that exist now are other runs; the run's own one appears later.
         $this->launchSessionDirs = array_fill_keys($this->sessionDirs(), true);
 
@@ -219,7 +232,7 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         try {
             $runHome = $this->prepareRunHome();
             $this->runHome = $runHome;
-            $this->writeRunHome($runHome, $built['text'], $languageLine);
+            $this->writeRunHome($runHome, $built['text'], $languageLine, $memory);
 
             $this->wirePath = $this->findWirePath($sessionId);
             $this->wireOffset = $this->wirePath !== null ? max(0, (int) @filesize($this->wirePath)) : 0;
@@ -512,8 +525,10 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
      * The user's own home is never written: only the run home is created, its `credentials/`,
      * `sessions/` and `oauth/` point into the source home, and `region` / `device_id` are copied
      * from it.
+     *
+     * @param string $memory the memory block of the instance ('': nothing to inject)
      */
-    private function writeRunHome(string $dir, string $systemPrompt, string $languageLine): void
+    private function writeRunHome(string $dir, string $systemPrompt, string $languageLine, string $memory = ''): void
     {
         $source = $this->sourceHome();
         $sourceConfig = is_file($source.'/config.toml') ? (string) @file_get_contents($source.'/config.toml') : '';
@@ -522,6 +537,7 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
             $dir,
             $this->resolvedShimPath(),
             $systemPrompt,
+            $memory,
             $this->appendSystemPrompt,
             $languageLine,
             $this->repoPath,

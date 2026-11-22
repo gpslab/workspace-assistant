@@ -29,6 +29,9 @@ final class KimiRunHomeRenderer
      * @param string $hookShimPath       absolute path of the gate shim (`bin/kimi-hook.php`); empty
      *                                   renders no hook tables (the shim is not installed yet)
      * @param string $systemPrompt       the mode prompt (SystemPrompt::build)
+     * @param string $memory             the memory block of the instance (`MEMORY_3LAYER_BIN`), injected
+     *                                   right after the mode prompt: this engine reads no user scope, so
+     *                                   the memory comes from the bot; '' = the feature is off
      * @param string $appendSystemPrompt the instance addition (CLAUDE_APPEND_SYSTEM_PROMPT), or ''
      * @param string $languageLine       the chat-language line, or ''
      * @param string $repoRoot           absolute root of the managed repository
@@ -39,6 +42,7 @@ final class KimiRunHomeRenderer
         private readonly string $runHome,
         private readonly string $hookShimPath,
         private readonly string $systemPrompt,
+        private readonly string $memory,
         private readonly string $appendSystemPrompt,
         private readonly string $languageLine,
         private readonly string $repoRoot,
@@ -70,6 +74,7 @@ final class KimiRunHomeRenderer
                 : $configRenderer->renderWithoutHooks($this->sourceConfig, $agentsDir),
             self::AGENT_FILE => (new KimiMainAgentRenderer(
                 $this->systemPrompt,
+                $this->memory,
                 $this->appendSystemPrompt,
                 $this->languageLine,
             ))->render(),

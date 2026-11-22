@@ -7,6 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Kimi;
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\KimiRunner;
 use GpsLab\WorkspaceAssistant\Locale;
+use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
 use GpsLab\WorkspaceAssistant\RunnerState;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -101,6 +102,78 @@ final class KimiRunnerTest extends TestCase
 
         $runner->purgeRunHome();
         self::assertDirectoryDoesNotExist($home);
+    }
+
+    /**
+     * This engine reads no user scope, so the memory of the instance reaches it as CONTENT in the run
+     * home's agent file, not as the paths the client prints: the run cannot read those files itself.
+     */
+    public function testTheMemoryOfTheInstanceIsInjectedIntoTheAgentFile(): void
+    {
+        $session = $this->memoryFile('SESSION.md', 'the session remembers issue #188');
+        $memory = $this->memoryClient($session);
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/01-plain.stdout.jsonl'),
+            wire: 'wire/01-plain/main.jsonl',
+            sessionDir: $this->kimiHome.'/sessions/wd_test/'.self::SESSION,
+        );
+
+        $runner = $this->runner($bin, ['memory' => new MemoryContext($memory, $this->repo, 4096)]);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $home = (string) $this->record()['home'];
+        try {
+            $agent = (string) file_get_contents($home.'/agent.md');
+            self::assertStringContainsString('Memory of the instance (memory-3layer)', $agent);
+            self::assertStringContainsString('the session remembers issue #188', $agent);
+            self::assertStringNotContainsString($session, $agent, 'the run gets the content, never the paths');
+        } finally {
+            $runner->purgeRunHome();
+        }
+    }
+
+    /** The setting off: the same run home carries the prompt alone, with no memory block. */
+    public function testWithoutTheMemorySettingTheAgentFileHasNoMemoryBlock(): void
+    {
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/01-plain.stdout.jsonl'),
+            wire: 'wire/01-plain/main.jsonl',
+            sessionDir: $this->kimiHome.'/sessions/wd_test/'.self::SESSION,
+        );
+
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $home = (string) $this->record()['home'];
+        try {
+            self::assertStringNotContainsString('Memory of the instance', (string) file_get_contents($home.'/agent.md'));
+        } finally {
+            $runner->purgeRunHome();
+        }
+    }
+
+    /** A missing client must never fail a run: the run finishes as usual, without a memory block. */
+    public function testARunWithABrokenMemoryClientStillFinishes(): void
+    {
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/01-plain.stdout.jsonl'),
+            wire: 'wire/01-plain/main.jsonl',
+            sessionDir: $this->kimiHome.'/sessions/wd_test/'.self::SESSION,
+        );
+
+        $runner = $this->runner($bin, ['memory' => new MemoryContext($this->root.'/gone', $this->repo, 4096, 1)]);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $home = (string) $this->record()['home'];
+        try {
+            self::assertStringNotContainsString('Memory of the instance', (string) file_get_contents($home.'/agent.md'));
+            self::assertFalse($runner->result()->isError);
+        } finally {
+            $runner->purgeRunHome();
+        }
     }
 
     public function testAHookShimAddsTheHookTables(): void
@@ -436,7 +509,31 @@ final class KimiRunnerTest extends TestCase
             kimiModel: (string) ($options['model'] ?? 'kimi-code/kimi-for-coding'),
             kimiHome: $this->kimiHome,
             hookShimPath: (string) ($options['shim'] ?? $this->root.'/no-such-shim.php'),
+            memory: ($options['memory'] ?? null) instanceof MemoryContext ? $options['memory'] : null,
         );
+    }
+
+    /** A memory file of the instance, in the data directory a `memory-3layer` client would name. */
+    private function memoryFile(string $name, string $content): string
+    {
+        $dir = $this->root.'/memory';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0o700, true);
+        }
+        $path = $dir.'/'.$name;
+        file_put_contents($path, $content);
+
+        return $path;
+    }
+
+    /** A fake `memory-3layer` that names $session, the way `memory-3layer context` prints a path. */
+    private function memoryClient(string $session): string
+    {
+        $path = $this->root.'/memory-3layer';
+        file_put_contents($path, '#!'.PHP_BINARY."\n<?php\n".'echo "session: '.$session.'\n";');
+        chmod($path, 0o755);
+
+        return $path;
     }
 
     private function finish(KimiRunner $runner): RunnerState

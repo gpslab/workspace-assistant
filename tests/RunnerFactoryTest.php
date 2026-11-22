@@ -349,6 +349,58 @@ final class RunnerFactoryTest extends TestCase
     }
 
     /**
+     * The Kimi counterpart of the OpenCode wiring: Kimi reads no user scope either, so the factory hands
+     * its runner the same memory context, and the block reaches the agent file of the run home.
+     */
+    public function testTheMemorySettingReachesAKimiRun(): void
+    {
+        $memory = $this->memoryClient('the instance identity');
+        $kimiHome = sys_get_temp_dir().'/factory-kimi-'.uniqid('', true);
+        $stateDir = sys_get_temp_dir().'/factory-kimi-state-'.uniqid('', true);
+        $bin = sys_get_temp_dir().'/factory-kimi-bin-'.uniqid('', true);
+        foreach (['credentials', 'sessions', 'oauth'] as $name) {
+            self::assertTrue(mkdir($kimiHome.'/'.$name, 0700, true));
+        }
+        file_put_contents($bin, '#!'.PHP_BINARY."\n<?php\nexit(0);\n");
+        chmod($bin, 0o755);
+
+        try {
+            $config = $this->config(
+                engine: Config::ENGINE_KIMI,
+                kimiBin: $bin,
+                kimiHome: $kimiHome,
+                stateDir: $stateDir,
+                memory3LayerBin: $memory['bin'],
+            );
+            $factory = new class($config, new Locale()) extends RunnerFactory {
+                /**
+                 * @param array<string, string> $extraEnv
+                 */
+                public function kimi(string $mode, array $extraEnv, string $localeCode, bool $updateOnResume, ?string $savedPromptHash): KimiRunner
+                {
+                    return $this->createKimiRunner($mode, $extraEnv, $localeCode, $updateOnResume, $savedPromptHash);
+                }
+            };
+
+            $runner = $factory->kimi(SystemPrompt::MODE_ARCH, [], Locale::DEFAULT, false, null);
+            $runner->start('hello', null);
+            while ($runner->poll() === RunnerState::Running) {
+                usleep(50000);
+            }
+
+            self::assertSame(['context'], $this->memoryCalls($memory['calls']), 'a Kimi run asks the client for the memory');
+            $homes = glob($stateDir.'/kimi-*') ?: [];
+            self::assertCount(1, $homes);
+            self::assertStringContainsString('the instance identity', (string) file_get_contents($homes[0].'/agent.md'));
+        } finally {
+            unlink($bin);
+            self::removeTree($kimiHome);
+            self::removeTree($stateDir);
+            self::removeTree($memory['dir']);
+        }
+    }
+
+    /**
      * A fake `memory-3layer`: it records every verb it was called with and prints the path of a memory
      * file holding $content (that is what `memory-3layer context` does).
      *
@@ -463,6 +515,8 @@ final class RunnerFactoryTest extends TestCase
         array $opencodeExtraArgs = [],
         int $failedRunEvidenceDays = 14,
         string $memory3LayerBin = '',
+        string $kimiBin = 'kimi',
+        string $kimiHome = '',
     ): Config {
         return new Config(
             botToken: 't',
@@ -485,6 +539,8 @@ final class RunnerFactoryTest extends TestCase
             opencodeExtraArgs: $opencodeExtraArgs,
             failedRunEvidenceDays: $failedRunEvidenceDays,
             memory3LayerBin: $memory3LayerBin,
+            kimiBin: $kimiBin,
+            kimiHome: $kimiHome,
         );
     }
 

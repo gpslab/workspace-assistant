@@ -458,14 +458,25 @@ final class Config
     }
 
     /**
+     * Whether the engine reads no user scope, i.e. the bot itself has to deliver the memory of the
+     * instance: `opencode` and `kimi` run without the `~/.claude/CLAUDE.md` and the hooks a Claude Code
+     * run reads, so neither reaches the memory of the deployment on its own. Claude Code does read that
+     * scope, which is why `MEMORY_3LAYER_BIN` changes nothing there.
+     */
+    public function readsNoUserScope(): bool
+    {
+        return $this->isOpencode() || $this->isKimi();
+    }
+
+    /**
      * `MEMORY_3LAYER_BIN` for the run: the path of the `memory-3layer` client on an engine that does not
-     * read the user scope ({@see self::ENGINE_OPENCODE}), '' otherwise. Claude Code takes its memory from
-     * the user scope (its hooks and `~/.claude/CLAUDE.md`), so on that engine the setting changes nothing —
-     * neither the injected context nor the background sync.
+     * read the user scope ({@see self::readsNoUserScope()}), '' otherwise. Claude Code takes its memory
+     * from the user scope (its hooks and `~/.claude/CLAUDE.md`), so on that engine the setting changes
+     * nothing — neither the injected context nor the background sync.
      */
     public function memoryBin(): string
     {
-        return $this->isOpencode() ? $this->memory3LayerBin : '';
+        return $this->readsNoUserScope() ? $this->memory3LayerBin : '';
     }
 
     /** Command line client of the forge: gh or glab. */
