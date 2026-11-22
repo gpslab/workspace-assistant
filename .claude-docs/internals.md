@@ -259,7 +259,8 @@ one line in the log and never delays or fails a run.
   SESSION.md and project.md; the bot reads those files itself and appends their CONTENT, rendered from
   `prompts/memory_context.md.dist`, right after the mode prompt and before `CLAUDE_APPEND_SYSTEM_PROMPT`, so
   an agent needs no read access outside the managed repository. OpenCode gets it through the runner's
-  `system-prompt.md`; Kimi through the `agent.md` of its run home. Each call is bounded by
+  `system-prompt.md`; Kimi through the `agent.md` of its run home on a new session, and through the
+  message on a resume (a resumed session keeps the agent file it was created with). Each call is bounded by
   `MemoryContext::DEFAULT_TIMEOUT_SEC` (the client is SIGKILLed on expiry) and each file is capped at
   `MEMORY_3LAYER_CONTEXT_MAX_BYTES` bytes taken from its NEWEST end, the heading then carrying
   `(cut: the newest part only)`; `0` turns the injection off. A client that names no readable file gives no

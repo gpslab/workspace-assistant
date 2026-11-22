@@ -133,6 +133,36 @@ final class KimiRunnerTest extends TestCase
         }
     }
 
+    /**
+     * A resumed session keeps the agent file it was created with, so the fresh memory is handed over
+     * in the message instead: the `-p` prompt carries the memory block before the user's text.
+     */
+    public function testAResumedRunGetsTheMemoryInTheMessage(): void
+    {
+        $session = $this->memoryFile('SESSION.md', 'the session remembers issue #188');
+        $memory = $this->memoryClient($session);
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/01-plain.stdout.jsonl'),
+            wire: 'wire/01-plain/main.jsonl',
+            sessionDir: $this->kimiHome.'/sessions/wd_test/'.self::SESSION,
+        );
+
+        $runner = $this->runner($bin, ['memory' => new MemoryContext($memory, $this->repo, 4096)]);
+        $runner->start('hello', self::SESSION);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $argv = $this->record()['argv'];
+        self::assertContains('-S', $argv);
+        self::assertNotContains('--agent-file', $argv);
+        $at = array_search('-p', $argv, true);
+        self::assertIsInt($at);
+        self::assertStringStartsWith('## Memory of the instance', $argv[$at + 1]);
+        self::assertStringContainsString('the session remembers issue #188', $argv[$at + 1]);
+        self::assertStringEndsWith("\n\nhello", $argv[$at + 1]);
+
+        $runner->purgeRunHome();
+    }
+
     /** The setting off: the same run home carries the prompt alone, with no memory block. */
     public function testWithoutTheMemorySettingTheAgentFileHasNoMemoryBlock(): void
     {

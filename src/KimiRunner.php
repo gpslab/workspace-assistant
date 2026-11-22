@@ -28,7 +28,8 @@ use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
  * copy would be invalidated by the next refresh. `KIMI_CODE_NO_AUTO_UPDATE=1` keeps the engine from
  * replacing itself in a run. The agent file carries the assembled system prompt, and with
  * `MEMORY_3LAYER_BIN` set the memory of the instance as well ({@see MemoryContext}): this engine reads
- * no user scope, so the memory comes from the bot.
+ * no user scope, so the memory comes from the bot. A resumed session keeps the agent file it was
+ * created with, so on a resume the fresh memory is handed over in the message instead.
  *
  * The run home is not removed when the process ends: {@see purgeRunHome()} is exposed for the Bot to
  * call after its post-run checks, so the gate shim's records are still there for them.
@@ -145,7 +146,8 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
      * @param string                $hookShimPath    gate shim of the run; '' resolves the bot's
      *                                               `bin/kimi-hook.php`, and a missing file renders no hooks
      * @param MemoryContext|null    $memory          memory of the instance (`MEMORY_3LAYER_BIN`), injected
-     *                                               into the run home's agent file: this engine reads no
+     *                                               into the run home's agent file on a new session and
+     *                                               into the message on a resume: this engine reads no
      *                                               user scope, so the memory comes from the bot. Null = off
      */
     public function __construct(
@@ -207,22 +209,29 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         $languageLine = SystemPrompt::languageLine($this->locale->languageName(), $this->promptWarnings);
         // The same assembly as ClaudeRunner::start(): the hash covers the mode prompt, the instance
         // addition and the language line, so a stored Claude hash and a Kimi hash mean the same thing.
-        // The memory of the instance is NOT part of it: it is data that changes between runs, so
-        // hashing it would make every resume look like a prompt the operator had changed.
+        // The memory of the instance is NOT part of it: it is data that changes between runs, not a
+        // prompt the operator changed, so hashing it would make every resume look like an operator edit
+        // and trigger the update block. The memory is delivered fresh on every run regardless: the agent
+        // file on a new session, the message on a resume.
         $systemPrompt = $built['text'];
         if ($this->appendSystemPrompt !== '') {
             $systemPrompt .= "\n\n".$this->appendSystemPrompt;
         }
         $fullPrompt = $systemPrompt."\n\n".$languageLine;
         $this->promptHash = hash('sha256', $fullPrompt);
+        // This engine reads no user scope, so the memory of the instance is injected as content
+        // ({@see MemoryContext}); null = off. A new session reads it from the agent file of the run
+        // home, right after the mode prompt; a resumed session keeps the agent file it was created
+        // with, so the fresh memory is handed over in the message instead.
+        $memory = $this->memory?->block($this->promptWarnings) ?? '';
+        if ($sessionId !== null && $memory !== '') {
+            $prompt = $memory."\n\n".$prompt;
+        }
+
         if ($sessionId !== null && $this->updateOnResume && $this->savedPromptHash !== $this->promptHash) {
             // A resumed session keeps the prompt it was created with: hand the new one over in the message.
             $prompt = PromptFiles::render('session_update', ['prompt' => $fullPrompt], $this->promptWarnings)."\n\n".$prompt;
         }
-
-        // This engine reads no user scope, so the memory of the instance is injected into the agent file
-        // of the run home, right after the mode prompt, as content ({@see MemoryContext}); null = off.
-        $memory = $this->memory?->block($this->promptWarnings) ?? '';
 
         // The session directories that exist now are other runs; the run's own one appears later.
         $this->launchSessionDirs = array_fill_keys($this->sessionDirs(), true);

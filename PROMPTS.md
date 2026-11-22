@@ -127,9 +127,11 @@ gives no block at all and one line in the log of the bot, never a failed or dela
 
 With `ENGINE=claude` the part is never added, whatever the setting says: the user scope delivers the memory
 of the instance there. The block is not part of the prompt hash of a Kimi session either: it is data that
-changes between runs, so hashing it would make every resume look like a changed prompt. The background pull
-before a run and push after it are in [internals.md](.claude-docs/internals.md#memory); they do not touch
-the prompt of a run.
+changes between runs, so hashing it would make every resume look like a changed prompt. A Kimi resume keeps
+the agent file it was created with, so the fresh memory is handed over in the message instead of the agent
+file; OpenCode re-reads its `instructions` on every run, so there the block is always part of the rendered
+prompt. The background pull before a run and push after it are in
+[internals.md](.claude-docs/internals.md#memory); they do not touch the prompt of a run.
 
 ### Chat message
 
