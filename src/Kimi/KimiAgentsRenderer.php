@@ -77,7 +77,7 @@ final class KimiAgentsRenderer
             // The names are the same as Claude's, unchanged.
             $text .= "tools:\n";
             foreach ($tools as $tool) {
-                $text .= '  - '.$tool."\n";
+                $text .= '  - '.self::yamlString($tool)."\n";
             }
         }
 

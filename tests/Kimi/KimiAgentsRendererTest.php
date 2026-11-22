@@ -39,7 +39,7 @@ final class KimiAgentsRendererTest extends TestCase
         self::assertSame(['acceptor', 'critic', 'editor', 'scope-check', 'security', 'verifier'], array_keys($files));
         foreach (BuiltinAgents::TOOLS as $name => $tools) {
             self::assertStringContainsString('name: '.$name, $files[$name]);
-            self::assertStringContainsString("tools:\n  - ".implode("\n  - ", $tools)."\n", $files[$name]);
+            self::assertStringContainsString("tools:\n  - \"".implode("\"\n  - \"", $tools)."\"\n", $files[$name]);
             self::assertStringNotContainsString('model:', $files[$name]);
             self::assertNotSame('', trim($files[$name]));
         }
@@ -101,7 +101,7 @@ final class KimiAgentsRendererTest extends TestCase
         self::assertArrayHasKey('mine', $files);
         self::assertStringContainsString('name: mine', $files['mine']);
         self::assertStringContainsString('description: "My agent"', $files['mine']);
-        self::assertStringContainsString("tools:\n  - Read\n  - Grep\n", $files['mine']);
+        self::assertStringContainsString("tools:\n  - \"Read\"\n  - \"Grep\"\n", $files['mine']);
         self::assertStringNotContainsString('model:', $files['mine']);
         self::assertStringEndsWith("\n\nmy body\n", $files['mine']);
     }
@@ -124,6 +124,22 @@ final class KimiAgentsRendererTest extends TestCase
 
         self::assertArrayNotHasKey('../escape', $files);
         self::assertSame(['acceptor', 'critic', 'editor', 'scope-check', 'security', 'verifier'], array_keys($files));
+    }
+
+    public function testInstanceAgentToolsAreQuotedAsYamlScalars(): void
+    {
+        file_put_contents(
+            $this->repo.'/.claude/agents/weird.md',
+            "---\nname: mine\ndescription: d\ntools: [Bash, \"Bash(git commit: *)\", \"Grep #x\"]\n---\nbody\n",
+        );
+
+        $files = (new KimiAgentsRenderer())->render($this->repo, $this->home);
+
+        self::assertArrayHasKey('mine', $files);
+        self::assertStringContainsString(
+            "tools:\n  - \"Bash\"\n  - \"Bash(git commit: *)\"\n  - \"Grep #x\"\n",
+            $files['mine'],
+        );
     }
 
     private function agent(string $path, string $name, string $body): void

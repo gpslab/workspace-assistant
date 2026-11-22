@@ -38,7 +38,10 @@ final class KimiHooksRendererTest extends TestCase
         self::assertSame(2, substr_count($tables, 'event = "'));
         self::assertStringContainsString('event = "SessionStart"', $tables);
         self::assertStringContainsString('event = "PreToolUse"', $tables);
-        self::assertStringContainsString('command = "php '.$shim.'"', $tables);
+        self::assertStringContainsString(
+            'command = "'.self::toml(escapeshellarg(PHP_BINARY).' '.escapeshellarg($shim)).'"',
+            $tables,
+        );
         self::assertSame(2, substr_count($tables, 'timeout = '.KimiHooksRenderer::TIMEOUT));
         self::assertContains(KimiHooksRenderer::TIMEOUT, range(1, 600));
     }
@@ -57,7 +60,15 @@ final class KimiHooksRendererTest extends TestCase
 
         $tables = (new KimiHooksRenderer($shim))->render();
 
-        self::assertStringContainsString('command = "php '.addcslashes($shim, '"\\').'"', $tables);
+        $command = escapeshellarg(PHP_BINARY).' '.escapeshellarg($shim);
+        self::assertStringContainsString('command = "'.self::toml($command).'"', $tables);
+        self::assertStringNotContainsString('command = "php ', $tables);
+    }
+
+    /** The TOML escaping the renderer applies to a command string. */
+    private static function toml(string $value): string
+    {
+        return str_replace(['\\', '"', "\n", "\r", "\t"], ['\\\\', '\\"', '\\n', '\\r', '\\t'], $value);
     }
 
     private function shim(): string

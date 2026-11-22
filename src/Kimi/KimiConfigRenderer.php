@@ -14,21 +14,22 @@ namespace GpsLab\WorkspaceAssistant\Kimi;
  * user hook in a bot run.
  *
  * It keeps the user's provider and model tables, their comments, multi-line arrays, inline tables
- * and `[[permission.rules]]` (the static rules stay in effect in `-p`). It removes every `[[hooks]]`
- * table and the top-level `extra_agent_dirs` / `extra_skill_dirs` keys, then adds the bot's own:
- * one rendered agents directory, its session-start and pre-tool-use hook tables, and a `[tools]`
- * table that disables the cron and question tools (a pending cron keeps `-p` alive). A top-level
- * `[tools]` table of the user is kept, with its `disabled` key replaced by the bot's list, because
- * the bot owns the run's tool policy.
+ * and `[[permission.rules]]` (the static rules stay in effect in `-p`). It removes every `hooks`
+ * table or top-level `hooks.*` key and the top-level `extra_agent_dirs` / `extra_skill_dirs` keys,
+ * then adds the bot's own: one rendered agents directory, its session-start and pre-tool-use hook
+ * tables, and a `[tools]` table that disables the cron and question tools (a pending cron keeps
+ * `-p` alive). A `[tools]` table of the user is kept and its `disabled` list is merged with the
+ * bot's, because the bot owns the run's tool policy; a top-level `tools.*` key is rejected.
  *
  * Pure: it returns text and writes nothing.
  */
 final class KimiConfigRenderer
 {
-    /** Top-level keys of a Kimi config that belong to the user's environment, not to a run. */
-    private const array DROPPED_KEYS = ['extra_agent_dirs', 'extra_skill_dirs'];
-
-    /** Tables that are rendered by the bot or belong to the user's environment. */
+    /**
+     * Top-level keys and tables of a Kimi config that belong to the user's environment, not to a
+     * run. Written as a table header (`[[hooks]]`) or as a top-level key (`hooks = [...]`,
+     * `hooks.x = ...`) the whole construct is removed.
+     */
     private const array DROPPED_TABLES = ['hooks', 'extra_agent_dirs', 'extra_skill_dirs'];
 
     /** Kimi's tool list minus the bot's: a pending cron or question would outlive a `-p` run. */
@@ -59,6 +60,9 @@ final class KimiConfigRenderer
         $table = null;
         $sawToolsTable = false;
         $toolsDisabledPending = false;
+        /** @var list<string> $userDisabledTools the user's `[tools] disabled` list, merged with the bot's */
+        $userDisabledTools = [];
+        $sawDisabledKey = false;
 
         while ($index < $count) {
             $line = $lines[$index];
@@ -72,7 +76,7 @@ final class KimiConfigRenderer
             if (self::isHeader($line)) {
                 [, $path] = self::parseHeader($line);
                 if ($table === ['tools']) {
-                    self::flushToolsDisabled($out, $toolsDisabledPending);
+                    self::flushToolsDisabled($out, $toolsDisabledPending, $userDisabledTools);
                 }
                 $root = $path[0];
                 if (in_array($root, self::DROPPED_TABLES, true)) {
@@ -87,6 +91,8 @@ final class KimiConfigRenderer
                     }
                     $sawToolsTable = true;
                     $toolsDisabledPending = true;
+                    $userDisabledTools = [];
+                    $sawDisabledKey = false;
                 }
                 $out[] = $line;
                 $table = $path;
@@ -97,12 +103,20 @@ final class KimiConfigRenderer
 
             $root = self::keyRoot($line);
             $end = self::statementEnd($lines, $index);
-            if ($table === null && in_array($root, self::DROPPED_KEYS, true)) {
+            if ($table === null && in_array($root, self::DROPPED_TABLES, true)) {
                 $index = $end + 1;
 
                 continue;
             }
+            if ($table === null && $root === 'tools') {
+                throw new \RuntimeException('The source config.toml sets the tools table with a top-level key; write it as a [tools] table or remove it.');
+            }
             if ($table === ['tools'] && $root === 'disabled') {
+                if ($sawDisabledKey) {
+                    throw new \RuntimeException('The source config.toml defines the [tools] disabled key more than once.');
+                }
+                $userDisabledTools = self::parseStringArray(self::valueText($lines, $index, $end));
+                $sawDisabledKey = true;
                 $index = $end + 1;
 
                 continue;
@@ -112,7 +126,7 @@ final class KimiConfigRenderer
             }
             $index = $end + 1;
         }
-        self::flushToolsDisabled($out, $toolsDisabledPending);
+        self::flushToolsDisabled($out, $toolsDisabledPending, $userDisabledTools);
 
         // A top-level key must appear before the first table: once a table starts, later keys
         // belong to it. The bot's agents directory is therefore rendered ahead of the source.
@@ -387,23 +401,182 @@ final class KimiConfigRenderer
     }
 
     /**
-     * Emits the bot's `disabled` key at the end of the user's `[tools]` table, before the header
-     * that closes it, so the user's table stays valid and the bot's tool policy wins.
+     * Emits the merged `disabled` key at the end of the user's `[tools]` table, before the header
+     * that closes it, so the user's table stays valid and the bot's tool policy wins. The user's
+     * entries come first and the bot's four tools are appended, so nothing the user disabled comes
+     * back on in a bot run.
      *
      * @param list<string> $out
+     * @param list<string> $userDisabled
      */
-    private static function flushToolsDisabled(array &$out, bool &$pending): void
+    private static function flushToolsDisabled(array &$out, bool &$pending, array $userDisabled): void
     {
         if (!$pending) {
             return;
         }
-        $out[] = 'disabled = '.self::disabledTools();
+        $out[] = 'disabled = '.self::disabledTools($userDisabled);
         $pending = false;
     }
 
-    private static function disabledTools(): string
+    /**
+     * The bot's `disabled` list with the user's own entries merged in: the user's order is kept and
+     * the bot's tools are appended when not already present.
+     *
+     * @param list<string> $user
+     */
+    private static function disabledTools(array $user = []): string
     {
-        return '['.implode(', ', array_map(self::string(...), self::DISABLED_TOOLS)).']';
+        $merged = $user;
+        foreach (self::DISABLED_TOOLS as $tool) {
+            if (!in_array($tool, $merged, true)) {
+                $merged[] = $tool;
+            }
+        }
+
+        return '['.implode(', ', array_map(self::string(...), $merged)).']';
+    }
+
+    /**
+     * The raw value text of the assignment spanning lines $start..$end: everything from after the
+     * `=` on the first line through the last line, joined with a newline so a multi-line array keeps
+     * its shape.
+     *
+     * @param list<string> $lines
+     */
+    private static function valueText(array $lines, int $start, int $end): string
+    {
+        $equals = self::findEquals($lines[$start]);
+        $value = substr($lines[$start], $equals + 1);
+        for ($i = $start + 1; $i <= $end; ++$i) {
+            $value .= "\n".$lines[$i];
+        }
+
+        return $value;
+    }
+
+    /**
+     * Parses a `disabled` value as a TOML array of basic or literal strings. The value may span
+     * lines and carry comments; anything else (a bare word, a number, an inline table) is an error:
+     * a disabled list the bot cannot merge fails the run instead of being dropped or re-enabling a
+     * tool.
+     *
+     * @return list<string>
+     */
+    private static function parseStringArray(string $value): array
+    {
+        $value = trim($value);
+        if ($value === '') {
+            throw new \RuntimeException('Unparsable Kimi config: the [tools] disabled value is empty.');
+        }
+        if ($value[0] !== '[') {
+            throw new \RuntimeException('Unparsable Kimi config: a [tools] disabled value must be an array of strings.');
+        }
+        $length = strlen($value);
+        $tools = [];
+        $i = 1;
+        while (true) {
+            $i = self::skipValueSpaceAndComment($value, $i);
+            if ($i >= $length) {
+                throw new \RuntimeException('Unparsable Kimi config: a [tools] disabled array is not closed.');
+            }
+            if ($value[$i] === ']') {
+                if (self::skipValueSpaceAndComment($value, $i + 1) < $length) {
+                    throw new \RuntimeException('Unparsable Kimi config: text follows a [tools] disabled array.');
+                }
+
+                return $tools;
+            }
+            if ($value[$i] === ',') {
+                ++$i;
+
+                continue;
+            }
+            if ($value[$i] !== '"' && $value[$i] !== "'") {
+                throw new \RuntimeException('Unparsable Kimi config: a [tools] disabled array may contain only strings.');
+            }
+            [$text, $i] = self::parseTomlString($value, $i);
+            $tools[] = $text;
+        }
+    }
+
+    /**
+     * Advances $i past whitespace and `#` comments (to end of line) in a value.
+     */
+    private static function skipValueSpaceAndComment(string $value, int $i): int
+    {
+        $length = strlen($value);
+        while ($i < $length) {
+            $char = $value[$i];
+            if ($char === ' ' || $char === "\t" || $char === "\r" || $char === "\n") {
+                ++$i;
+
+                continue;
+            }
+            if ($char === '#') {
+                while ($i < $length && $value[$i] !== "\n") {
+                    ++$i;
+                }
+
+                continue;
+            }
+
+            break;
+        }
+
+        return $i;
+    }
+
+    /**
+     * Decodes one TOML string starting at $value[$i], which must be `"` or `'`. Multi-line strings
+     * and unicode escapes are rejected: a tool name does not need them, and decoding `\u` would add
+     * a charset dependency for nothing.
+     *
+     * @return array{0: string, 1: int} the decoded text and the index just past the closing quote
+     */
+    private static function parseTomlString(string $value, int $i): array
+    {
+        $length = strlen($value);
+        $quote = $value[$i];
+        ++$i;
+        $text = '';
+        while ($i < $length) {
+            $char = $value[$i];
+            if ($char === $quote) {
+                return [$text, $i + 1];
+            }
+            if ($char === "\n" || $char === "\r") {
+                throw new \RuntimeException('Unparsable Kimi config: an unterminated string in a [tools] disabled array.');
+            }
+            if ($quote === "'" || $char !== '\\') {
+                $text .= $char;
+                ++$i;
+
+                continue;
+            }
+            ++$i;
+            if ($i >= $length) {
+                throw new \RuntimeException('Unparsable Kimi config: an unterminated string in a [tools] disabled array.');
+            }
+            $escape = $value[$i];
+            if ($escape === '"' || $escape === '\\') {
+                $text .= $escape;
+            } elseif ($escape === 'b') {
+                $text .= "\b";
+            } elseif ($escape === 't') {
+                $text .= "\t";
+            } elseif ($escape === 'n') {
+                $text .= "\n";
+            } elseif ($escape === 'f') {
+                $text .= "\f";
+            } elseif ($escape === 'r') {
+                $text .= "\r";
+            } else {
+                throw new \RuntimeException('Unparsable Kimi config: an unsupported escape in a [tools] disabled array.');
+            }
+            ++$i;
+        }
+
+        throw new \RuntimeException('Unparsable Kimi config: an unterminated string in a [tools] disabled array.');
     }
 
     private static function findEquals(string $line): ?int

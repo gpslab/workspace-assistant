@@ -37,7 +37,10 @@ final class KimiHooksRenderer
             throw new \RuntimeException('The Kimi gate shim does not exist: '.$this->shimPath.'.');
         }
 
-        $command = 'php '.$this->shimPath;
+        // The command is a shell command line: quote both parts so a path with a space, quote or
+        // `$` cannot split the command (a hook that fails to start lets the call run, see the
+        // spike fixtures), and use PHP_BINARY so the shim runs under the bot's interpreter.
+        $command = escapeshellarg(PHP_BINARY).' '.escapeshellarg($this->shimPath);
         $tables = [];
         foreach (self::EVENTS as $event) {
             $tables[] = "[[hooks]]\nevent = ".self::string($event)."\n"

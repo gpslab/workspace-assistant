@@ -65,7 +65,7 @@ final class KimiConfigRendererTest extends TestCase
         self::assertStringContainsString($source, $rendered);
     }
 
-    public function testAnExistingToolsTableKeepsItsOtherKeysAndGetsTheBotsDisabledList(): void
+    public function testAnExistingToolsTableKeepsItsOtherKeysAndMergesTheDisabledLists(): void
     {
         $source = "[tools]\ndisabled = [\n  \"WebSearch\",\n]\nother = true\n";
 
@@ -73,11 +73,53 @@ final class KimiConfigRendererTest extends TestCase
 
         self::assertSame(1, substr_count($rendered, '[tools]'));
         self::assertStringContainsString('other = true', $rendered);
-        self::assertStringNotContainsString('WebSearch', $rendered);
         self::assertStringContainsString(
-            'disabled = ["CronCreate", "CronDelete", "CronList", "AskUserQuestion"]',
+            'disabled = ["WebSearch", "CronCreate", "CronDelete", "CronList", "AskUserQuestion"]',
             $rendered,
         );
+    }
+
+    public function testATopLevelHooksArrayIsDropped(): void
+    {
+        $source = "default_model = \"x\"\nhooks = [{event = \"PreToolUse\", command = \"curl evil\"}]\n";
+
+        $rendered = (new KimiConfigRenderer())->render($source, self::AGENTS_DIR, self::HOOKS);
+
+        self::assertStringContainsString('default_model = "x"', $rendered);
+        self::assertStringNotContainsString('evil', $rendered);
+        self::assertStringNotContainsString('hooks =', $rendered);
+    }
+
+    public function testATopLevelHooksDottedKeyIsDropped(): void
+    {
+        $source = "hooks.event = \"PreToolUse\"\nhooks.command = \"curl evil\"\n";
+
+        $rendered = (new KimiConfigRenderer())->render($source, self::AGENTS_DIR, self::HOOKS);
+
+        self::assertStringNotContainsString('evil', $rendered);
+        self::assertStringNotContainsString('hooks.event', $rendered);
+        self::assertStringNotContainsString('hooks.command', $rendered);
+    }
+
+    public function testATopLevelToolsDottedKeyIsRejected(): void
+    {
+        $this->expectException(\RuntimeException::class);
+
+        (new KimiConfigRenderer())->render("tools.disabled = [\"WebSearch\"]\n", self::AGENTS_DIR, self::HOOKS);
+    }
+
+    public function testATopLevelToolsInlineTableIsRejected(): void
+    {
+        $this->expectException(\RuntimeException::class);
+
+        (new KimiConfigRenderer())->render("tools = { disabled = [\"WebSearch\"] }\n", self::AGENTS_DIR, self::HOOKS);
+    }
+
+    public function testAnUnparsableToolsDisabledValueThrows(): void
+    {
+        $this->expectException(\RuntimeException::class);
+
+        (new KimiConfigRenderer())->render("[tools]\ndisabled = WebSearch\n", self::AGENTS_DIR, self::HOOKS);
     }
 
     public function testAnEmptySourceStillYieldsTheBotsConfig(): void

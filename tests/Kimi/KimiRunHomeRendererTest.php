@@ -49,7 +49,7 @@ final class KimiRunHomeRendererTest extends TestCase
         self::assertArrayHasKey('agents/critic.md', $files);
         self::assertArrayHasKey('agents/security.md', $files);
         self::assertStringContainsString('extra_agent_dirs = ["'.$this->runHome.'/agents"]', $files[KimiRunHomeRenderer::CONFIG_FILE]);
-        self::assertStringContainsString('command = "php '.$this->shim.'"', $files[KimiRunHomeRenderer::CONFIG_FILE]);
+        self::assertStringContainsString('command = "'.self::toml(escapeshellarg(PHP_BINARY).' '.escapeshellarg($this->shim)).'"', $files[KimiRunHomeRenderer::CONFIG_FILE]);
         self::assertStringContainsString("\${base_prompt}\n\nmode prompt\n\ninstance addition\n\nlanguage line", $files[KimiRunHomeRenderer::AGENT_FILE]);
     }
 
@@ -98,6 +98,12 @@ final class KimiRunHomeRendererTest extends TestCase
             $this->root.'/repo',
             $this->root.'/home',
         );
+    }
+
+    /** The TOML escaping the renderer applies to a command string. */
+    private static function toml(string $value): string
+    {
+        return str_replace(['\\', '"', "\n", "\r", "\t"], ['\\\\', '\\"', '\\n', '\\r', '\\t'], $value);
     }
 
     private static function rrmdir(string $dir): void
