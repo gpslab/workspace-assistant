@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "не знайдено",
     "gate.changes_ceiling": "{task}: рев'ю епіку запитувало зміни (разів: {count}) — завдання зупинено (blocked). Що робити: розібрати зауваження вручну та /epic resume?",
     "gate.conflict_comment": "Після мерджу сусіднього PR епіку тут конфлікт із `master`. Влий `master` у гілку та розв'яжи конфлікт.",
-    "gate.conflict_unresolved": "{task}: конфлікт із master не розв'язано за одну ітерацію — завдання зупинено (blocked). Розібрати конфлікт вручну?",
+    "gate.conflict_unresolved": "{task}: конфлікт із master після запиту не розв'язано — завдання зупинено (blocked). Розібрати конфлікт вручну?",
     "gate.failed_runs_failed": "{repo}: не вдалося отримати невдалі запуски CI master через {cli} ({error})",
     "gate.master_no_fix": "master {repo} червоний, а завдання на виправлення не з'явилося (тіків очікування: {ticks})",
     "gate.master_red_hours": "master {repo} червоний, годин: {hours}, виправлення не допомогло",

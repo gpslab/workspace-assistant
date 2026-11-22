@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "табылмады",
     "gate.changes_ceiling": "{task}: эпик рецензиясы {count} рет түзету сұрады — тапсырма тоқтатылды (blocked). Не істеу керек: ескертулерді қолмен қарап, /epic resume жасау керек пе?",
     "gate.conflict_comment": "Эпиктің көрші PR-ы біріктірілгеннен кейін мұнда `master`-пен қайшылық пайда болды. `master`-ды тармаққа қосып, қайшылықты шешіңіз.",
-    "gate.conflict_unresolved": "{task}: master-мен қайшылық бір итерацияда шешілмеді — тапсырма тоқтатылды (blocked). Қайшылықты қолмен шешу керек пе?",
+    "gate.conflict_unresolved": "{task}: сұраныстан кейін master-мен қайшылық әлі шешілмеді — тапсырма тоқтатылды (blocked). Қайшылықты қолмен шешу керек пе?",
     "gate.failed_runs_failed": "{repo}: master CI-дың сәтсіз жүргізілімдерін {cli} арқылы алу мүмкін болмады ({error})",
     "gate.master_no_fix": "{repo} master қызыл, ал түзету тапсырмасы {ticks} тик ішінде пайда болмады",
     "gate.master_red_hours": "{repo} master {hours} сағат бойы қызыл, түзету көмектеспеді",

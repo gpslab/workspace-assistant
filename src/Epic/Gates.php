@@ -27,6 +27,12 @@ final class Gates
     public const int FIX_TICKS = 2;
 
     /**
+     * How many observed head changes on a `CONFLICTING` PR after the conflict comment are tolerated:
+     * one in-flight iteration is forgiven, the second change blocks the task.
+     */
+    public const int GATE_CONFLICT_CHANGES = 2;
+
+    /**
      * @param \Closure(string, string, ?string): bool $enqueue enqueue an epic run (slug, kind, PR)
      * @param \Closure(string, string): void          $block   the single epic transition to blocked (slug, reason)
      * @param ?\Closure(string, string): void         $notify  message to the epic topic (slug, text)
@@ -450,16 +456,36 @@ final class Gates
                 continue;
             }
             $asked = (string) ($task['counters']['conflict_head'] ?? '');
-            if ($s->mergeable === TaskState::MERGEABLE_YES && $asked !== '') {
-                $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_head', '');
+            $changes = (int) ($task['counters']['conflict_changes'] ?? 0);
+            if ($s->mergeable === TaskState::MERGEABLE_YES) {
+                if ($asked !== '') {
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_head', '');
+                }
+                if ($changes !== 0) {
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_changes', '0');
+                }
             } elseif ($s->mergeable === TaskState::MERGEABLE_NO) {
                 if ($asked === '') {
+                    // The snapshot is ~a pass old: remember the head the PR has when the comment is posted.
+                    try {
+                        $head = $this->github->prHeadOid($repo.'#'.$s->prNumber);
+                    } catch (\RuntimeException $e) {
+                        Log::line(sprintf('Epic %s: conflict head of %s not re-read, will retry: %s', $slug, $task['task'], $e->getMessage()));
+
+                        continue;
+                    }
                     $this->github->commentPr($task['task'], $s->prNumber, $this->locale->t('gate.conflict_comment')."\n\n".Run::marker($slug));
-                    $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_head', (string) $s->head);
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_head', $head);
                     $acted = true;
-                } elseif ($asked !== $s->head) {
-                    $this->db->epicSetTaskStatus($slug, $task['task'], 'blocked');
-                    $this->say($slug, $this->locale->t('gate.conflict_unresolved', ['task' => $task['task']]));
+                } elseif ($s->head !== null && $asked !== $s->head) {
+                    // The head changed: an iteration may be in flight. Forgive one, block on the next.
+                    ++$changes;
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_head', (string) $s->head);
+                    $this->db->epicSetTaskCounter($slug, $task['task'], 'conflict_changes', (string) $changes);
+                    if ($changes >= self::GATE_CONFLICT_CHANGES) {
+                        $this->db->epicSetTaskStatus($slug, $task['task'], 'blocked');
+                        $this->say($slug, $this->locale->t('gate.conflict_unresolved', ['task' => $task['task']]));
+                    }
                 }
             }
         }

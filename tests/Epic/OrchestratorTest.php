@@ -96,9 +96,15 @@ final class FakeGitHub implements Forge
 
     /** @var array<string, string> */
     public array $heads = [];
+    /** @var list<string> PRs whose head re-read fails */
+    public array $failHeads = [];
 
     public function prHeadOid(string $pr): string
     {
+        if (in_array($pr, $this->failHeads, true)) {
+            throw new \RuntimeException('gh: network');
+        }
+
         return $this->heads[$pr] ?? str_repeat('a', 40);
     }
 

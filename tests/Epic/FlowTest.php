@@ -361,11 +361,16 @@ final class FlowTest extends TestCase
         $this->startEpic();
         $this->db->epicSetStatus('demo', 'blocked');
         $this->db->epicSetTaskStatus('demo', 'a#1', 'blocked');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'conflict_head', 'h1');
+        $this->db->epicSetTaskCounter('demo', 'a#1', 'conflict_changes', '2');
 
         $this->command('/epic resume');
 
         self::assertSame('running', $this->db->epicGet('demo')['status'] ?? null);
         self::assertSame(['open', 'open'], array_column($this->db->epicTasks('demo'), 'status'));
+        $counters = $this->db->epicTasks('demo')[0]['counters'];
+        self::assertSame('', $counters['conflict_head']);
+        self::assertSame(0, (int) $counters['conflict_changes']);
     }
 
     public function testResumeOnRunningEpicUnblocksTasks(): void

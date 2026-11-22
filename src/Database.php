@@ -1084,7 +1084,7 @@ final class Database
     /**
      * `/epic resume`: the epic is running again, the blocked reason and blocked status of tasks are cleared.
      * For the tasks being cleared, the REQUEST_CHANGES cap count (the `epic_changes_since` mark)
-     * and the post-merge gate's `conflict_head` are reset. The stagnation counter restarts, and
+     * and the post-merge gate's `conflict_head` and `conflict_changes` are reset. The stagnation counter restarts, and
      * the merge failure counter of every task is reset.
      *
      * @return list<string> tasks whose blocked status was cleared
@@ -1109,6 +1109,7 @@ final class Database
                 $counters['epic_changes'] = '0';
                 $counters['epic_changes_since'] = (string) $now;
                 $counters['conflict_head'] = '';
+                $counters['conflict_changes'] = '0';
                 if (($counters['cold_attempts'] ?? '') !== '') {
                     // Blocking by findings coverage: a new attempt from scratch, the review of the same head is queued anew.
                     $counters['cold_attempts'] = '';

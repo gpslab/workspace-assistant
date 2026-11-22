@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "nicht gefunden",
     "gate.changes_ceiling": "{task}: Das Epic-Review hat {count}-mal Änderungen angefordert — die Aufgabe wurde gestoppt (blocked). Was tun: die Anmerkungen manuell durchgehen und /epic resume?",
     "gate.conflict_comment": "Nach dem Merge eines benachbarten Epic-PR gibt es in diesem PR einen Konflikt mit `master`. Merge `master` in den Branch und löse den Konflikt.",
-    "gate.conflict_unresolved": "{task}: Der Konflikt mit master wurde nicht innerhalb einer Iteration gelöst — die Aufgabe wurde gestoppt (blocked). Den Konflikt manuell lösen?",
+    "gate.conflict_unresolved": "{task}: Der Konflikt mit master ist nach der Aufforderung weiterhin ungelöst — die Aufgabe wurde gestoppt (blocked). Den Konflikt manuell lösen?",
     "gate.failed_runs_failed": "{repo}: Die fehlgeschlagenen master-CI-Läufe konnten nicht über {cli} abgerufen werden ({error})",
     "gate.master_no_fix": "master von {repo} ist rot und innerhalb von {ticks} Ticks ist keine Fix-Aufgabe erschienen",
     "gate.master_red_hours": "master von {repo} ist seit {hours} Std. rot, der Fix hat nicht geholfen",

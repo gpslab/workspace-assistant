@@ -149,7 +149,7 @@
     "gate.changelog_top_missing": "não encontrado",
     "gate.changes_ceiling": "{task}: a revisão do épico solicitou alterações {count} vezes — a tarefa foi parada (blocked). O que fazer: analisar os comentários manualmente e /epic resume?",
     "gate.conflict_comment": "Depois que um PR vizinho do épico foi mesclado, este PR conflita com `master`. Mescle `master` na branch e resolva o conflito.",
-    "gate.conflict_unresolved": "{task}: o conflito com master não foi resolvido em uma iteração — a tarefa foi parada (blocked). Resolver o conflito manualmente?",
+    "gate.conflict_unresolved": "{task}: o conflito com master ainda não foi resolvido após a solicitação — a tarefa foi parada (blocked). Resolver o conflito manualmente?",
     "gate.failed_runs_failed": "{repo}: não foi possível obter as execuções de CI com falha do master via {cli} ({error})",
     "gate.master_no_fix": "o master de {repo} está vermelho e nenhuma tarefa de correção apareceu em {ticks} ciclos",
     "gate.master_red_hours": "o master de {repo} está vermelho há {hours} h, a correção não resolveu",
