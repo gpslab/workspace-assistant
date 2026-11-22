@@ -122,9 +122,10 @@ final class Bot implements LoopControl
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
         $this->epicChat = new ChatSurface($db, $tg, $config, $git, $this->epicCard, $this->locale);
         $this->queueTexts = new QueueTexts($this->locale);
-        // Memory of the instance: off unless MEMORY_3LAYER_BIN is set, and off on Claude whatever the
-        // setting says, because that engine reads the user scope itself (Config::memoryBin()). JobRunner
-        // starts a pull before a run and a push after it; the loop reaps them here, outside the job.
+        // Memory of the instance: off unless MEMORY_3LAYER_BIN is set, and off on Claude Code whatever the
+        // setting says, because that engine reads the user scope itself (Config::memoryBin()) — OpenCode
+        // and Kimi read none, so both get it. JobRunner starts a pull before a run and a push after it;
+        // the loop reaps them here, outside the job.
         $this->memorySync = new MemorySync($config->memoryBin(), $config->stateDir, $config->repoPath);
         $this->jobRunner = new JobRunner($config, $db, $tg, $git, $this->delivery, $this->locale, $this->inbox, $this->subRepoSync, $this->queueTexts, $this->epicCard, $this->runState, $runnerFactory ?? new RunnerFactory($config, $this->locale), $this->memorySync);
         $this->modeAndLang = new ModeAndLang($db, $tg, $this->locale, $this->jobRunner, $this->locales);

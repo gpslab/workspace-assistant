@@ -168,13 +168,15 @@ OpenCode keys are ignored. Verified against OpenCode **2.3.0**.
   it may do (an agent without `tools:` is unrestricted).
 - Every run is approved automatically (OpenCode's `--auto`), with no equivalent of a stricter
   `CLAUDE_EXTRA_ARGS`. See [Security](#security).
-- Memory of the instance: an OpenCode run reads no user scope, so the hooks and the `~/.claude/CLAUDE.md`
-  that give a Claude Code run its memory are out of reach. With `MEMORY_3LAYER_BIN` set to the absolute
-  path of the `memory-3layer` client, the bot reads the memory files that client names (L0, the project's
-  `SESSION.md` and `project.md`) and injects their content into the system prompt of every run, and it
-  pulls the memory before a run and pushes it after one, in the background — at most one sync at a time, and
-  never at the cost of a run. Empty (the default) keeps the feature off; with `ENGINE=claude` the setting
-  changes nothing. See [INSTALL.md](INSTALL.md#memory) and [PROMPTS.md](PROMPTS.md#memory).
+- Memory of the instance: an OpenCode or Kimi run reads no user scope, so the hooks and the
+  `~/.claude/CLAUDE.md` that give a Claude Code run its memory are out of reach. With `MEMORY_3LAYER_BIN`
+  set to the absolute path of the `memory-3layer` client, the bot reads the memory files that client names
+  (L0, the project's `SESSION.md` and `project.md`) and injects their content into the system prompt of
+  a run — an OpenCode run or a new Kimi session (a resumed Kimi session keeps the snapshot it was
+  created with) — and it pulls the memory before a run and pushes it after one, in the background — at
+  most one sync at a time, and never at the cost of a run. Empty (the default) keeps the feature off; with
+  `ENGINE=claude` the setting changes nothing. See [INSTALL.md](INSTALL.md#memory) and
+  [PROMPTS.md](PROMPTS.md#memory).
 - Changing `OPENCODE_MODEL` starts a new session, like changing `ENGINE`.
 
 The keys, the installer questions and the checks are in [INSTALL.md](INSTALL.md#opencode); how the prompt

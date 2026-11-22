@@ -13,7 +13,7 @@ final class KimiMainAgentRendererTest extends TestCase
 {
     public function testTheBodyKeepsTheBasePromptAndAppendsTheAssembledPromptInOrder(): void
     {
-        $rendered = (new KimiMainAgentRenderer('mode prompt', 'instance addition', 'language line'))->render();
+        $rendered = (new KimiMainAgentRenderer('mode prompt', '', 'instance addition', 'language line'))->render();
 
         self::assertStringContainsString('name: workspace-assistant', $rendered);
         self::assertStringContainsString('description: "'.KimiMainAgentRenderer::DESCRIPTION.'"', $rendered);
@@ -22,11 +22,42 @@ final class KimiMainAgentRendererTest extends TestCase
         self::assertStringContainsString("\${base_prompt}\n\nmode prompt\n\ninstance addition\n\nlanguage line\n", $rendered);
     }
 
+    /**
+     * The memory of the instance goes right after the mode prompt and before the instance addition: the
+     * order the bot uses on every engine that injects it (OpenCode and Kimi).
+     */
+    public function testTheMemoryOfTheInstanceFollowsTheModePrompt(): void
+    {
+        $rendered = (new KimiMainAgentRenderer('mode prompt', 'memory block', 'instance addition', 'language line'))->render();
+
+        self::assertStringContainsString(
+            "\${base_prompt}\n\nmode prompt\n\nmemory block\n\ninstance addition\n\nlanguage line\n",
+            $rendered,
+        );
+    }
+
     public function testTheLanguageLineIsLastEvenWhenTheOtherPartsAreEmpty(): void
     {
-        $rendered = (new KimiMainAgentRenderer('', '', 'language line'))->render();
+        $rendered = (new KimiMainAgentRenderer('', '', '', 'language line'))->render();
 
         self::assertStringContainsString("\${base_prompt}\n\nlanguage line\n", $rendered);
+    }
+
+    /**
+     * The memory is data, not a template: Kimi substitutes `${name}` over the whole agent-file body, so
+     * a memory file that mentions `${base_prompt}` or `${cwd}` must reach the agent file with the token
+     * broken (a zero-width space after `$`), while the body's own leading `${base_prompt}` stays live.
+     */
+    public function testMemoryTokensAreNeutralizedButTheBodyBasePromptStaysLive(): void
+    {
+        $rendered = (new KimiMainAgentRenderer('mode prompt', 'Keep this verbatim: ${base_prompt} and ${cwd} must not expand.', '', 'language line'))->render();
+
+        // The body's own leading token is still live and the only substitutable `${base_prompt}`.
+        self::assertSame(1, substr_count($rendered, '${base_prompt}'));
+        // The memory's tokens are broken, so no substitutable `${cwd}` survives.
+        self::assertStringNotContainsString('${cwd}', $rendered);
+        self::assertStringContainsString("$\u{200B}{base_prompt}", $rendered);
+        self::assertStringContainsString("$\u{200B}{cwd}", $rendered);
     }
 
     public function testOnlyTheBasePromptWhenNothingIsAssembled(): void
@@ -38,7 +69,7 @@ final class KimiMainAgentRendererTest extends TestCase
 
     public function testTheDescriptionIsEscapedAsYaml(): void
     {
-        $rendered = (new KimiMainAgentRenderer('prompt', '', '', 'other-agent', 'a "quoted" \\ description'))->render();
+        $rendered = (new KimiMainAgentRenderer('prompt', '', '', '', 'other-agent', 'a "quoted" \\ description'))->render();
 
         self::assertStringContainsString('name: other-agent', $rendered);
         self::assertStringContainsString('description: "a \\"quoted\\" \\\\ description"', $rendered);
@@ -48,6 +79,6 @@ final class KimiMainAgentRendererTest extends TestCase
     {
         $this->expectException(\RuntimeException::class);
 
-        new KimiMainAgentRenderer('prompt', '', '', '../escape');
+        new KimiMainAgentRenderer('prompt', '', '', '', '../escape');
     }
 }

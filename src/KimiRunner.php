@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\Kimi\KimiStreamParser;
 use GpsLab\WorkspaceAssistant\Kimi\KimiVersionGuard;
 use GpsLab\WorkspaceAssistant\Kimi\KimiWire;
 use GpsLab\WorkspaceAssistant\Kimi\KimiWireReader;
+use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
 
 /**
  * Asynchronous launch of Kimi Code in `-p` mode.
@@ -25,7 +26,12 @@ use GpsLab\WorkspaceAssistant\Kimi\KimiWireReader;
  * are symlinks into the source home (`KIMI_HOME`, default `~/.kimi-code`) and `region` / `device_id`
  * are copied from it. The credentials are never copied: the server rotates the refresh token, and a
  * copy would be invalidated by the next refresh. `KIMI_CODE_NO_AUTO_UPDATE=1` keeps the engine from
- * replacing itself in a run.
+ * replacing itself in a run. The agent file carries the assembled system prompt, and with
+ * `MEMORY_3LAYER_BIN` set the memory of the instance as well ({@see MemoryContext}): this engine reads
+ * no user scope, so the memory comes from the bot. The memory is a snapshot taken when the session is
+ * created: it goes into the agent file of a new session and stays there for its life. A fresh
+ * snapshot arrives only when a new session starts — after `/new`, a compaction reseed or an engine
+ * fingerprint change.
  *
  * The run home is not removed when the process ends: {@see purgeRunHome()} is exposed for the Bot to
  * call after its post-run checks, so the gate shim's records are still there for them.
@@ -141,6 +147,11 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
      *                                               '' means `<homeDir>/.kimi-code`
      * @param string                $hookShimPath    gate shim of the run; '' resolves the bot's
      *                                               `bin/kimi-hook.php`, and a missing file renders no hooks
+     * @param MemoryContext|null    $memory          memory of the instance (`MEMORY_3LAYER_BIN`), a snapshot
+     *                                               injected into the run home's agent file of a NEW session
+     *                                               only (never handed over in the message of a resume): this
+     *                                               engine reads no user scope, so the memory comes from the
+     *                                               bot. Null = off
      */
     public function __construct(
         private readonly string $kimiBin,
@@ -161,6 +172,7 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         private readonly string $kimiModel = '',
         private readonly string $kimiHome = '',
         private readonly string $hookShimPath = '',
+        private readonly ?MemoryContext $memory = null,
     ) {
     }
 
@@ -200,12 +212,24 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         $languageLine = SystemPrompt::languageLine($this->locale->languageName(), $this->promptWarnings);
         // The same assembly as ClaudeRunner::start(): the hash covers the mode prompt, the instance
         // addition and the language line, so a stored Claude hash and a Kimi hash mean the same thing.
+        // The memory of the instance is NOT part of it: it is data that changes between runs, not a
+        // prompt the operator changed, so hashing it would make every resume look like an operator edit
+        // and trigger the update block.
         $systemPrompt = $built['text'];
         if ($this->appendSystemPrompt !== '') {
             $systemPrompt .= "\n\n".$this->appendSystemPrompt;
         }
         $fullPrompt = $systemPrompt."\n\n".$languageLine;
         $this->promptHash = hash('sha256', $fullPrompt);
+        // This engine reads no user scope, so the memory of the instance is injected as content ({@see
+        // MemoryContext}); null = off. It is a snapshot taken only when a NEW session is created: it
+        // goes into the agent file of the run home, right after the mode prompt, and a resumed session
+        // keeps the agent file it was created with. So the client is asked once per session — never on
+        // a resume, where the block would have to be repeated in the message and grow it with every
+        // turn — and a fresh snapshot arrives only after a /new, a compaction reseed or an engine
+        // fingerprint change.
+        $memory = $sessionId === null ? ($this->memory?->block($this->promptWarnings) ?? '') : '';
+
         if ($sessionId !== null && $this->updateOnResume && $this->savedPromptHash !== $this->promptHash) {
             // A resumed session keeps the prompt it was created with: hand the new one over in the message.
             $prompt = PromptFiles::render('session_update', ['prompt' => $fullPrompt], $this->promptWarnings)."\n\n".$prompt;
@@ -219,7 +243,7 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         try {
             $runHome = $this->prepareRunHome();
             $this->runHome = $runHome;
-            $this->writeRunHome($runHome, $built['text'], $languageLine);
+            $this->writeRunHome($runHome, $built['text'], $languageLine, $memory);
 
             $this->wirePath = $this->findWirePath($sessionId);
             $this->wireOffset = $this->wirePath !== null ? max(0, (int) @filesize($this->wirePath)) : 0;
@@ -512,8 +536,10 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
      * The user's own home is never written: only the run home is created, its `credentials/`,
      * `sessions/` and `oauth/` point into the source home, and `region` / `device_id` are copied
      * from it.
+     *
+     * @param string $memory the memory block of the instance ('': nothing to inject)
      */
-    private function writeRunHome(string $dir, string $systemPrompt, string $languageLine): void
+    private function writeRunHome(string $dir, string $systemPrompt, string $languageLine, string $memory = ''): void
     {
         $source = $this->sourceHome();
         $sourceConfig = is_file($source.'/config.toml') ? (string) @file_get_contents($source.'/config.toml') : '';
@@ -522,6 +548,7 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
             $dir,
             $this->resolvedShimPath(),
             $systemPrompt,
+            $memory,
             $this->appendSystemPrompt,
             $languageLine,
             $this->repoPath,

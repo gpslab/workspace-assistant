@@ -53,6 +53,17 @@ final class KimiRunHomeRendererTest extends TestCase
         self::assertStringContainsString("\${base_prompt}\n\nmode prompt\n\ninstance addition\n\nlanguage line", $files[KimiRunHomeRenderer::AGENT_FILE]);
     }
 
+    /** The memory of the instance reaches the agent file, between the mode prompt and the addition. */
+    public function testTheMemoryOfTheInstanceReachesTheAgentFile(): void
+    {
+        $files = $this->renderer('memory block')->render();
+
+        self::assertStringContainsString(
+            "\${base_prompt}\n\nmode prompt\n\nmemory block\n\ninstance addition\n\nlanguage line",
+            $files[KimiRunHomeRenderer::AGENT_FILE],
+        );
+    }
+
     /**
      * An empty shim path means "no gate shim installed yet": the config is rendered without hook
      * tables, while the rest of the run home is the same.
@@ -64,6 +75,7 @@ final class KimiRunHomeRendererTest extends TestCase
             $this->runHome,
             '',
             'mode prompt',
+            '',
             '',
             '',
             $this->root.'/repo',
@@ -94,6 +106,7 @@ final class KimiRunHomeRendererTest extends TestCase
             'mode prompt',
             '',
             '',
+            '',
             $this->root.'/repo',
             $this->root.'/home',
         ))->render();
@@ -108,13 +121,14 @@ final class KimiRunHomeRendererTest extends TestCase
         self::assertSame([], $warnings);
     }
 
-    private function renderer(): KimiRunHomeRenderer
+    private function renderer(string $memory = ''): KimiRunHomeRenderer
     {
         return new KimiRunHomeRenderer(
             (string) file_get_contents(dirname(__DIR__).'/fixtures/kimi/config.toml'),
             $this->runHome,
             $this->shim,
             'mode prompt',
+            $memory,
             'instance addition',
             'language line',
             $this->root.'/repo',

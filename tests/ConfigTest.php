@@ -114,6 +114,32 @@ final class ConfigTest extends TestCase
         self::assertSame('/usr/local/bin/memory-3layer', Config::load($this->envFile)->memoryBin());
     }
 
+    /** Kimi reads no user scope either, so the same setting reaches its runs the same way. */
+    public function testTheMemorySettingReachesAKimiInstance(): void
+    {
+        $config = $this->engineConfig(Config::ENGINE_KIMI, memory3LayerBin: '/usr/local/bin/memory-3layer');
+
+        self::assertTrue($config->readsNoUserScope());
+        self::assertSame('/usr/local/bin/memory-3layer', $config->memoryBin());
+    }
+
+    /** The one predicate both the setting and the factory answer to: Claude Code reads that scope itself. */
+    public function testTheUserScopeIsWhatDecidesWhereTheMemoryComesFrom(): void
+    {
+        self::assertFalse($this->engineConfig(Config::DEFAULT_ENGINE_FINGERPRINT, memory3LayerBin: '/bin/memory-3layer')->readsNoUserScope());
+        self::assertTrue($this->engineConfig(Config::ENGINE_OPENCODE, memory3LayerBin: '/bin/memory-3layer')->readsNoUserScope());
+        self::assertTrue($this->engineConfig(Config::ENGINE_KIMI, memory3LayerBin: '/bin/memory-3layer')->readsNoUserScope());
+
+        self::assertSame(
+            '/bin/memory-3layer',
+            $this->engineConfig(Config::ENGINE_KIMI, memory3LayerBin: '/bin/memory-3layer')->memoryBin(),
+        );
+        self::assertSame(
+            '',
+            $this->engineConfig(Config::DEFAULT_ENGINE_FINGERPRINT, memory3LayerBin: '/bin/memory-3layer')->memoryBin(),
+        );
+    }
+
     /** The client is started without a shell, so a name that is not an absolute path is a startup warning. */
     public function testARelativeMemoryBinIsWarnedAboutAtStartup(): void
     {
@@ -844,7 +870,7 @@ final class ConfigTest extends TestCase
     }
 
     /** A Config of one engine, built directly because `fromEnv()` does not accept every engine name yet. */
-    private function engineConfig(string $engine, string $kimiModel = '', string $kimiHome = ''): Config
+    private function engineConfig(string $engine, string $kimiModel = '', string $kimiHome = '', string $memory3LayerBin = ''): Config
     {
         return new Config(
             botToken: 't',
@@ -864,6 +890,7 @@ final class ConfigTest extends TestCase
             engine: $engine,
             kimiHome: $kimiHome,
             kimiModel: $kimiModel,
+            memory3LayerBin: $memory3LayerBin,
         );
     }
 }
