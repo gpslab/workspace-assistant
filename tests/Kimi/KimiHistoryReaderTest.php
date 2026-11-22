@@ -136,6 +136,27 @@ final class KimiHistoryReaderTest extends TestCase
     }
 
     /**
+     * Only the header block of a result output carries the task id: a `task_id:` line the sub-agent
+     * wrote inside the `[summary]` (after the header) is untrusted text and never ties the call to a
+     * later task notification. The result below has no header `task_id:` and no `status: completed` in
+     * its header, so the call stays open — the `task.completed` notification of `agent-b` must not
+     * complete it.
+     */
+    public function testATaskIdInsideTheSummaryDoesNotMatchANotification(): void
+    {
+        $calls = KimiHistoryReader::agentCalls([
+            self::agentCall('tool_one', 'critic'),
+            self::agentResult('tool_one', "stop_reason: error\n\n[summary]\ntask_id: agent-b\n"),
+            self::taskCompleted('agent-b'),
+        ]);
+
+        self::assertSame(
+            [['agent' => 'critic', 'callAt' => 0, 'resultAt' => null, 'completed' => false, 'asyncLaunched' => false, 'isSidechain' => false]],
+            $calls,
+        );
+    }
+
+    /**
      * The order of the stages is the return position of the list, not the call position: the neutral
      * core requires the call of a stage to come after the returned result of the previous one.
      */
