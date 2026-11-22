@@ -123,6 +123,20 @@ final class KimiRunnerTest extends TestCase
         $runner->purgeRunHome();
     }
 
+    /**
+     * Without a configured shim the runner defaults to the bot's own `bin/kimi-hook.php` — the one
+     * place it lives when deployed, not some directory derived from the source layout (a `dirname`
+     * one level too high would point outside the package).
+     */
+    public function testTheDefaultHookShimIsTheBotsOwnBin(): void
+    {
+        $runner = $this->runner('', ['shim' => '']);
+
+        $default = (new \ReflectionMethod(KimiRunner::class, 'defaultShimPath'))->invoke($runner);
+
+        self::assertSame(dirname(__DIR__, 2).'/bin/kimi-hook.php', $default);
+    }
+
     public function testAResumedRunUsesTheSessionAndReadsOnlyTheRunsWireWindow(): void
     {
         $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
@@ -239,6 +253,48 @@ final class KimiRunnerTest extends TestCase
         self::assertSame(RunnerState::Done, $state, 'wire growth must keep the run alive');
         self::assertSame('', $runner->timeoutReason());
         self::assertGreaterThan(1.0, microtime(true) - $started, 'the run must outlive the stall timeout');
+
+        $runner->purgeRunHome();
+    }
+
+    /**
+     * Another Kimi CLI on the same home can start a session during our run; its directory is not
+     * ours. Only a directory whose wire records a start time at this run's launch is adopted — the
+     * foreign one (recorded earlier) is left alone for sessionId() and the wire read alike.
+     */
+    public function testAForeignSessionDirectoryStartedDuringTheRunIsNotAdopted(): void
+    {
+        $foreign = $this->kimiHome.'/sessions/wd_test/session_'.str_repeat('a', 8).'-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+        $own = $this->kimiHome.'/sessions/wd_test/'.self::FIXTURE_SESSION;
+
+        // The foreign session carries the fixture's recorded (past) start time; the run's own session
+        // has its start time moved to now, the way a real run creates it.
+        $body = $this->recordPrologue()
+            .'@mkdir('.var_export($foreign.'/agents/main', true).', 0700, true);'."\n"
+            .'file_put_contents('.var_export($foreign.'/agents/main/wire.jsonl', true).', '.var_export($this->fixtureContent('wire/01-plain/main.jsonl'), true).');'."\n"
+            .'usleep(600000);'."\n"
+            .'@mkdir('.var_export($own.'/agents/main', true).', 0700, true);'."\n"
+            .'file_put_contents('.var_export($own.'/agents/main/wire.jsonl', true).', '.var_export($this->wireBodyForNow('wire/01-plain/main.jsonl'), true).');'."\n"
+            .'fwrite(STDOUT, '.var_export($this->fixtureContent('run/01-plain.stdout.jsonl'), true).');'."\n"
+            .'exit(0);'."\n";
+        $bin = $this->writeFake($body);
+
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+
+        // Now the foreign directory exists but the run's own session does not yet: it must not be
+        // exposed as the run's session (and so never persisted mid-run).
+        usleep(300000);
+        self::assertSame(RunnerState::Running, $runner->poll());
+        self::assertNull($runner->sessionId(), 'a foreign session started by another process must not be exposed');
+
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+        $result = $runner->result();
+        self::assertFalse($result->isError);
+        self::assertSame(self::FIXTURE_SESSION, $result->sessionId);
+        self::assertNotNull($result->totals);
+        // The tokens come from the run's own wire window, not from the foreign session.
+        self::assertSame(377, $result->totals->inputTokens);
 
         $runner->purgeRunHome();
     }
@@ -403,7 +459,7 @@ final class KimiRunnerTest extends TestCase
         $body = $this->recordPrologue();
         if ($wire !== null && $sessionDir !== null) {
             $body .= '@mkdir('.var_export($sessionDir.'/agents/main', true).', 0700, true);'."\n"
-                .'file_put_contents('.var_export($sessionDir.'/agents/main/wire.jsonl', true).', (string) file_get_contents('.var_export($this->fixture($wire), true).'));'."\n"
+                .'file_put_contents('.var_export($sessionDir.'/agents/main/wire.jsonl', true).', '.var_export($this->wireBodyForNow($wire), true).');'."\n"
                 .'file_put_contents('.var_export($sessionDir.'/state.json', true).', "{}");'."\n";
         }
         $body .= 'fwrite(STDOUT, '.var_export($stdout, true).');'."\n"
@@ -411,6 +467,18 @@ final class KimiRunnerTest extends TestCase
             .'exit('.$exit.');'."\n";
 
         return $this->writeFake($body);
+    }
+
+    /**
+     * The wire fixture with its `metadata.created_at` moved to "now": the fixtures replay a session
+     * recorded in the past, while the runner confirms a NEW session by that time lying at the run's
+     * launch (see {@see KimiRunner::$startedAt}).
+     */
+    private function wireBodyForNow(string $wire): string
+    {
+        $content = $this->fixtureContent($wire);
+
+        return (string) preg_replace('/"created_at":\d+/', '"created_at":'.(time() * 1000), $content, 1);
     }
 
     /** A fake `kimi` that appends one more line to the session's wire file before printing stdout. */

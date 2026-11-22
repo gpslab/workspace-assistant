@@ -45,6 +45,14 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
     /** How many bytes of the head of `wire.jsonl` are read for the model and the protocol version. */
     private const int WIRE_HEAD_BYTES = 65536;
 
+    /**
+     * How far (ms) a session's `metadata.created_at` may lie from the run's launch and still count as
+     * the run's own new session. The session is created within a fraction of a second of the exec, so
+     * this window is wide enough for the second-granularity launch clock without admitting a session
+     * another Kimi CLI started before or notably after this run.
+     */
+    private const int SESSION_START_SLACK_MS = 5000;
+
     /** Source-home entries linked into the run home. Never copied: a copied refresh token is invalid. */
     private const array LINKED_HOME_ENTRIES = ['credentials', 'sessions', 'oauth'];
 
@@ -257,10 +265,13 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         return $this->timeoutReason;
     }
 
-    /** Session id of the current run as soon as it is known; null until then. */
+    /**
+     * Session id of the current run as soon as it is known; null until then. A new session is only
+     * exposed once its directory is confirmed to be this run's (see {@see currentWirePath()}), not
+     * merely by being the newest unknown directory.
+     */
     public function sessionId(): ?string
     {
-        // A new session exists on disk from its start: the directory names it before stdout does.
         $this->currentWirePath();
 
         return $this->sessionId;
@@ -466,10 +477,16 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         return rtrim($home, '/').'/.kimi-code';
     }
 
+    /** The gate shim of the run when none is configured: the bot's own `bin/kimi-hook.php`. */
+    private function defaultShimPath(): string
+    {
+        return dirname(__DIR__).'/bin/kimi-hook.php';
+    }
+
     /** The gate shim of the run, or '' when it is not installed yet (then the config gets no hooks). */
     private function resolvedShimPath(): string
     {
-        $path = $this->hookShimPath !== '' ? $this->hookShimPath : dirname(__DIR__, 2).'/bin/kimi-hook.php';
+        $path = $this->hookShimPath !== '' ? $this->hookShimPath : $this->defaultShimPath();
 
         return is_file($path) ? $path : '';
     }
@@ -574,7 +591,10 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
      * Path of the session's main `wire.jsonl`, resolving the session first when it was new.
      *
      * A new session directory exists from the start of the run, although stdout prints its id only
-     * at the end: the directory that was not there at launch is this run's.
+     * at the end. It is not necessarily the only new directory: another Kimi CLI on the same home
+     * can start its own session during our run. Only a directory whose wire records a start time
+     * matching this run's launch is taken for ours (see {@see wireStartsThisRun()}); the
+     * authoritative id is `session.resume_hint`, used when it arrives (see {@see handleLine()}).
      */
     private function currentWirePath(): ?string
     {
@@ -591,28 +611,48 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         }
 
         $known = $this->launchSessionDirs ?? [];
-        $found = null;
-        $foundAt = -1;
         foreach ($this->sessionDirs() as $dir) {
             if (isset($known[$dir])) {
                 continue;
             }
-            $mtime = (int) @filemtime($dir);
-            if ($mtime >= $foundAt) {
-                $found = $dir;
-                $foundAt = $mtime;
+            $wire = $dir.'/agents/main/wire.jsonl';
+            if (!$this->wireStartsThisRun($wire)) {
+                continue;
+            }
+            $this->sessionId = basename($dir);
+            $this->wirePath = $wire;
+            $this->wireOffset = 0;
+            $this->lastWireSize = (int) @filesize($wire);
+
+            return $this->wirePath;
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether a session directory is this run's new session: its `metadata.created_at` (the start
+     * time the wire records, in ms) lies within a small window of the run's launch. A foreign
+     * session directory started by another Kimi process on the same home records a different start
+     * time and is rejected, so its tokens and error are never read for this run.
+     */
+    private function wireStartsThisRun(string $wirePath): bool
+    {
+        foreach ($this->readHeadLines($wirePath) as $line) {
+            $record = json_decode($line, true);
+            if (is_array($record) && ($record['type'] ?? null) === 'metadata') {
+                $createdAt = $record['created_at'] ?? null;
+                if (!is_int($createdAt) && !is_float($createdAt)) {
+                    return false;
+                }
+                $launchMs = $this->startedAt * 1000;
+
+                return (int) $createdAt >= $launchMs - self::SESSION_START_SLACK_MS
+                    && (int) $createdAt <= $launchMs + self::SESSION_START_SLACK_MS;
             }
         }
-        if ($found === null) {
-            return null;
-        }
 
-        $this->sessionId = basename($found);
-        $this->wirePath = $found.'/agents/main/wire.jsonl';
-        $this->wireOffset = 0;
-        $this->lastWireSize = (int) @filesize($this->wirePath);
-
-        return $this->wirePath;
+        return false;
     }
 
     /**
