@@ -399,10 +399,17 @@ final class JobRunner implements JobLauncher, RunControl
             && $kind === RunKind::KIND_CHAT
             && ($this->runState->jobContext['session_id'] ?? null) !== null
         ) {
-            if ($this->restartAfterMissingSession($prompt, $inboxFiles)) {
+            $launchError = $this->restartAfterMissingSession($prompt, $inboxFiles);
+            if ($launchError === null) {
                 $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, true);
 
                 return null;
+            }
+            // The stored session was dropped but the rerun did not start: report the launch failure
+            // instead of the stale "Session … not found." reply (the new session never began, so no
+            // "new session" notice was sent either — see restartAfterMissingSession()).
+            if ($launchError !== '') {
+                $claude = new RunAnswer(true, $launchError, null);
             }
         }
         // Post-run review status check (see repeatReviewRun()): only an engine with no Stop hooks needs
@@ -677,22 +684,23 @@ final class JobRunner implements JobLauncher, RunControl
      * new session, telling the user as `/new` does. Only `Session "…" not found.` lands here; a run
      * that failed in any other way (an occupied session included) keeps its session.
      *
-     * Returns true when the rerun was launched: the caller returns without finishing this job (the
-     * new run owns it now). false — the rerun could not start; the original error is reported.
+     * Returns null when the rerun was launched: the caller returns without finishing this job (the
+     * new run owns it now). Otherwise the launch error is returned and the caller reports it instead
+     * of the stale "Session … not found." reply. The `session.new_started` notice goes out only after
+     * `launchJob()` succeeded, so a failed launch does not announce a session that never started.
      *
      * @param list<string> $inboxFiles inbox files of the finished run, to be restored onto the rerun
      */
-    private function restartAfterMissingSession(string $prompt, array $inboxFiles): bool
+    private function restartAfterMissingSession(string $prompt, array $inboxFiles): ?string
     {
         $context = $this->runState->jobContext;
         if ($context === null) {
-            return false;
+            return 'no job context';
         }
 
         $previous = $this->runState->activeJob;
         Log::line('session '.(string) ($context['session_id'] ?? '').' not found: dropping it and starting a new session');
         $this->db->resetSession($context['chat_id'], $context['thread_id']);
-        $this->delivery->deliver($context['chat_id'], $context['thread_id'], $this->t('session.new_started'));
 
         try {
             $error = $this->launchJob(
@@ -719,18 +727,20 @@ final class JobRunner implements JobLauncher, RunControl
             }
             Log::line('a new session after the missing one did not start: '.$e->getMessage());
 
-            return false;
+            return $e->getMessage();
         }
 
         if ($error !== null) {
             Log::line('a new session after the missing one did not start: '.$error);
 
-            return false;
+            return $error;
         }
 
+        // The rerun is alive and owns the job now: only then is the user told about the new session.
+        $this->delivery->deliver($context['chat_id'], $context['thread_id'], $this->t('session.new_started'));
         $this->handOverAfterMissingSession($inboxFiles, $context['pm_gate_run_id']);
 
-        return true;
+        return null;
     }
 
     /**
