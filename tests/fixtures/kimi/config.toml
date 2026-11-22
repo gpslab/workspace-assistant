@@ -1,0 +1,49 @@
+# Kimi Code 2.7.2 configuration captured for the fixtures.
+# Account names, paths, hosts and keys are REDACTED.
+
+default_model = "kimi-code/kimi-for-coding"
+default_permission_mode = "manual"
+merge_all_available_skills = true
+
+extra_agent_dirs = [
+  "/work/home/.agents/agents", # the user's own agents
+  "/work/home/team-agents",
+]
+extra_skill_dirs = ["/work/home/.agents/skills"]
+
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"
+command = "php /work/home/hooks/user-gate.php"
+timeout = 30
+
+[[hooks]]
+event = "SessionStart"
+command = "node /work/home/hooks/session.mjs"
+
+[providers."managed:kimi-code"]
+type = "kimi"
+base_url = "https://api.kimi.com/coding/v1"
+api_key = "REDACTED"
+custom_headers = { "X-Bot" = "REDACTED" }
+env = { KIMI_REGION = "eu" }
+
+[models."kimi-code/kimi-for-coding"]
+provider = "managed:kimi-code"
+model = "kimi-for-coding"
+max_context_size = 262144
+capabilities = ["thinking", "always_thinking",
+  "image_in", "video_in", "tool_use"]
+display_name = "Kimi for Coding"
+
+[thinking]
+enabled = true
+effort = "high"
+
+[[permission.rules]]
+decision = "allow"
+pattern = "Read"
+
+[[permission.rules]]
+decision = "deny"
+pattern = "Bash(rm -rf*)"
