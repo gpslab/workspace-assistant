@@ -27,13 +27,41 @@ final class FixedRunner implements AgentRunner
 
     private ?RunAnswer $current = null;
 
+    /** @var list<?string> The session id of every start() call, in order. */
+    private array $startedSessionIds = [];
+
+    /** @var array<int, \RuntimeException> start() calls that throw instead of answering, keyed by the 1-based call number. */
+    private array $startFailures = [];
+
     public function __construct(RunAnswer ...$answers)
     {
         $this->answers = array_values($answers);
     }
 
+    /** Makes the $index-th (1-based) start() throw $e instead of answering, once. */
+    public function throwOnStart(int $index, \RuntimeException $e): void
+    {
+        $this->startFailures[$index] = $e;
+    }
+
+    /**
+     * The session id every start() call received, in call order. A rerun after a missing session
+     * must start with `null` (a new session); the canned answer's session id does not prove that.
+     *
+     * @return list<?string>
+     */
+    public function startedSessionIds(): array
+    {
+        return $this->startedSessionIds;
+    }
+
     public function start(string $prompt, ?string $sessionId): void
     {
+        $this->startedSessionIds[] = $sessionId;
+        $call = count($this->startedSessionIds);
+        if (isset($this->startFailures[$call])) {
+            throw $this->startFailures[$call];
+        }
         $this->current = $this->answers[$this->index] ?? null;
         if ($this->index < count($this->answers) - 1) {
             ++$this->index;

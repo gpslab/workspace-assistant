@@ -1785,8 +1785,34 @@ final class QueueFlowTest extends TestCase
         $this->finishJob();
 
         self::assertSame('s-new', $this->db->getSessionId(100, 1));
+        // The rerun must start a NEW session (null), not resume the dropped id: the canned 's-new'
+        // answer cannot prove that on its own.
+        self::assertNotNull($this->fixedRunner);
+        self::assertSame(['s-gone', null], $this->fixedRunner->startedSessionIds());
         self::assertStringContainsString('A new session has been started', implode("\n", $this->tg->textsTo(100, 1)));
         self::assertStringContainsString('done', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
+    /**
+     * A missing session that cannot be rerun (the new launch fails) reports the launch error only:
+     * no "new session" notice (nothing started) and no stale "Session … not found." reply.
+     */
+    public function testAFailedRerunAfterAMissingSessionReportsTheLaunchError(): void
+    {
+        $this->db->setSessionId(100, 1, 's-gone');
+        $this->useFixedRunner(new RunAnswer(true, 'Session "s-gone" not found.', 's-gone', errorClass: 'session_not_found'));
+        self::assertNotNull($this->fixedRunner);
+        $this->fixedRunner->throwOnStart(2, new \RuntimeException('launch blew up'));
+        $this->say(100, 1, 'hello', 10);
+        $this->call('startQueueHead');
+        $this->finishJob();
+
+        $reply = implode("\n", $this->tg->textsTo(100, 1));
+        self::assertStringNotContainsString('A new session has been started', $reply);
+        self::assertStringNotContainsString('not found.', $reply);
+        self::assertStringContainsString('launch blew up', $reply);
+        // The stored session was dropped even though the rerun failed.
+        self::assertNull($this->db->getSessionId(100, 1));
     }
 
     public function testForeign429TextWithoutBaseUrlKeepsTodaysBehaviour(): void
