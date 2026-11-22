@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude n'a renvoyé aucun total pour cette exécution]",
     "run.killed": "Le processus a été tué : {reason}.",
+    "run.kimi_gate_violation": "⛔ Violation du gate Kimi : les appels d'outils de l'exécution et les enregistrements de hooks ne correspondent pas. {detail}",
     "run.queue_paused_until": "⏸ La file est en pause jusqu'à {until} ; la requête reste en tête de file.",
     "run.timeout": "délai dépassé",
     "runner.timeout_stall": "aucune sortie depuis {seconds} s (bloqué)",

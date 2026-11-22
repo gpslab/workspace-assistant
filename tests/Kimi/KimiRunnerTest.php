@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests\Kimi;
 
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
+use GpsLab\WorkspaceAssistant\Kimi\KimiHook;
 use GpsLab\WorkspaceAssistant\KimiRunner;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
@@ -340,6 +341,83 @@ final class KimiRunnerTest extends TestCase
         $runner->purgeRunHome();
     }
 
+    /**
+     * The audit of a resumed run is clean inside the window, although the file is cumulative and
+     * still holds the earlier run's call. The window taken at launch is what keeps that call out.
+     */
+    public function testTheAuditOfAResumedRunIsCleanInsideTheWindow(): void
+    {
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
+        mkdir($sessionDir.'/agents/main', 0o700, true);
+        copy($this->fixture('wire/25-resumed-gated-1/main.jsonl'), $sessionDir.'/agents/main/wire.jsonl');
+
+        $bin = $this->fakeKimi($this->fixtureContent('run/01-plain.stdout.jsonl'), wire: 'wire/25-resumed-gated-2/main.jsonl', sessionDir: $sessionDir);
+        $runner = $this->runner($bin);
+        $runner->start('hello', self::SESSION);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $home = (string) $this->record()['home'];
+        $this->writeRecords($home, ['tool_rzNtmHjZWt4z4OOahlBS0247']);
+
+        $audit = $runner->wireAudit();
+        self::assertTrue($audit->audited);
+        self::assertTrue($audit->isClean(), $audit->describe());
+        self::assertStringContainsString(
+            'tool_eHJXp4GXrripxiOAUj6kOPGM',
+            (string) file_get_contents($sessionDir.'/agents/main/wire.jsonl'),
+            'the earlier run\'s call is in the file, only outside the window',
+        );
+
+        $runner->purgeRunHome();
+    }
+
+    /**
+     * A new session has no directory at launch: the window is the explicit empty snapshot, so the
+     * run's own call is read from 0 and matches its record.
+     */
+    public function testANewSessionGetsTheEmptyWindow(): void
+    {
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::FIXTURE_SESSION;
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/01-plain.stdout.jsonl'),
+            wire: 'wire/15-subagent-bash/main.jsonl',
+            sessionDir: $sessionDir,
+        );
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $home = (string) $this->record()['home'];
+        $this->writeRecords($home, ['tool_ZDytl2a7NOY8eQzzhmhfjcjN']);
+
+        $audit = $runner->wireAudit();
+        self::assertTrue($audit->audited);
+        self::assertTrue($audit->isClean(), $audit->describe());
+
+        $runner->purgeRunHome();
+    }
+
+    /** A missing hook-records file is reported, never read as an empty (clean) set. */
+    public function testAMissingHookRecordsFileIsNotACleanAudit(): void
+    {
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/01-plain.stdout.jsonl'),
+            wire: 'wire/15-subagent-bash/main.jsonl',
+            sessionDir: $this->kimiHome.'/sessions/wd_test/'.self::FIXTURE_SESSION,
+        );
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $audit = $runner->wireAudit();
+        self::assertTrue($audit->audited);
+        self::assertTrue($audit->recordsMissing);
+        self::assertFalse($audit->isClean());
+        self::assertStringContainsString('missing', $audit->describe());
+
+        $runner->purgeRunHome();
+    }
+
     public function testPromptHashAndWarningsMatchClaudeRunner(): void
     {
         $claudeBin = $this->root.'/fake-claude.php';
@@ -602,6 +680,20 @@ final class KimiRunnerTest extends TestCase
             hookShimPath: (string) ($options['shim'] ?? $this->root.'/no-such-shim.php'),
             memory: ($options['memory'] ?? null) instanceof MemoryContext ? $options['memory'] : null,
         );
+    }
+
+    /**
+     * Writes a hook-records file into a run home, as the shim does.
+     *
+     * @param list<string> $toolCallIds
+     */
+    private function writeRecords(string $home, array $toolCallIds): void
+    {
+        $lines = '';
+        foreach ($toolCallIds as $id) {
+            $lines .= json_encode(['event' => 'PreToolUse', 'tool_call_id' => $id, 'tool_name' => 'Read', 'agent_name' => null], JSON_THROW_ON_ERROR)."\n";
+        }
+        file_put_contents($home.'/'.KimiHook::HOOK_RECORDS_FILE, $lines);
     }
 
     /** A memory file of the instance, in the data directory a `memory-3layer` client would name. */

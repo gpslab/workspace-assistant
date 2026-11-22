@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[O Claude não retornou totais para esta execução]",
     "run.killed": "O processo foi encerrado: {reason}.",
+    "run.kimi_gate_violation": "⛔ Violação do gate do Kimi: as chamadas de ferramentas da execução e os registros de hooks não coincidem. {detail}",
     "run.queue_paused_until": "⏸ A fila está em pausa até {until}; o pedido continua em primeiro na fila.",
     "run.timeout": "timeout",
     "runner.timeout_stall": "sem saída há {seconds}s (travado)",

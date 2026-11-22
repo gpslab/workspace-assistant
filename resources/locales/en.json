@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude returned no totals for this run]",
     "run.killed": "The process was killed: {reason}.",
+    "run.kimi_gate_violation": "⛔ Kimi gate violation: the run's tool calls and hook records do not match. {detail}",
     "run.queue_paused_until": "⏸ The queue is paused until {until}; the request stays first in the queue.",
     "run.timeout": "timeout",
     "runner.timeout_stall": "no output for {seconds}s (hung)",

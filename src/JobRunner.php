@@ -11,6 +11,7 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Kimi\DeferredRunHome;
 use GpsLab\WorkspaceAssistant\Kimi\KimiErrorClass;
+use GpsLab\WorkspaceAssistant\Kimi\KimiRunAudit;
 use GpsLab\WorkspaceAssistant\Memory\MemorySync;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 
@@ -70,6 +71,9 @@ final class JobRunner implements JobLauncher, RunControl
 
             $job = $this->runState->activeJob;
             $job->kill();
+            if ($this->config->isKimi() && $job instanceof KimiRunner) {
+                Log::line('kimi gate audit skipped: the run was cancelled, its wire and hook records are incomplete');
+            }
             $this->finishJobState($chatId, $threadId);
             if ($job instanceof DeferredRunHome) {
                 $job->purgeRunHome();
@@ -176,6 +180,14 @@ final class JobRunner implements JobLauncher, RunControl
         // Issue-creation gate: the kind of run comes from the run (an epic run named `review` is not
         // the review chat), the config is snapshotted now so edits during the run do not affect it.
         $gateKind = $epicRun !== null ? PmRunbook::skipKeyForEpicRun($epicRun['run']) : PmRunbook::skipKeyForMode($mode);
+        // Before a gated Kimi run: prove the gate shim can even start and write. Kimi's hooks fail
+        // open, and a broken shim (a parse error exits 255) would let every call through unnoticed.
+        if ($gateKind !== null && $this->config->isKimi()) {
+            $selfTestFailure = $this->runKimiSelfTest();
+            if ($selfTestFailure !== null) {
+                return $selfTestFailure;
+            }
+        }
         $gateRunId = null;
         $settingsJson = $mode === SystemPrompt::MODE_REVIEW ? ReviewStatusHook::settingsJson($this->config->stateDir, $this->config->forge) : '';
         if ($gateKind !== null) {
@@ -297,6 +309,72 @@ final class JobRunner implements JobLauncher, RunControl
     }
 
     /**
+     * Runs `bin/kimi-hook.php --self-test` against the state directory, which a run home will be
+     * created under, and returns the failure text or null when it passes. The shim checks that it
+     * can write what the gate needs; a parse error or a missing bootstrap makes it exit non-zero.
+     *
+     * Arguments are passed as an array to proc_open: no shell, no injection.
+     */
+    private function runKimiSelfTest(): ?string
+    {
+        $shim = dirname(__DIR__).'/bin/kimi-hook.php';
+        if (!is_file($shim)) {
+            return 'The Kimi gate shim is not installed: '.$shim;
+        }
+        $home = $this->config->stateDir !== '' ? $this->config->stateDir : sys_get_temp_dir();
+        $proc = @proc_open(
+            [PHP_BINARY, $shim, '--self-test'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            array_merge(getenv(), ['KIMI_CODE_HOME' => $home]),
+        );
+        if (!is_resource($proc)) {
+            return 'The Kimi gate self-test could not be started.';
+        }
+        fclose($pipes[0]);
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        $code = proc_close($proc);
+        if ($code === 0) {
+            return null;
+        }
+        $reason = trim($stderr) !== '' ? trim($stderr) : trim($stdout);
+
+        return 'Kimi gate self-test failed'.($reason !== '' ? ': '.$reason : ' (exit '.$code.')');
+    }
+
+    /**
+     * Reports the post-run Kimi audit. A clean audit is silent; one that could not run is a log line;
+     * a difference is a gate violation on a gated run (a loud chat message and a log line, and the
+     * run must fail) and a log line only on a chat run.
+     *
+     * @return string|null the detail of a gate violation the caller must fail the run with, null otherwise
+     */
+    private function reportKimiAudit(int $chatId, int $threadId, KimiRunAudit $audit, bool $gated): ?string
+    {
+        if (!$audit->audited) {
+            Log::line('kimi gate audit skipped: '.$audit->describe());
+
+            return null;
+        }
+        if ($audit->isClean()) {
+            return null;
+        }
+        $detail = $audit->describe();
+        if (!$gated) {
+            Log::line('kimi gate audit: '.$detail);
+
+            return null;
+        }
+
+        Log::line('kimi gate violation: '.$detail);
+        $this->delivery->deliver($chatId, $threadId, $this->t('run.kimi_gate_violation', ['detail' => $detail]));
+
+        return $detail;
+    }
+
+    /**
      * One step of the job in progress: null while it runs (or when there is none), otherwise how it ended.
      * The state is already dropped by then, and the outbox, the prompt-file warnings and the messages that
      * do not depend on the kind of run are delivered; what is left is for the caller to route.
@@ -340,7 +418,8 @@ final class JobRunner implements JobLauncher, RunControl
         $epicSlug = $this->runState->jobContext['epic_slug'];
         $epicRun = $this->runState->jobContext['epic_run'];
         // The skip reason is read before finishJobState() removes the gate files.
-        $gateSkip = $this->runState->jobContext['pm_gate_run_id'] !== null
+        $gated = $this->runState->jobContext['pm_gate_run_id'] !== null;
+        $gateSkip = $gated
             ? PmGateHook::skipReason($this->config->stateDir, $this->runState->jobContext['pm_gate_run_id'])
             : '';
         $compactOld = $this->runState->jobContext['compact_old_session_id'] ?? null;
@@ -360,6 +439,9 @@ final class JobRunner implements JobLauncher, RunControl
             $this->tg->deleteMessage($chatId, $thinkingId);
             $this->delivery->flushOutbox($chatId, $threadId);
             $this->delivery->deliver($chatId, $threadId, $this->t('run.killed', ['reason' => $reason !== '' ? $reason : $this->t('run.timeout')]));
+            if ($this->config->isKimi()) {
+                Log::line('kimi gate audit skipped: the run was killed by a timeout, its wire and hook records are incomplete');
+            }
             if ($gateSkip !== '') {
                 $this->reportPmGateSkip($chatId, $threadId, $kind, $epicSlug, $epicRun, $gateSkip);
             }
@@ -389,6 +471,27 @@ final class JobRunner implements JobLauncher, RunControl
                 $claude = new RunAnswer(true, $this->t('claude.recovered_unusable'), $claude->sessionId, $claude->totals, true, true);
             } elseif ($kind === RunKind::KIND_CHAT) {
                 $claude = new RunAnswer(false, $claude->text."\n\n".$this->t('claude.recovered_note'), $claude->sessionId, $claude->totals, true, true);
+            }
+        }
+        // After a completed Kimi run, audit the hook records against the wire window taken at launch.
+        // The run home is still on disk here (Bot purges it after this poll()), so the shim's records
+        // are read before they go. A difference on a gated run is a gate violation: it goes to the
+        // chat loudly and the run has no success status. On a chat run it only goes to bot.log.
+        if ($this->config->isKimi() && $this->runState->activeJob instanceof KimiRunner) {
+            $violation = $this->reportKimiAudit($chatId, $threadId, $this->runState->activeJob->wireAudit(), $gated);
+            if ($violation !== null) {
+                $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, true);
+                $this->finishJobState($chatId, $threadId);
+                $this->inbox->deleteInboxFiles($inboxFiles);
+                $this->tg->deleteMessage($chatId, $thinkingId);
+                $this->delivery->flushOutbox($chatId, $threadId);
+
+                return new RunOutcome(
+                    $kind, $chatId, $threadId, $queueId,
+                    null, false, 'Kimi gate violation: '.$violation,
+                    null,
+                    $compactOld, $promptHash, $localeCode, $epicSlug, $epicRun, $prompt, $mode, $promptWarnings,
+                );
             }
         }
         // The stored session is gone on the engine's side: drop it and rerun the same request in a

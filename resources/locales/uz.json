@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude bu ishga tushirish uchun yakunlarni qaytarmadi]",
     "run.killed": "Jarayon o'chirildi: {reason}.",
+    "run.kimi_gate_violation": "⛔ Kimi darvozasi buzildi: ishga tushirishning asbob chaqiruvlari va hook yozuvlari mos kelmaydi. {detail}",
     "run.queue_paused_until": "⏸ Navbat {until} gacha pauzada; so'rov navbatda birinchi bo'lib qoladi.",
     "run.timeout": "taym-aut",
     "runner.timeout_stall": "{seconds} s chiqish yo'q (qotib qoldi)",

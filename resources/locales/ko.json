@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude가 이번 실행의 합계를 반환하지 않았습니다]",
     "run.killed": "프로세스가 종료되었습니다: {reason}.",
+    "run.kimi_gate_violation": "⛔ Kimi 게이트 위반: 실행의 도구 호출과 훅 기록이 일치하지 않습니다. {detail}",
     "run.queue_paused_until": "⏸ 대기열이 {until}까지 일시정지됩니다. 요청은 대기열 맨 앞에 남습니다.",
     "run.timeout": "타임아웃",
     "runner.timeout_stall": "{seconds}초 동안 출력 없음 (멈춤)",

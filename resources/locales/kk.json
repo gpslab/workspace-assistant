@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude бұл іске қосу үшін жиынтықты қайтармады]",
     "run.killed": "Процесс тоқтатылды: {reason}.",
+    "run.kimi_gate_violation": "⛔ Kimi қақпасын бұзу: іске қосудағы құрал шақырулары мен хук жазбалары сәйкес келмейді. {detail}",
     "run.queue_paused_until": "⏸ Кезек {until} дейін үзілісте; сұрау кезекте бірінші болып қалады.",
     "run.timeout": "күту уақыты",
     "runner.timeout_stall": "{seconds} с шығыс жоқ (қатып қалды)",

@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude hat für diesen Lauf keine Summen geliefert]",
     "run.killed": "Der Prozess wurde beendet: {reason}.",
+    "run.kimi_gate_violation": "⛔ Kimi-Gate-Verletzung: Die Tool-Aufrufe des Laufs und die Hook-Einträge stimmen nicht überein. {detail}",
     "run.queue_paused_until": "⏸ Die Warteschlange ist bis {until} pausiert; die Anfrage bleibt die erste in der Warteschlange.",
     "run.timeout": "Timeout",
     "runner.timeout_stall": "keine Ausgabe seit {seconds}s (hängt)",

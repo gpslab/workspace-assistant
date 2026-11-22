@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude ने इस रन के लिए कुल आँकड़े नहीं लौटाए]",
     "run.killed": "प्रक्रिया बंद की गई: {reason}।",
+    "run.kimi_gate_violation": "⛔ Kimi गेट उल्लंघन: रन के टूल कॉल और हुक रिकॉर्ड मेल नहीं खाते। {detail}",
     "run.queue_paused_until": "⏸ कतार {until} तक रुकी है; अनुरोध कतार में पहले स्थान पर रहेगा।",
     "run.timeout": "टाइमआउट",
     "runner.timeout_stall": "{seconds} सेकंड से कोई आउटपुट नहीं (अटक गया)",

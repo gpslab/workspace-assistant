@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude 未返回本次运行的汇总数据]",
     "run.killed": "进程已被终止：{reason}。",
+    "run.kimi_gate_violation": "⛔ Kimi 网关违规：本次运行的工具调用与钩子记录不一致。{detail}",
     "run.queue_paused_until": "⏸ 队列已暂停，直到 {until}；该请求仍排在队首。",
     "run.timeout": "超时",
     "runner.timeout_stall": "{seconds} 秒无输出（卡住）",

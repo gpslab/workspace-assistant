@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude はこの実行の合計を返しませんでした]",
     "run.killed": "プロセスを強制終了しました：{reason}。",
+    "run.kimi_gate_violation": "⛔ Kimi ゲート違反：実行のツール呼び出しとフック記録が一致しません。{detail}",
     "run.queue_paused_until": "⏸ キューは {until} まで一時停止中です。リクエストはキューの先頭に残ります。",
     "run.timeout": "タイムアウト",
     "runner.timeout_stall": "{seconds} 秒間出力がありません（ハング）",
