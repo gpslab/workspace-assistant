@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Kimi\KimiHistoryReader;
 use GpsLab\WorkspaceAssistant\Opencode\OpencodeHistoryReader;
 
 /**
@@ -16,7 +17,7 @@ use GpsLab\WorkspaceAssistant\Opencode\OpencodeHistoryReader;
  * not matter. A background call (`async_launched`) and sub-agent entries (`isSidechain`) never count.
  *
  * The gate is split in two: an engine reader ({@see ClaudeCodeTranscriptReader} for Claude Code,
- * {@see OpencodeHistoryReader} for OpenCode) reads the history into a list of agent calls (already
+ * {@see OpencodeHistoryReader} for OpenCode, {@see KimiHistoryReader} for Kimi) reads the history into a list of agent calls (already
  * limited to the window) and the neutral core ({@see counts()}, {@see lastStagePositions()})
  * counts and orders them without touching a history line. The public entry points
  * ({@see decide()}, {@see missingStages()}) run the Claude reader then the core; the neutral core
@@ -583,19 +584,24 @@ final class PmGateHook
      * started ({@see counts()}). On Claude Code that is the `Agent` call's `run_in_background: false`;
      * OpenCode runs every sub-agent in the background whatever the caller does and reports its result
      * as a later synthetic message ({@see OpencodeHistoryReader}), so there the wording asks for the
-     * `subagent` call and its report instead of a parameter that engine does not have.
+     * `subagent` call and its report instead of a parameter that engine does not have. Kimi starts a
+     * sub-agent as a synchronous `Agent` call with `subagent_type` ({@see KimiHistoryReader}), whose
+     * result returns to the main session before the next call, so the wording names that call.
      */
     private static function runMissingStages(string $engine): string
     {
-        return $engine === self::ENGINE_OPENCODE
-            ? 'Run each missing stage as a `subagent` call and wait for its report before starting the next one, in the order of the runbook,'
-            : 'Run each missing stage as a synchronous Agent call (run_in_background: false) in the order of the runbook,';
+        return match ($engine) {
+            self::ENGINE_OPENCODE => 'Run each missing stage as a `subagent` call and wait for its report before starting the next one, in the order of the runbook,',
+            self::ENGINE_KIMI => 'Run each missing stage as a synchronous Agent call (subagent_type) and wait for its result before starting the next one, in the order of the runbook,',
+            default => 'Run each missing stage as a synchronous Agent call (run_in_background: false) in the order of the runbook,',
+        };
     }
 
     /**
      * The decision for one issue-creating command, from a decoded hook input: the neutral input
-     * (`engine` {@see ENGINE_OPENCODE}, `history` path) goes through the OpenCode reader, the
-     * Claude Code PreToolUse input (`transcript_path`) through the Claude reader.
+     * (`engine` {@see ENGINE_OPENCODE} or {@see ENGINE_KIMI}, `history` path) goes through that
+     * engine's reader — {@see OpencodeHistoryReader} for OpenCode, {@see KimiHistoryReader} for Kimi —
+     * the Claude Code PreToolUse input (`transcript_path`) through the Claude reader.
      *
      * @param array<string, mixed>                                                                                     $input
      * @param array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>} $config

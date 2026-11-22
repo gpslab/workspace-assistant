@@ -379,6 +379,48 @@ final class PmGateHookTest extends TestCase
         return __DIR__.'/fixtures/opencode/history/'.$name.'.json';
     }
 
+    /**
+     * A foreground `Agent` `tool.call` of a `wire.jsonl` main file, wrapped as the spike writes it:
+     * the stage agent is the `subagent_type` argument.
+     */
+    private static function kimiAgentCall(string $id, string $agent): string
+    {
+        return json_encode([
+            'type' => 'context.append_loop_event',
+            'event' => ['type' => 'tool.call', 'toolCallId' => $id, 'name' => 'Agent', 'args' => ['subagent_type' => $agent]],
+        ], JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * The `tool.result` of a foreground sub-agent, wrapped as the spike writes it: its header reports
+     * `status: completed`, so the call counts.
+     */
+    private static function kimiAgentResult(string $id): string
+    {
+        return json_encode([
+            'type' => 'context.append_loop_event',
+            'event' => [
+                'type' => 'tool.result',
+                'toolCallId' => $id,
+                'result' => ['output' => "agent_id: agent-0\nstatus: completed\nstop_reason: completed"],
+            ],
+        ], JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Writes the given wire lines to a main `wire.jsonl` under $this->dir and returns its path, so
+     * {@see PmGateHook::decideFromInput()} reads it through {@see KimiHistoryReader::fromFile()}.
+     *
+     * @param list<string> $lines
+     */
+    private function kimiWirePath(array $lines): string
+    {
+        $path = $this->dir.'/wire.jsonl';
+        file_put_contents($path, implode("\n", $lines)."\n");
+
+        return $path;
+    }
+
     public function testOpenCodeSequentialIsAllowedThroughDecide(): void
     {
         $input = ['command' => self::CREATE, 'history' => self::opencodeFixture('stage-sequential'), 'engine' => PmGateHook::ENGINE_OPENCODE];
@@ -406,6 +448,57 @@ final class PmGateHookTest extends TestCase
 
         self::assertSame(PmGateHook::DENY, $decision['decision']);
         self::assertStringContainsString('stage_a (agent stage_a)', $decision['reason']);
+    }
+
+    public function testKimiSequentialIsAllowedThroughDecide(): void
+    {
+        $input = [
+            'command' => self::CREATE,
+            'history' => $this->kimiWirePath([
+                self::kimiAgentCall('tool_a', 'stage_a'),
+                self::kimiAgentResult('tool_a'),
+                self::kimiAgentCall('tool_b', 'stage_b'),
+                self::kimiAgentResult('tool_b'),
+            ]),
+            'engine' => PmGateHook::ENGINE_KIMI,
+        ];
+
+        $decision = PmGateHook::decideFromInput($input, self::opencodeConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::ALLOW, $decision['decision']);
+    }
+
+    public function testKimiParallelIsDeniedThroughDecide(): void
+    {
+        $input = [
+            'command' => self::CREATE,
+            'history' => $this->kimiWirePath([
+                self::kimiAgentCall('tool_a', 'stage_a'),
+                self::kimiAgentCall('tool_b', 'stage_b'),
+                self::kimiAgentResult('tool_a'),
+                self::kimiAgentResult('tool_b'),
+            ]),
+            'engine' => PmGateHook::ENGINE_KIMI,
+        ];
+
+        $decision = PmGateHook::decideFromInput($input, self::opencodeConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('stage_b (agent stage_b)', $decision['reason']);
+    }
+
+    /**
+     * The Kimi deny reason names the sub-agent call the gate counts: a synchronous `Agent` call with
+     * `subagent_type`, not the Claude Code `run_in_background` parameter Kimi does not use.
+     */
+    public function testKimiDenyReasonNamesTheAgentCall(): void
+    {
+        $calls = [['agent' => 'critic', 'callAt' => 1, 'resultAt' => 2, 'completed' => true, 'asyncLaunched' => false, 'isSidechain' => false]];
+
+        $kimi = PmGateHook::decideOnCalls($calls, self::opencodeConfig(), 'pm', '', PmGateHook::ENGINE_KIMI);
+
+        self::assertStringContainsString('Run each missing stage as a synchronous Agent call (subagent_type) and wait for its result before starting the next one, in the order of the runbook, then create the issue.', $kimi['reason']);
+        self::assertStringNotContainsString('run_in_background', $kimi['reason']);
     }
 
     /**
