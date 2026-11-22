@@ -7,6 +7,7 @@ namespace GpsLab\WorkspaceAssistant\Tests\Kimi;
 use GpsLab\WorkspaceAssistant\GitHooks;
 use GpsLab\WorkspaceAssistant\Kimi\KimiHook;
 use GpsLab\WorkspaceAssistant\Kimi\KimiWireAudit;
+use GpsLab\WorkspaceAssistant\Kimi\KimiWireReader;
 use GpsLab\WorkspaceAssistant\PmGateHook;
 use GpsLab\WorkspaceAssistant\ReviewCommitHook;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -251,16 +252,34 @@ final class KimiHookTest extends TestCase
 
     public function testTheRecordIsReadableByTheAudit(): void
     {
-        $this->wire([self::bashCall('tool_bash', 'git status --short')]);
-
-        $result = $this->runShim(
-            ['tool_name' => 'Bash', 'tool_call_id' => 'tool_bash', 'tool_input' => ['command' => 'git status --short']],
-            ['KIMI_CODE_HOME' => $this->home],
-        );
-        self::assertSame(0, $result['code'], $result['stderr']);
-
+        // The records are built from a fixture run (13-subagent-foreground) and compared with that
+        // run's wire: the set of tool_call_id must match, so the audit reports no difference.
+        $fixture = __DIR__.'/../fixtures/kimi/wire/13-subagent-foreground';
         $sessionDir = $this->home.'/sessions/wd_test/'.self::SESSION;
-        $audit = KimiWireAudit::compare($sessionDir, [], $this->records());
+        mkdir($sessionDir.'/agents/main', 0o700, true);
+        mkdir($sessionDir.'/agents/agent-0', 0o700, true);
+        copy($fixture.'/main.jsonl', $sessionDir.'/agents/main/wire.jsonl');
+        copy($fixture.'/agent-0.jsonl', $sessionDir.'/agents/agent-0/wire.jsonl');
+
+        $records = [];
+        foreach (['main.jsonl', 'agent-0.jsonl'] as $file) {
+            $lines = file($fixture.'/'.$file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            self::assertIsArray($lines);
+            foreach (KimiWireReader::records($lines) as $record) {
+                if ($record->type === 'tool.call' && $record->toolCallId !== null) {
+                    $records[] = [
+                        'event' => 'PreToolUse',
+                        'tool_call_id' => $record->toolCallId,
+                        'tool_name' => $record->data['name'] ?? null,
+                        'agent_name' => null,
+                        'outcome' => 'pass',
+                    ];
+                }
+            }
+        }
+        self::assertNotSame([], $records);
+
+        $audit = KimiWireAudit::compare($sessionDir, [], $records);
 
         self::assertSame([], $audit->callsWithoutRecords);
         self::assertSame([], $audit->recordsWithoutCalls);
@@ -276,6 +295,105 @@ final class KimiHookTest extends TestCase
         self::assertSame(2, $result['code']);
         self::assertStringContainsString('attaches the review to the PR head', $result['stderr']);
         self::assertSame('deny', $this->records()[0]['outcome']);
+    }
+
+    public function testAFailedBootstrapExitsTwo(): void
+    {
+        // A copy of the shim without its bootstrap.php: the include fails and the shim exits 2, not
+        // the 255 a fatal would produce (which Kimi does not treat as a block).
+        $dir = $this->root.'/shim';
+        mkdir($dir, 0o700, true);
+        copy(dirname(__DIR__, 2).'/bin/kimi-hook.php', $dir.'/kimi-hook.php');
+
+        $result = $this->runScript(
+            $dir.'/kimi-hook.php',
+            '{"tool_name":"Bash","tool_call_id":"t","tool_input":{"command":"git status"}}',
+            ['KIMI_CODE_HOME' => $this->home],
+        );
+
+        self::assertSame(2, $result['code']);
+        self::assertSame(KimiHook::FAILURE_REASON."\n", $result['stderr']);
+    }
+
+    public function testAnExceptionExitsTwo(): void
+    {
+        // A non-RuntimeException from the gate (a TypeError from a malformed stage) still exits 2: the
+        // outer catch handles every Throwable, not only the RuntimeException the gate's own catch does.
+        $snapshot = PmGateHook::snapshotPath($this->state, 'run-1');
+        mkdir(dirname($snapshot), 0775, true);
+        file_put_contents($snapshot, '{"stages":["not-an-array"],"skip_allowed":{"pm":false}}');
+        $this->wire([self::agentCall('tool_a', 'stage_a'), self::agentResult('tool_a')]);
+
+        $result = $this->runShim(
+            ['tool_name' => 'Bash', 'tool_call_id' => 'tool_bash', 'tool_input' => ['command' => self::CREATE], 'session_id' => self::SESSION],
+            ['KIMI_CODE_HOME' => $this->home, PmGateHook::STATE_ENV => $this->state, PmGateHook::KIND_ENV => 'pm', PmGateHook::RUN_ENV => 'run-1'],
+        );
+
+        self::assertSame(2, $result['code']);
+        self::assertSame(KimiHook::FAILURE_REASON."\n", $result['stderr']);
+    }
+
+    public function testAnUnknownGateKindIsDenied(): void
+    {
+        // An unknown gate kind is rejected by the gate-argument check before the gate runs. Without the
+        // check, the kind would reach decideOnCalls, which treats an unknown kind as not-skip-allowed
+        // and would allow a complete run.
+        PmGateHook::writeSnapshot($this->state, 'run-1', ['stages' => self::STAGES, 'skip_allowed' => ['pm' => false]]);
+        $this->wire([
+            self::agentCall('tool_a', 'stage_a'),
+            self::agentResult('tool_a'),
+            self::agentCall('tool_b', 'stage_b'),
+            self::agentResult('tool_b'),
+        ]);
+
+        $result = $this->runShim(
+            ['tool_name' => 'Bash', 'tool_call_id' => 'tool_bash', 'tool_input' => ['command' => self::CREATE], 'session_id' => self::SESSION],
+            ['KIMI_CODE_HOME' => $this->home, PmGateHook::STATE_ENV => $this->state, PmGateHook::KIND_ENV => 'bogus', PmGateHook::RUN_ENV => 'run-1'],
+        );
+
+        self::assertSame(2, $result['code']);
+        self::assertSame(KimiHook::FAILURE_REASON."\n", $result['stderr']);
+    }
+
+    public function testAnInvalidRunIdIsDenied(): void
+    {
+        // A run id with a path separator is rejected by the gate-argument check before it can reach the
+        // snapshot path. Without the check, '../run-1' would resolve to the snapshot of run-1 and allow.
+        PmGateHook::writeSnapshot($this->state, 'run-1', ['stages' => self::STAGES, 'skip_allowed' => ['pm' => false]]);
+        copy($this->state.'/pm-gate/run-1.json', $this->state.'/run-1.json');
+        $this->wire([
+            self::agentCall('tool_a', 'stage_a'),
+            self::agentResult('tool_a'),
+            self::agentCall('tool_b', 'stage_b'),
+            self::agentResult('tool_b'),
+        ]);
+
+        $result = $this->runShim(
+            ['tool_name' => 'Bash', 'tool_call_id' => 'tool_bash', 'tool_input' => ['command' => self::CREATE], 'session_id' => self::SESSION],
+            ['KIMI_CODE_HOME' => $this->home, PmGateHook::STATE_ENV => $this->state, PmGateHook::KIND_ENV => 'pm', PmGateHook::RUN_ENV => '../run-1'],
+        );
+
+        self::assertSame(2, $result['code']);
+        self::assertSame(KimiHook::FAILURE_REASON."\n", $result['stderr']);
+    }
+
+    public function testAnAppliedSkipWritesTheAppliedFile(): void
+    {
+        // A skip reason that lets an issue through is recorded in the applied-skip file, so the wiring
+        // task can see that a skip was actually used.
+        PmGateHook::writeSnapshot($this->state, 'run-1', ['stages' => self::STAGES, 'skip_allowed' => ['pm' => true]]);
+        $skipFile = $this->root.'/skip-reason';
+        file_put_contents($skipFile, 'skipped for a reason');
+        $this->wire([]);
+
+        $result = $this->runShim(
+            ['tool_name' => 'Bash', 'tool_call_id' => 'tool_bash', 'tool_input' => ['command' => self::CREATE], 'session_id' => self::SESSION],
+            ['KIMI_CODE_HOME' => $this->home, PmGateHook::STATE_ENV => $this->state, PmGateHook::KIND_ENV => 'pm', PmGateHook::RUN_ENV => 'run-1', PmGateHook::SKIP_ENV => $skipFile],
+        );
+
+        self::assertSame(0, $result['code'], $result['stderr']);
+        self::assertFileExists(PmGateHook::appliedPath($this->state, 'run-1'));
+        self::assertSame('skipped for a reason', (string) file_get_contents(PmGateHook::appliedPath($this->state, 'run-1')));
     }
 
     /**
@@ -299,15 +417,6 @@ final class KimiHookTest extends TestCase
                 'toolCallId' => $id,
                 'result' => ['output' => "agent_id: agent-0\nstatus: completed\nstop_reason: completed"],
             ],
-        ], JSON_THROW_ON_ERROR);
-    }
-
-    /** A `Bash` `tool.call` of a `wire.jsonl` main file. */
-    private static function bashCall(string $id, string $command): string
-    {
-        return json_encode([
-            'type' => 'context.append_loop_event',
-            'event' => ['type' => 'tool.call', 'toolCallId' => $id, 'name' => 'Bash', 'args' => ['command' => $command]],
         ], JSON_THROW_ON_ERROR);
     }
 
@@ -367,6 +476,20 @@ final class KimiHookTest extends TestCase
      */
     private function runRaw(string $stdin, array $env = [], array $args = []): array
     {
+        return $this->runScript(dirname(__DIR__, 2).'/bin/kimi-hook.php', $stdin, $env, $args);
+    }
+
+    /**
+     * Runs the shim at $script (a copy without its bootstrap, for the failed-bootstrap test), with the
+     * same environment scrubbing as {@see runRaw()}.
+     *
+     * @param array<string, string> $env
+     * @param list<string>          $args
+     *
+     * @return array{code: int, stdout: string, stderr: string}
+     */
+    private function runScript(string $script, string $stdin, array $env = [], array $args = []): array
+    {
         $base = getenv();
         foreach ([
             'KIMI_CODE_HOME',
@@ -379,7 +502,7 @@ final class KimiHookTest extends TestCase
         $env = array_merge($base, [GitHooks::ENV_FILE_ENV => $this->envFile], $env);
 
         $proc = proc_open(
-            [PHP_BINARY, dirname(__DIR__, 2).'/bin/kimi-hook.php', ...$args],
+            [PHP_BINARY, $script, ...$args],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             null,

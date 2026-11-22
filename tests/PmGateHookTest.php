@@ -421,6 +421,41 @@ final class PmGateHookTest extends TestCase
         return $path;
     }
 
+    /**
+     * The absolute path of a Kimi spike fixture's main `wire.jsonl` (see tests/fixtures/kimi/wire/).
+     */
+    private static function kimiFixture(string $name): string
+    {
+        return __DIR__.'/fixtures/kimi/wire/'.$name.'/main.jsonl';
+    }
+
+    /**
+     * The config of the 13/14 sub-agent fixtures: a single required `critic` stage.
+     *
+     * @return array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>}
+     */
+    private static function kimiCriticConfig(): array
+    {
+        return ['stages' => [['id' => 'critique', 'agent' => 'critic', 'required' => true]], 'skip_allowed' => ['pm' => false]];
+    }
+
+    /**
+     * The config of the derived-window fixture: `arch`, `security` and `critic`, all required.
+     *
+     * @return array{stages: list<array{id: string, agent: string, required: bool}>, skip_allowed: array<string, bool>}
+     */
+    private static function kimiWindowConfig(): array
+    {
+        return [
+            'stages' => [
+                ['id' => 'arch', 'agent' => 'arch', 'required' => true],
+                ['id' => 'security', 'agent' => 'security', 'required' => true],
+                ['id' => 'critique', 'agent' => 'critic', 'required' => true],
+            ],
+            'skip_allowed' => ['pm' => false],
+        ];
+    }
+
     public function testOpenCodeSequentialIsAllowedThroughDecide(): void
     {
         $input = ['command' => self::CREATE, 'history' => self::opencodeFixture('stage-sequential'), 'engine' => PmGateHook::ENGINE_OPENCODE];
@@ -499,6 +534,71 @@ final class PmGateHookTest extends TestCase
 
         self::assertStringContainsString('Run each missing stage as a synchronous Agent call (subagent_type) and wait for its result before starting the next one, in the order of the runbook, then create the issue.', $kimi['reason']);
         self::assertStringNotContainsString('run_in_background', $kimi['reason']);
+    }
+
+    /**
+     * A foreground `Agent` of the spike fixture `13-subagent-foreground` reports `status: completed`,
+     * so the stage counts and the issue is allowed.
+     */
+    public function testKimiForegroundSubagentCountsThroughDecide(): void
+    {
+        $input = [
+            'command' => self::CREATE,
+            'history' => self::kimiFixture('13-subagent-foreground'),
+            'engine' => PmGateHook::ENGINE_KIMI,
+        ];
+
+        $decision = PmGateHook::decideFromInput($input, self::kimiCriticConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::ALLOW, $decision['decision']);
+    }
+
+    /**
+     * A background `Agent` of the spike fixture `14-subagent-background` reports `status: running` at
+     * launch; that alone does not count. The fixture is cut before the completion notification, so the
+     * stage is missing and the issue is denied.
+     */
+    public function testKimiRunningAloneDoesNotCountThroughDecide(): void
+    {
+        $lines = file(self::kimiFixture('14-subagent-background'), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        self::assertIsArray($lines);
+        $cut = [];
+        foreach ($lines as $line) {
+            $cut[] = $line;
+            if (str_contains($line, 'status: running')) {
+                break;
+            }
+        }
+        $path = $this->dir.'/wire-running.jsonl';
+        file_put_contents($path, implode("\n", $cut)."\n");
+
+        $input = ['command' => self::CREATE, 'history' => $path, 'engine' => PmGateHook::ENGINE_KIMI];
+
+        $decision = PmGateHook::decideFromInput($input, self::kimiCriticConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('critique (agent critic)', $decision['reason']);
+    }
+
+    /**
+     * The reader window of the `derived-window` fixture: the `arch` and `security` stages completed
+     * before the last successful issue creation followed by the author's message, so they do not count
+     * and the issue is denied; only the `critic` stage after the window counts.
+     */
+    public function testKimiReaderWindowExcludesStagesBeforeIssueCreation(): void
+    {
+        $input = [
+            'command' => self::CREATE,
+            'history' => self::kimiFixture('derived-window'),
+            'engine' => PmGateHook::ENGINE_KIMI,
+        ];
+
+        $decision = PmGateHook::decideFromInput($input, self::kimiWindowConfig(), 'pm', '');
+
+        self::assertSame(PmGateHook::DENY, $decision['decision']);
+        self::assertStringContainsString('arch (agent arch)', $decision['reason']);
+        self::assertStringContainsString('security (agent security)', $decision['reason']);
+        self::assertStringNotContainsString('critique (agent critic)', $decision['reason']);
     }
 
     /**
