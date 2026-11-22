@@ -39,6 +39,11 @@ final class ChatSurface
 
     public function cmdEpic(int $chatId, int $threadId, string $argument): void
     {
+        if ($this->config->gatesUnavailable()) {
+            $this->tg->sendText($chatId, $this->t('epic.gates_unavailable'), null, $threadId);
+
+            return;
+        }
         if (!$this->config->epicsAvailable()) {
             $this->tg->sendText($chatId, $this->t('epic.unavailable_on_gitlab'), null, $threadId);
 
@@ -295,6 +300,14 @@ final class ChatSurface
      */
     public function handleEpicCallback(string $callbackId, int $chatId, array $message, string $data): void
     {
+        // A keyboard sent before the refusal landed is stale, not a way around it: the callbacks of an
+        // epic run (start, resume) are refused like the command itself.
+        if ($this->config->gatesUnavailable()) {
+            $this->tg->answerCallback($callbackId, $this->t('epic.gates_unavailable'));
+
+            return;
+        }
+
         $parts = explode(':', $data);
         $action = $parts[1] ?? '';
         $withSlug = in_array($action, ['pause', 'resume', 'status', 'pick', 'go'], true);

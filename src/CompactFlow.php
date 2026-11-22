@@ -91,7 +91,13 @@ final class CompactFlow
 
             return;
         }
-        $error = $this->launcher->launchJob($chatId, $threadId, RunKind::KIND_COMPACT_RESEED, $prompt, null, $thinkingId, $compactOldSessionId, $this->db->getMode($chatId, $threadId), $queueId, localeCode: $localeCode, model: (new ModelChoice($this->config, $this->db))->resolve($chatId, $threadId));
+        // The reseed normally continues in the topic's own mode. On an engine whose gates have nowhere
+        // to run that mode (pm by default, or review) would attach a gate that does not exist, and the
+        // run would start without it — the same gap the enqueue and queue-head guards close for chat
+        // messages. Launch the reseed in arch instead, like its summarize phase, so /compact stays
+        // usable without ever starting a run that passes without its gate.
+        $reseedMode = $this->config->gatesUnavailable() ? SystemPrompt::MODE_ARCH : $this->db->getMode($chatId, $threadId);
+        $error = $this->launcher->launchJob($chatId, $threadId, RunKind::KIND_COMPACT_RESEED, $prompt, null, $thinkingId, $compactOldSessionId, $reseedMode, $queueId, localeCode: $localeCode, model: (new ModelChoice($this->config, $this->db))->resolve($chatId, $threadId));
         if ($error !== null) {
             $this->tg->deleteMessage($chatId, $thinkingId);
             $this->delivery->deliver($chatId, $threadId, $this->t('queue.claude_start_failed', ['error' => $error]));

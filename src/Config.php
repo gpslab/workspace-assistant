@@ -87,6 +87,14 @@ final class Config
         public readonly string $opencodeModel = '',
         /** @var list<string> extra argv for the OpenCode runner (`OPENCODE_EXTRA_ARGS`) */
         public readonly array $opencodeExtraArgs = [],
+        /** Path to the `kimi` binary (`KIMI_BIN`). Not parsed from `.env` yet: it comes with the ENGINE=kimi task. */
+        public readonly string $kimiBin = 'kimi',
+        /** Home of the Kimi CLI (`KIMI_HOME`; `KIMI_CODE_HOME` for the engine itself); '' = the default home. Not parsed from `.env` yet. */
+        public readonly string $kimiHome = '',
+        /** Model alias of a Kimi instance (`KIMI_MODEL`, passed as `-m`), as its own config defines it; '' = the model the engine picks. Not parsed from `.env` yet. */
+        public readonly string $kimiModel = '',
+        /** @var list<string> extra argv for the Kimi runner (`KIMI_EXTRA_ARGS`). Not parsed from `.env` yet. */
+        public readonly array $kimiExtraArgs = [],
         public readonly array $configWarnings = [],
         /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
         public readonly array $claudeModels = self::DEFAULT_CLAUDE_MODELS,
@@ -423,6 +431,30 @@ final class Config
     public function isOpencode(): bool
     {
         return $this->engine === self::ENGINE_OPENCODE;
+    }
+
+    /**
+     * Whether the instance runs Kimi Code ({@see self::ENGINE_KIMI}): `/model` is read-only, the model of
+     * every run comes from `KIMI_MODEL`, and the bot's gates have no place to run yet. `ENGINE=kimi` is
+     * still rejected by {@see self::fromEnv()}, so this is read by the gates and by tests only.
+     */
+    public function isKimi(): bool
+    {
+        return $this->engine === self::ENGINE_KIMI;
+    }
+
+    /**
+     * Whether the gates of the bot have nowhere to run on this engine: the PM gate of a `pm` or `review`
+     * run (and of an epic run) and the review commit hook of a `review` run. A run without its gate looks
+     * normal and is not, so while this answers "yes" the gated modes and the epic runs are refused
+     * outright (see the queue and the /epic surface) instead of started.
+     *
+     * Kimi has nowhere to run those hooks yet, so the answer is a constant there: the task that lands its
+     * gate shim changes this body alone, and every caller and its refusal text stay as they are.
+     */
+    public function gatesUnavailable(): bool
+    {
+        return $this->isKimi();
     }
 
     /**

@@ -78,7 +78,7 @@ final class ModelTest extends TestCase
      * @param list<string>|null                                                                $models
      * @param array{modelEpicTick?: string, modelEpicFinal?: string, modelEpicReview?: string} $epicModels MODEL_EPIC_* values by their Config property name
      */
-    private function makeBot(array $extraArgs = [], ?array $models = null, array $epicModels = [], string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, string $opencodeModel = ''): Bot
+    private function makeBot(array $extraArgs = [], ?array $models = null, array $epicModels = [], string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, string $opencodeModel = '', string $kimiModel = ''): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -98,6 +98,7 @@ final class ModelTest extends TestCase
             'forgeOwners' => new ForgeOwners(['gpslab']),
             'engine' => $engine,
             'opencodeModel' => $opencodeModel,
+            'kimiModel' => $kimiModel,
         ] + ($models === null ? [] : ['claudeModels' => $models])
           + $epicModels);
 
@@ -521,6 +522,58 @@ final class ModelTest extends TestCase
         self::assertIsArray($sent);
         self::assertNull($sent['markup'], 'no keyboard while OPENCODE_MODEL pins the instance');
         self::assertStringContainsString('anthropic/sonnet (pinned by OPENCODE_MODEL)', $sent['text']);
+    }
+
+    public function testKimiPinsEveryModelLevel(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiModel: 'kimi-k2');
+        $this->db->setTopicModel(100, 1, 'haiku');
+        $this->db->setDefaultModel('sonnet');
+
+        $config = $this->config();
+        $choice = new ModelChoice($config, $this->db);
+        self::assertTrue($choice->isPinned());
+        self::assertNull($choice->resolve(100, 1));
+        self::assertNull($choice->resolveForAll());
+        self::assertNull($choice->resolveEpic(Run::TICK));
+        self::assertNull($choice->checkPinned('haiku'));
+
+        $locale = Locale::fromConfig($config);
+        self::assertSame('kimi-k2 (pinned by KIMI_MODEL)', $choice->describe($locale, 100, 1));
+        self::assertSame(
+            'The model is pinned by KIMI_MODEL (kimi-k2): the bot passes no model of its own, so /model cannot change it.',
+            $choice->pinnedRefusalText($locale),
+        );
+    }
+
+    public function testKimiMakesModelReadOnly(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiModel: 'kimi-k2');
+
+        $this->command(1, '/model sonnet');
+        self::assertStringContainsString('pinned by KIMI_MODEL (kimi-k2)', $this->lastText());
+        self::assertNull($this->db->getTopicModel(100, 1));
+
+        $this->tap('model:topic:1:sonnet');
+        self::assertNull($this->db->getTopicModel(100, 1));
+        self::assertStringContainsString('pinned by KIMI_MODEL', (string) end($this->tg->answers));
+
+        $this->command(1, '/model');
+        $sent = end($this->tg->sent);
+        self::assertIsArray($sent);
+        self::assertNull($sent['markup'], 'no keyboard while KIMI_MODEL pins the instance');
+        self::assertStringContainsString('kimi-k2 (pinned by KIMI_MODEL)', $sent['text']);
+    }
+
+    public function testKimiStatsShowsThePinnedModelAndAnEmptyVariableIsTheEngineDefault(): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiModel: 'kimi-k2');
+        $this->command(1, '/stats');
+        self::assertStringContainsString('Model: kimi-k2 (pinned by KIMI_MODEL)', $this->lastText());
+
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        $this->command(1, '/stats');
+        self::assertStringContainsString('Model: default model of Kimi (pinned by KIMI_MODEL)', $this->lastText());
     }
 
     public function testOpencodeStatsShowsThePinnedModelAndTheEmptyModelBecomesTheDefault(): void

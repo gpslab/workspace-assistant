@@ -243,6 +243,16 @@ final class QueueScheduler implements QueueControl
         }
 
         $mode = $this->db->getMode($chatId, $threadId);
+        // A `pm` or `review` run would pass without its gate on an engine whose gates have no place to
+        // run, and such a run looks normal: refuse the message instead of queuing it. This covers text
+        // and files alike; `arch` and `/compact` need no gate and stay available. The default mode is
+        // pm, so a new topic is refused until /mode arch.
+        if ($this->config->gatesUnavailable() && $mode !== SystemPrompt::MODE_ARCH) {
+            $this->tg->sendText($chatId, $this->t('mode.gates_unavailable', ['mode' => $mode]), null, $threadId);
+
+            return;
+        }
+
         $model = $this->models()->resolve($chatId, $threadId);
         $localeCode = $this->locales->userLocale($userId);
         $last = $this->db->queueLastWaiting($chatId, $threadId);
@@ -489,6 +499,15 @@ final class QueueScheduler implements QueueControl
         $chatId = $head['chat_id'];
         $threadId = $head['thread_id'];
 
+        // 0. The gate of the mode: the enqueue gate refuses a new message, but a chat item queued under
+        //    another engine survives a restart into this one and would be launched here without its gate
+        //    (the epic head-start guard below does the same for epic items). Re-check the mode at the head.
+        if ($head['kind'] === self::ITEM_CHAT && $this->config->gatesUnavailable() && $head['mode'] !== SystemPrompt::MODE_ARCH) {
+            $this->dropItem($head, $this->t('mode.gates_unavailable', ['mode' => $head['mode']]));
+
+            return;
+        }
+
         // 1. Placeholder: "no message/topic" -> the item is dropped, claude is not
         //    started and no quota is spent. The /new barrier without claude is not edited.
         if ($head['kind'] !== self::ITEM_NEW && $head['placeholder_id'] > 0 && $this->editedItemId !== $head['id']) {
@@ -662,6 +681,17 @@ final class QueueScheduler implements QueueControl
     {
         $slug = (string) ($head['parts'][0]['slug'] ?? '');
         $run = (string) ($head['parts'][0]['run'] ?? '');
+
+        // An epic run carries a gate the engine has nowhere to run, and no orchestrator connects on such
+        // an instance: an item queued before the refusal landed is dropped silently (no chat message) so
+        // that the refusal cannot repeat on every tick.
+        if ($this->config->gatesUnavailable()) {
+            Log::line("queue: epic run {$slug} ({$run}) dropped - the gates of the engine cannot run");
+
+            $this->dropItem($head, null);
+
+            return;
+        }
 
         $pr = isset($head['parts'][0]['pr']) ? (string) $head['parts'][0]['pr'] : null;
 
