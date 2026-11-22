@@ -29,6 +29,11 @@ use GpsLab\WorkspaceAssistant\Kimi\KimiHook;
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
+// The reason the model sees when the shim itself fails. A literal here, not KimiHook::FAILURE_REASON:
+// the handlers and the catch run when the bootstrap fails, before the autoloader that provides
+// KimiHook exists, so the value must not depend on it (as bin/pm-gate-hook.php does).
+const FAILURE_REASON = 'The command was blocked: the gate failed.';
+
 // Fail-closed handlers, registered before any require: a recoverable error becomes an exception, an
 // uncaught exception and a fatal error exit 2 (a fatal would otherwise exit 255, which Kimi does not
 // treat as a block).
@@ -40,13 +45,13 @@ set_error_handler(static function (int $severity, string $message, string $file,
     throw new \ErrorException($message, 0, $severity, $file, $line);
 });
 set_exception_handler(static function (\Throwable $e): void {
-    fwrite(STDERR, KimiHook::FAILURE_REASON."\n");
+    fwrite(STDERR, FAILURE_REASON."\n");
     exit(2);
 });
 register_shutdown_function(static function (): void {
     $error = error_get_last();
     if ($error !== null && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
-        fwrite(STDERR, KimiHook::FAILURE_REASON."\n");
+        fwrite(STDERR, FAILURE_REASON."\n");
         exit(2);
     }
 });
@@ -238,6 +243,6 @@ try {
     $appendRecord($record(KimiHook::OUTCOME_PASS));
     exit(0);
 } catch (\Throwable $e) {
-    fwrite(STDERR, KimiHook::FAILURE_REASON."\n");
+    fwrite(STDERR, FAILURE_REASON."\n");
     exit(2);
 }
