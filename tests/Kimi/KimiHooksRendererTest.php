@@ -65,6 +65,18 @@ final class KimiHooksRendererTest extends TestCase
         self::assertStringNotContainsString('command = "php ', $tables);
     }
 
+    public function testAPathWithASpaceIsEscaped(): void
+    {
+        $shim = $this->root.'/kimi hook.php';
+        file_put_contents($shim, '<?php');
+
+        $tables = (new KimiHooksRenderer($shim))->render();
+
+        $command = escapeshellarg(PHP_BINARY).' '.escapeshellarg($shim);
+        self::assertStringContainsString('command = "'.self::toml($command).'"', $tables);
+        self::assertStringNotContainsString('command = "php ', $tables);
+    }
+
     /** The TOML escaping the renderer applies to a command string. */
     private static function toml(string $value): string
     {
