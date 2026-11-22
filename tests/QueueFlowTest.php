@@ -25,9 +25,11 @@ use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\ReviewCommitHook;
 use GpsLab\WorkspaceAssistant\ReviewStatusHook;
 use GpsLab\WorkspaceAssistant\RunAnswer;
+use GpsLab\WorkspaceAssistant\RunKind;
 use GpsLab\WorkspaceAssistant\RunnerFactory;
 use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SessionFiles;
+use GpsLab\WorkspaceAssistant\SystemPrompt;
 use GpsLab\WorkspaceAssistant\Tests\Epic\FakeGitHub;
 use GpsLab\WorkspaceAssistant\UsageTotals;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -3058,18 +3060,60 @@ final class QueueFlowTest extends TestCase
         self::assertSame(1, $this->launches());
     }
 
-    public function testKimiCompactStillWorks(): void
+    /**
+     * @return iterable<string, array{0: ?string}>
+     */
+    public static function kimiCompactTopicModes(): iterable
+    {
+        yield 'default pm topic' => [null];
+        yield 'review topic' => ['review'];
+    }
+
+    /**
+     * `/compact` stays usable on a Kimi instance, but its reseed must not adopt the topic's gated mode:
+     * a `pm`/`review` reseed would attach a gate this engine has nowhere to run, so the reseed runs in
+     * `arch`, without a gate, like its summarize phase.
+     */
+    #[DataProvider('kimiCompactTopicModes')]
+    public function testKimiCompactReseedRunsGateFree(?string $mode): void
     {
         $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        if ($mode !== null) {
+            $this->db->setMode(100, 1, $mode);
+        }
         $this->db->recordRun(100, 1, 's-old', null, null, 'kimi');
         $this->command(100, 1, '/compact', 30);
         $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
 
         $this->call('startQueueHead');
-        $this->finishJob(); // summarize
-        $this->finishJob(); // reseed, launched by the summarize completion
+        $reseed = $this->startReseedAndCapture();
+
+        self::assertSame(SystemPrompt::MODE_ARCH, $reseed['mode']);
+        self::assertNull($reseed['pm_gate_run_id']);
+
+        $this->finishJob();
 
         self::assertSame('s-new', $this->db->getSessionId(100, 1));
+    }
+
+    /**
+     * Polls until the `/compact` summarize run finishes and the reseed it launches synchronously is the
+     * active job, then returns the reseed's job context (its mode and gate are decided at launch).
+     *
+     * @return array<string, mixed>
+     */
+    private function startReseedAndCapture(): array
+    {
+        for ($i = 0; $i < 200; ++$i) {
+            $this->call('pollJob');
+            $context = $this->jobContext();
+            if ($context !== null && $context['kind'] === RunKind::KIND_COMPACT_RESEED) {
+                return $context;
+            }
+            usleep(50000);
+        }
+
+        self::fail('the /compact reseed did not start');
     }
 
     public function testKimiRefusesTheEpicCommandsAndCallbacks(): void
