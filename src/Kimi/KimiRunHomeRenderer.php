@@ -26,7 +26,8 @@ final class KimiRunHomeRenderer
      * @param string $sourceConfig       the text of the user's `config.toml`
      * @param string $runHome            absolute path of the run home the files are destined for;
      *                                   the rendered agents directory is referenced from the config
-     * @param string $hookShimPath       absolute path of the gate shim (`bin/kimi-hook.php`)
+     * @param string $hookShimPath       absolute path of the gate shim (`bin/kimi-hook.php`); empty
+     *                                   renders no hook tables (the shim is not installed yet)
      * @param string $systemPrompt       the mode prompt (SystemPrompt::build)
      * @param string $appendSystemPrompt the instance addition (CLAUDE_APPEND_SYSTEM_PROMPT), or ''
      * @param string $languageLine       the chat-language line, or ''
@@ -52,8 +53,8 @@ final class KimiRunHomeRenderer
      *
      * @return array<string, string>
      *
-     * @throws \RuntimeException when the hook shim is missing, the source config cannot be parsed or
-     *                           the run home is empty
+     * @throws \RuntimeException when a non-empty hook shim path does not exist, the source config
+     *                           cannot be parsed or the run home is empty
      */
     public function render(array &$warnings = []): array
     {
@@ -62,9 +63,11 @@ final class KimiRunHomeRenderer
             throw new \RuntimeException('The run home of a Kimi run must not be empty.');
         }
         $agentsDir = $runHome.'/'.self::AGENTS_DIR;
-        $hooks = new KimiHooksRenderer($this->hookShimPath);
+        $configRenderer = new KimiConfigRenderer();
         $files = [
-            self::CONFIG_FILE => (new KimiConfigRenderer())->render($this->sourceConfig, $agentsDir, $hooks->render()),
+            self::CONFIG_FILE => $this->hookShimPath !== ''
+                ? $configRenderer->render($this->sourceConfig, $agentsDir, (new KimiHooksRenderer($this->hookShimPath))->render())
+                : $configRenderer->renderWithoutHooks($this->sourceConfig, $agentsDir),
             self::AGENT_FILE => (new KimiMainAgentRenderer(
                 $this->systemPrompt,
                 $this->appendSystemPrompt,

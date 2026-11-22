@@ -13,16 +13,31 @@ use GpsLab\WorkspaceAssistant\TurnRecord;
  * An {@see AgentRunner} that is already finished and returns a prepared answer on the first poll.
  *
  * Lets a test drive the job pipeline with an answer no real engine could produce there, for
- * example a limit classification from the engine's own parser.
+ * example a limit classification from the engine's own parser. Several answers give a run that is
+ * followed by another one (a rerun after a missing session): each start() takes the next answer,
+ * the last one repeats.
  */
 final class FixedRunner implements AgentRunner
 {
-    public function __construct(private readonly RunAnswer $answer)
+    /** @var list<RunAnswer> */
+    private array $answers;
+
+    /** Index of the answer the current run returns; the last one repeats. */
+    private int $index = 0;
+
+    private ?RunAnswer $current = null;
+
+    public function __construct(RunAnswer ...$answers)
     {
+        $this->answers = array_values($answers);
     }
 
     public function start(string $prompt, ?string $sessionId): void
     {
+        $this->current = $this->answers[$this->index] ?? null;
+        if ($this->index < count($this->answers) - 1) {
+            ++$this->index;
+        }
     }
 
     public function poll(): RunnerState
@@ -32,7 +47,11 @@ final class FixedRunner implements AgentRunner
 
     public function result(): RunAnswer
     {
-        return $this->answer;
+        if ($this->current === null) {
+            throw new \RuntimeException('result() before start().');
+        }
+
+        return $this->current;
     }
 
     public function kill(): void
@@ -41,7 +60,7 @@ final class FixedRunner implements AgentRunner
 
     public function sessionId(): ?string
     {
-        return $this->answer->sessionId;
+        return $this->current?->sessionId;
     }
 
     public function pid(): int
