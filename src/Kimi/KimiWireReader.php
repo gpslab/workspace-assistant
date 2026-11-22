@@ -45,10 +45,10 @@ final class KimiWireReader
                 || $record->type === 'subagent.completed'
             ) {
                 $usage = is_array($record->data['usage'] ?? null) ? $record->data['usage'] : [];
-                $inputOther += self::tokens($usage['inputOther'] ?? null);
-                $output += self::tokens($usage['output'] ?? null);
-                $inputCacheRead += self::tokens($usage['inputCacheRead'] ?? null);
-                $inputCacheCreation += self::tokens($usage['inputCacheCreation'] ?? null);
+                $inputOther = self::add($inputOther, self::tokens($usage['inputOther'] ?? null));
+                $output = self::add($output, self::tokens($usage['output'] ?? null));
+                $inputCacheRead = self::add($inputCacheRead, self::tokens($usage['inputCacheRead'] ?? null));
+                $inputCacheCreation = self::add($inputCacheCreation, self::tokens($usage['inputCacheCreation'] ?? null));
             } elseif ($record->type === 'profile.bind') {
                 $alias = $record->data['modelAlias'] ?? null;
                 if (is_string($alias) && $alias !== '') {
@@ -149,16 +149,34 @@ final class KimiWireReader
     }
 
     /**
-     * A single token count as `wire.jsonl` reports it, or 0 when the value is missing or not a
-     * non-negative number. A bare `(int)` cast would turn a string or negative value into a
-     * plausible-but-wrong count.
+     * A single token count as `wire.jsonl` reports it, or 0 when the value is missing, negative, a
+     * fraction or too large to be a faithful `int`. A bare `(int)` cast would turn a string, a
+     * negative value or a fraction into a plausible-but-wrong count, and an out-of-range float (a
+     * `1e400` decodes to `INF`, a `1e19` to a float) into a warning on PHP 8.5.
      */
     private static function tokens(mixed $value): int
     {
-        if ((is_int($value) || is_float($value)) && $value >= 0) {
+        if (is_int($value)) {
+            return $value >= 0 ? $value : 0;
+        }
+
+        if (is_float($value)
+            && $value >= 0.0
+            && $value < (float) \PHP_INT_MAX
+            && floor($value) === $value
+        ) {
             return (int) $value;
         }
 
         return 0;
+    }
+
+    /**
+     * Adds a non-negative token count to a sum, saturating at `PHP_INT_MAX` instead of letting the
+     * `int` overflow into a `float`, which would break the `int`-typed result of {@see read()}.
+     */
+    private static function add(int $sum, int $value): int
+    {
+        return $value > \PHP_INT_MAX - $sum ? \PHP_INT_MAX : $sum + $value;
     }
 }

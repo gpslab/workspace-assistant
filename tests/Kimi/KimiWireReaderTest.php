@@ -81,6 +81,27 @@ final class KimiWireReaderTest extends TestCase
         self::assertNotSame($whole->inputOther, $third->inputOther);
     }
 
+    public function testAnOversizedOrFractionalTokenCountSaturatesOrReadsAsZeroInsteadOfCrashing(): void
+    {
+        // Two counts that are each valid alone overflow the `int` sum into a float, which would throw
+        // under strict_types when KimiWire is constructed; the sum saturates at PHP_INT_MAX instead.
+        $wire = KimiWireReader::read([
+            '{"type": "usage.record", "usageScope": "turn", "usage": {"inputOther": '.PHP_INT_MAX.'}}',
+            '{"type": "subagent.completed", "usage": {"inputOther": 5}}',
+        ]);
+        self::assertSame(PHP_INT_MAX, $wire->inputOther);
+
+        // `json_decode` yields floats for these: `INF` is not a usable count, `1e19` is out of `int`
+        // range and `1.5` is not a whole number, so each reads as 0 rather than a warning plus a
+        // silent truncation into a plausible-but-wrong count.
+        $wire = KimiWireReader::read([
+            '{"type": "usage.record", "usageScope": "turn", "usage": {"inputOther": 1e400}}',
+            '{"type": "usage.record", "usageScope": "turn", "usage": {"inputOther": 1e19}}',
+            '{"type": "usage.record", "usageScope": "turn", "usage": {"inputOther": 1.5}}',
+        ]);
+        self::assertSame(0, $wire->inputOther);
+    }
+
     public function testAModelAndAProtocolVersionAreNullWhenTheWindowStartsAfterTheHeadOfTheFile(): void
     {
         $lines = self::lines('25-resumed-gated-3');
