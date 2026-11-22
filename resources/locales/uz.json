@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ {slug} epigi ishga tushirilishi muvaffaqiyatsiz: signal noto'g'ri — {error}",
     "epicrun.tails_ceiling": "{slug} epigi: keyingi vazifalarning uchinchi bosqichi boshlanmaydi, signaldagi qo'shimcha vazifalar tashlab yuborildi (chegara — {rounds} bosqich).",
     "epicrun.task_not_in_epic": "{ref} vazifasi epikka kirmaydi",
+    "gate.review_failed": "{task}: bitta head bo'yicha epik taqrizi {count} marta muvaffaqiyatsiz tugadi, orada muvaffaqiyatli taqriz bo'lmadi — vazifa to'xtatildi (blocked). Sabab epikning failures.log faylida; sababni tuzatib, /epic resume qiling.",
     "cancel.epic_paused": "{slug} epigi pauzaga qo'yildi (davom ettirish: /epic resume).",
     "cancel.epic_paused_queue_empty": "{slug} epigi pauzaga qo'yildi (davom ettirish: /epic resume). Mavzu navbati bo'sh.",
     "cancel.item_removed": "🚫 /cancel bilan olib tashlandi",

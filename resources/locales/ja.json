@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ エピック {slug} の実行に失敗しました：シグナルが無効です — {error}",
     "epicrun.tails_ceiling": "エピック {slug}：フォローアップタスクの3回目のラウンドは開始しません。シグナルの余分なタスクは破棄しました（上限 — {rounds} ラウンド）。",
     "epicrun.task_not_in_epic": "タスク {ref} はエピックに含まれていません",
+    "gate.review_failed": "{task}：同じ head でエピックレビューが {count} 回失敗し、その間に成功したレビューはありませんでした — タスクを停止しました（blocked）。理由はエピックの failures.log にあります。原因を直して /epic resume してください。",
     "cancel.epic_paused": "エピック {slug} は一時停止中です（再開するには /epic resume）。",
     "cancel.epic_paused_queue_empty": "エピック {slug} は一時停止中です（再開するには /epic resume）。トピックのキューは空です。",
     "cancel.item_removed": "🚫 /cancel により削除されました",

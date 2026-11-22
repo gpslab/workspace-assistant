@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ Falló la ejecución de la épica {slug}: la señal no es válida — {error}",
     "epicrun.tails_ceiling": "Épica {slug}: no comienza la tercera ronda de tareas de seguimiento, se descartaron las tareas adicionales de la señal (límite — {rounds} rondas).",
     "epicrun.task_not_in_epic": "la tarea {ref} no forma parte de la épica",
+    "gate.review_failed": "{task}: la revisión de la épica del pull request falló {count} veces en el mismo head sin una revisión exitosa entre medias — la tarea se detuvo (blocked). El motivo está en failures.log de la épica; corrige la causa y /epic resume.",
     "cancel.epic_paused": "La épica {slug} está en pausa (/epic resume para continuar).",
     "cancel.epic_paused_queue_empty": "La épica {slug} está en pausa (/epic resume para continuar). La cola del tema está vacía.",
     "cancel.item_removed": "🚫 Retirado con /cancel",

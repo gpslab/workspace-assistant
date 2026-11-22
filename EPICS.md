@@ -142,7 +142,7 @@ The forum topic is created by the author; the bot does not create topics and doe
 |----------------------|--------|
 | `/epic start <slug>` | Start the epic in this topic (status `running`). An invalid plan is rejected with the reason and no epic is created |
 | `/epic pause`        | Pause (`paused`) |
-| `/epic resume`       | Clears `paused` and `blocked` on the epic and `blocked` on tasks (including on a `running` epic when the reply names tasks). For the unblocked tasks the `REQUEST_CHANGES` ceiling counter and `conflict_head`/`conflict_changes` are reset: the author answered in the topic (a chat run recorded the decision in the journal) and explicitly resumed the epic. It also resets the stagnation counter (`stale_ticks = 0`, the last-activity moment is set to now), so the next timer tick comes `EPIC_TICK_MINUTES` after the resume (ticks driven by attention are immediate), and the merge gate's `merge_failures` counters |
+| `/epic resume`       | Clears `paused` and `blocked` on the epic and `blocked` on tasks (including on a `running` epic when the reply names tasks). For the unblocked tasks the `REQUEST_CHANGES` ceiling counter and `conflict_head`/`conflict_changes` are reset: the author answered in the topic (a chat run recorded the decision in the journal) and explicitly resumed the epic. It also resets the stagnation counter (`stale_ticks = 0`, the last-activity moment is set to now), so the next timer tick comes `EPIC_TICK_MINUTES` after the resume (ticks driven by attention are immediate), and the merge gate's `merge_failures` counters. A task blocked by a repeated failed review run gets `review_failures` and `reviewed_head` cleared too, so the next poll queues the review of that head again |
 | `/epic status`       | State of the topic's epic: status, tasks, hold, blocked, time of the last GitHub poll, journal path |
 | `/epic`              | Without an argument: a keyboard of the actions that apply to the topic's epic now, under the same conditions as the text commands: pause if the epic is neither `paused` nor `done`; resume if the epic is not `done` and is either not running or has blocked tasks; status whenever the topic has an epic (including `done`); start if the topic has no epic or it is `done`, and there are plans that can be started. Start takes two steps: a plan list, then a confirmation. The list holds `EPICS_DIR/*.md` files that are not journals, have a valid slug and have no epic yet, new ones first, at most 10; if the chosen plan is invalid, the bot shows the error and no start button. A button whose `callback_data` would exceed Telegram's 64 bytes is not shown; if it is a plan in the list, a hint is printed under the list; with a long slug such actions are available only as text commands. With no buttons left, `/epic` replies with `epic.nothing_to_do` and `epic.usage` below it. Every press re-reads the state: a stale keyboard gets only a toast when the topic no longer has that epic (none or another one), or when start is no longer possible at the list or plan-choice step; otherwise the reply is the same as for the matching text command |
 
@@ -277,7 +277,16 @@ than by the model's memory:
    the orchestrator queues a repeated review of the same head (even if an epic review on it is
    already published). At most 2 attempts per head (counter `cold_attempts`); after the second the
    task becomes `blocked` and a question listing the uncovered ids goes to the topic.
-6. **Merge gate** (steps 2 and 4 of the merge gate below) merges only if the head is accepted:
+6. **Failed run.** A `review` run that fails before it publishes anything (a quota, a network error,
+   a CLI crash, a missing or invalid signal) must not leave the head marked as reviewed for good:
+   `reviewed_head` alone stops the orchestrator from offering that head again. For the task and head
+   of the saved findings file, and only while `reviewed_head` equals that head, the bot increments
+   the task counter `review_failures` (`head:N`, N restarts on a new head). While N is below
+   `RunLifecycle::GATE_REVIEW_FAILURES` (2) `reviewed_head` is cleared, so the next poll queues the
+   review again; at N = 2 the task becomes `blocked`, `reviewed_head` stays, and one message goes to
+   the topic (the failure reasons are in `failures.log`). A requeued run (a rate limit) is not
+   counted, and a run whose signal is applied clears `review_failures`.
+7. **Merge gate** (steps 2 and 4 of the merge gate below) merges only if the head is accepted:
    `coverage_head` is set and the head equals it or is "only master merge" on top of it, and the
    `APPROVED` review sits either on `coverage_head` (any of those heads) or on the current head (only
    master merge on top of `coverage_head`).
@@ -567,7 +576,10 @@ Then:
   (`git add -A && git diff --cached --binary`), then the tree is rolled back. There are no
   commit/discard buttons and the queue is not paused. A failure record is appended to
   `state/epics/<slug>/failures.log`; the bot does not commit it to the repository — the next tick
-  moves it into the epic journal. The epic continues. Regular requests behave as before: with `1` there are commit/discard
+  moves it into the epic journal. The epic continues. A failed `review` run additionally clears the
+  task's `reviewed_head` (the review is queued again on the next poll) and counts the failure in
+  `review_failures`: after two failures on the same head the task becomes `blocked` with a message to
+  the topic, and `/epic resume` clears the mark. Regular requests behave as before: with `1` there are commit/discard
   buttons and a paused queue; with `0` there are neither.
 - **A successful epic run with residual dirt** — an auto-commit, as for a regular request; with
   `AUTO_COMMIT=0` leftover changes are not committed.

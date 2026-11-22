@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ 에픽 {slug} 실행 실패: 시그널이 올바르지 않습니다 — {error}",
     "epicrun.tails_ceiling": "에픽 {slug}: 세 번째 후속 작업 라운드는 시작하지 않으며, 시그널의 추가 작업은 버렸습니다 (상한 — {rounds}라운드).",
     "epicrun.task_not_in_epic": "작업 {ref}은(는) 에픽에 속하지 않습니다",
+    "gate.review_failed": "{task}: 같은 head에서 에픽 리뷰가 {count}번 실패했으며 그 사이 성공한 리뷰가 없습니다 — 작업이 중단되었습니다 (blocked). 원인은 에픽의 failures.log에 있습니다. 원인을 고친 뒤 /epic resume 하세요.",
     "cancel.epic_paused": "에픽 {slug}을(를) 일시정지했습니다 (/epic resume으로 재개).",
     "cancel.epic_paused_queue_empty": "에픽 {slug}을(를) 일시정지했습니다 (/epic resume으로 재개). 토픽 대기열이 비어 있습니다.",
     "cancel.item_removed": "🚫 /cancel로 제거됨",

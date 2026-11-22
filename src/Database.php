@@ -1085,7 +1085,8 @@ final class Database
      * `/epic resume`: the epic is running again, the blocked reason and blocked status of tasks are cleared.
      * For the tasks being cleared, the REQUEST_CHANGES cap count (the `epic_changes_since` mark)
      * and the post-merge gate's `conflict_head` and `conflict_changes` are reset. The stagnation counter restarts, and
-     * the merge failure counter of every task is reset.
+     * the merge failure counter of every task is reset. A task blocked by a repeated failed review
+     * run gets `review_failures` and `reviewed_head` cleared, so the review of the head is queued anew.
      *
      * @return list<string> tasks whose blocked status was cleared
      */
@@ -1113,6 +1114,11 @@ final class Database
                 if (($counters['cold_attempts'] ?? '') !== '') {
                     // Blocking by findings coverage: a new attempt from scratch, the review of the same head is queued anew.
                     $counters['cold_attempts'] = '';
+                    $counters['reviewed_head'] = '';
+                }
+                if (($counters['review_failures'] ?? '') !== '') {
+                    // Blocking by repeated failed review runs: the same mark is cleared and the review retried.
+                    $counters['review_failures'] = '';
                     $counters['reviewed_head'] = '';
                 }
                 $this->pdo->prepare('UPDATE epic_tasks SET counters = :c WHERE slug = :slug AND task = :task')

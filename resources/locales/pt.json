@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ A execução do épico {slug} falhou: o sinal é inválido — {error}",
     "epicrun.tails_ceiling": "Épico {slug}: a terceira rodada de tarefas de acompanhamento não começa, as tarefas extras do sinal foram descartadas (limite — {rounds} rodadas).",
     "epicrun.task_not_in_epic": "a tarefa {ref} não faz parte do épico",
+    "gate.review_failed": "{task}: a revisão do épico do pull request falhou {count} vezes no mesmo head sem uma revisão bem-sucedida no meio — a tarefa foi parada (blocked). O motivo está em failures.log do épico; corrija a causa e /epic resume.",
     "cancel.epic_paused": "O épico {slug} foi pausado (/epic resume para continuar).",
     "cancel.epic_paused_queue_empty": "O épico {slug} foi pausado (/epic resume para continuar). A fila do tópico está vazia.",
     "cancel.item_removed": "🚫 Removido por /cancel",

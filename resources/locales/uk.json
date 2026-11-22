@@ -51,6 +51,7 @@
     "epicrun.signal_invalid": "⚠️ Запуск епіку {slug} збійний: сигнал недійсний — {error}",
     "epicrun.tails_ceiling": "Епік {slug}: третє коло доопрацювань не починається, додаткові завдання із сигналу відкинуто (стеля — кіл: {rounds}).",
     "epicrun.task_not_in_epic": "завдання {ref} не входить до епіку",
+    "gate.review_failed": "{task}: рев'ю епіку для пул-реквесту збійнуло {count} разів на тому самому head без успішного рев'ю між ними — завдання зупинено (blocked). Причина у failures.log епіку; усуньте причину та /epic resume.",
     "cancel.epic_paused": "Епік {slug} поставлено на паузу (/epic resume — відновити).",
     "cancel.epic_paused_queue_empty": "Епік {slug} поставлено на паузу (/epic resume — відновити). Черга теми порожня.",
     "cancel.item_removed": "🚫 Знято /cancel",
