@@ -800,4 +800,70 @@ final class ConfigTest extends TestCase
         self::assertTrue($config->isOpencode());
         self::assertSame('anthropic/sonnet', $config->opencodeModel);
     }
+
+    public function testKimiFieldsDefaultAndAreNotParsedFromEnv(): void
+    {
+        // The KIMI_* keys belong to the future ENGINE=kimi task: they are not read yet, so even when
+        // present they must not move the defaults (and the engine stays claude).
+        $this->writeEnv("KIMI_BIN=/usr/bin/kimi\nKIMI_HOME=/srv/kimi\nKIMI_MODEL=kimi-k2\nKIMI_EXTRA_ARGS=--foo\n");
+        $config = Config::load($this->envFile);
+
+        self::assertSame('kimi', $config->kimiBin);
+        self::assertSame('', $config->kimiHome);
+        self::assertSame('', $config->kimiModel);
+        self::assertSame([], $config->kimiExtraArgs);
+        self::assertFalse($config->isKimi());
+        self::assertFalse($config->gatesUnavailable());
+    }
+
+    public function testEngineKimiIsStillRejectedByFromEnv(): void
+    {
+        $this->writeEnv('ENGINE=kimi');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Invalid ENGINE=kimi in .env: expected claude or opencode.');
+        Config::load($this->envFile);
+    }
+
+    public function testKimiEngineKeepsTheConfiguredFieldsAndRefusesTheGatedModes(): void
+    {
+        $config = $this->engineConfig(Config::ENGINE_KIMI, kimiModel: 'kimi-k2', kimiHome: '/srv/kimi');
+
+        self::assertTrue($config->isKimi());
+        self::assertTrue($config->gatesUnavailable());
+        self::assertSame('kimi-k2', $config->kimiModel);
+        self::assertSame('/srv/kimi', $config->kimiHome);
+    }
+
+    public function testTheGatesHaveTheirPreconditionsOnEveryEngineButKimi(): void
+    {
+        // The one predicate the refusals go through: Kimi alone fails it, so a test that flips it
+        // (by building another engine) reaches the same code path with the runs starting.
+        self::assertFalse($this->engineConfig(Config::DEFAULT_ENGINE_FINGERPRINT)->gatesUnavailable());
+        self::assertFalse($this->engineConfig(Config::ENGINE_OPENCODE)->gatesUnavailable());
+        self::assertTrue($this->engineConfig(Config::ENGINE_KIMI)->gatesUnavailable());
+    }
+
+    /** A Config of one engine, built directly because `fromEnv()` does not accept every engine name yet. */
+    private function engineConfig(string $engine, string $kimiModel = '', string $kimiHome = ''): Config
+    {
+        return new Config(
+            botToken: 't',
+            allowedUserIds: [1],
+            repoPath: $this->repoDir,
+            forgeRepo: '',
+            claudeBin: 'claude',
+            claudeTimeout: 0,
+            claudeStallTimeout: 900,
+            claudeExtraArgs: [],
+            claudeAppendSystemPrompt: '',
+            stateDir: $this->repoDir.'/state',
+            outboxDir: $this->repoDir.'/outbox',
+            inboxDir: $this->repoDir.'/inbox',
+            pollTimeout: 30,
+            gitTimeout: 30,
+            engine: $engine,
+            kimiHome: $kimiHome,
+            kimiModel: $kimiModel,
+        );
+    }
 }

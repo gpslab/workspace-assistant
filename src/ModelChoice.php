@@ -10,8 +10,9 @@ use GpsLab\WorkspaceAssistant\Epic\Run;
  * Which Claude model a run gets (`claude -p --model`). Two stored levels, topic then all topics, and an
  * epic run-kind key (MODEL_EPIC_<RUN>) above them; "nothing" means no flag and the CLI uses its own
  * setting. Only values of CLAUDE_MODELS apply; a stored value outside the list is skipped with a log
- * line. A `--model` in CLAUDE_EXTRA_ARGS pins the model for the whole instance: the bot resolves
- * nothing then.
+ * line. A `--model` in CLAUDE_EXTRA_ARGS pins the model for the whole instance, and so does the model
+ * variable of an engine that takes its model from the instance (`OPENCODE_MODEL`, `KIMI_MODEL`): the bot
+ * resolves nothing then.
  */
 final readonly class ModelChoice
 {
@@ -25,11 +26,17 @@ final readonly class ModelChoice
     /** What `/stats` and `/model` show instead of an empty OPENCODE_MODEL: OpenCode falls back to its own default. */
     private const string OPENCODE_DEFAULT_MODEL = 'default model of OpenCode';
 
+    /** What `/stats` and `/model` show instead of an empty KIMI_MODEL: Kimi takes the model of its own config. */
+    private const string KIMI_DEFAULT_MODEL = 'default model of Kimi';
+
     /** The source phrase of the pin for `model.level_pinned` on a Claude instance (a `--model` in CLAUDE_EXTRA_ARGS). */
     private const string SOURCE_LEVEL_EXTRA_ARGS = 'CLAUDE_EXTRA_ARGS';
 
-    /** The source phrase of the pin for both texts on an OpenCode instance. */
+    /** The source of the pin on an OpenCode instance. */
     private const string SOURCE_OPENCODE = 'OPENCODE_MODEL';
+
+    /** The source of the pin on a Kimi instance. */
+    private const string SOURCE_KIMI = 'KIMI_MODEL';
 
     public function __construct(private Config $config, private Database $db)
     {
@@ -65,12 +72,13 @@ final readonly class ModelChoice
     }
 
     /**
-     * True when the instance pins the model for every run: a `--model` in CLAUDE_EXTRA_ARGS, or
-     * OPENCODE_MODEL on an OpenCode instance. No stored `/model` choice survives the pin.
+     * True when the instance pins the model for every run: a `--model` in CLAUDE_EXTRA_ARGS, or the model
+     * variable of an engine that takes it from the instance (`OPENCODE_MODEL`, `KIMI_MODEL`). No stored
+     * `/model` choice survives the pin.
      */
     public function isPinned(): bool
     {
-        return $this->pinnedByExtraArgs() !== null || $this->config->isOpencode();
+        return $this->pinnedByExtraArgs() !== null || $this->pinnedSource() !== null;
     }
 
     /**
@@ -99,9 +107,9 @@ final readonly class ModelChoice
 
     /**
      * Epic runs: the run-kind key (MODEL_EPIC_<RUN>), else the model for all topics, else null.
-     * The key value is validated at startup against CLAUDE_MODELS, so it is passed as it is. An
-     * OpenCode instance is pinned by OPENCODE_MODEL ({@see self::isPinned()}) and resolves nothing:
-     * its epic runs take the same model as every other run.
+     * The key value is validated at startup against CLAUDE_MODELS, so it is passed as it is. An instance
+     * whose model variable pins it ({@see self::isPinned()}) resolves nothing there: its epic runs take
+     * the same model as every other run.
      */
     public function resolveEpic(string $run): ?string
     {
@@ -160,10 +168,11 @@ final readonly class ModelChoice
      */
     public function describe(Locale $locale, int $chatId, int $threadId, bool $markNotApplied = true): string
     {
-        if ($this->config->isOpencode()) {
+        $source = $this->pinnedSource();
+        if ($source !== null) {
             return $locale->t('model.level_pinned', [
-                'model' => $this->opencodeModel(),
-                'source' => self::SOURCE_OPENCODE,
+                'model' => $this->pinnedModel(),
+                'source' => $source,
             ]);
         }
         $pinned = $this->pinnedByExtraArgs();
@@ -189,24 +198,43 @@ final readonly class ModelChoice
         return $text;
     }
 
-    /** The pinned model of an OpenCode instance: OPENCODE_MODEL, or "default model of OpenCode" when it is empty. */
-    private function opencodeModel(): string
+    /** The pinned model of an instance whose engine takes it from `.env`: the variable value, or the engine's own default when it is empty. */
+    private function pinnedModel(): string
     {
+        if ($this->config->isKimi()) {
+            return $this->config->kimiModel !== '' ? $this->config->kimiModel : self::KIMI_DEFAULT_MODEL;
+        }
+
         return $this->config->opencodeModel !== '' ? $this->config->opencodeModel : self::OPENCODE_DEFAULT_MODEL;
+    }
+
+    /**
+     * The model variable that pins this instance, or null when the pin comes from a `--model` in
+     * CLAUDE_EXTRA_ARGS instead. The variable name is language-neutral, so the text around it stays
+     * translated: `KIMI_MODEL` is passed to the texts exactly like `OPENCODE_MODEL`.
+     */
+    private function pinnedSource(): ?string
+    {
+        return match (true) {
+            $this->config->isOpencode() => self::SOURCE_OPENCODE,
+            $this->config->isKimi() => self::SOURCE_KIMI,
+            default => null,
+        };
     }
 
     /**
      * The refusal text of a pinned model (`/model` with an argument, or a `model:` callback): names the
      * source of the pin and the pinned model (or the engine's default when the value is empty). The two
      * pins are separate keys: `model.pinned` keeps the translated "--model in CLAUDE_EXTRA_ARGS" phrase of
-     * a Claude instance, while `model.pinned_opencode` names the language-neutral OPENCODE_MODEL variable.
+     * a Claude instance, while `model.pinned_instance` names the language-neutral variable of the engine.
      */
     public function pinnedRefusalText(Locale $locale): string
     {
-        if ($this->config->isOpencode()) {
-            return $locale->t('model.pinned_opencode', [
-                'model' => $this->opencodeModel(),
-                'source' => self::SOURCE_OPENCODE,
+        $source = $this->pinnedSource();
+        if ($source !== null) {
+            return $locale->t('model.pinned_instance', [
+                'model' => $this->pinnedModel(),
+                'source' => $source,
             ]);
         }
         $pinned = $this->pinnedByExtraArgs() ?? '';
