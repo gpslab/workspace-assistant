@@ -581,9 +581,9 @@ final class JobRunner implements JobLauncher, RunControl
                 $claude = new RunAnswer(true, $launchError, null);
             }
         }
-        // Post-run review status check (see repeatReviewRun()): only an engine with no Stop hooks needs
-        // it, and when it asks for a repeat this run is not over — the caller must not finish the job
-        // state, deliver the reply or touch the thinking message.
+        // Post-run review status check (see repeatReviewRun()): only an engine whose Stop hook cannot
+        // continue a turn needs it, and when it asks for a repeat this run is not over — the caller
+        // must not finish the job state, deliver the reply or touch the thinking message.
         if ($this->repeatReviewRun($claude, $kind, $mode, $inboxFiles)) {
             // The warnings of this run are not tied to a reply that only the repeat will produce:
             // they go out as their own messages now, so the repeat does not swallow them.
@@ -715,10 +715,10 @@ final class JobRunner implements JobLauncher, RunControl
     }
 
     /**
-     * The post-run review status check of an engine that has no Stop hooks to attach it to (OpenCode):
-     * the same {@see ReviewStatusHook} decision, taken by the Bot after the run, on the neutral record
-     * of the finished turn ({@see TurnRecord}). A Claude Code review run needs none of this — its status
-     * is enforced by the Stop hook while the turn runs. The epic hot review
+     * The post-run review status check of an engine whose Stop hook cannot continue a turn (OpenCode,
+     * Kimi): the same {@see ReviewStatusHook} decision, taken by the Bot after the run, on the neutral
+     * record of the finished turn ({@see TurnRecord}). A Claude Code review run needs none of this —
+     * its status is enforced by the Stop hook while the turn runs. The epic hot review
      * ({@see RunKind::KIND_EPIC} + {@see SystemPrompt::MODE_REVIEW}) is checked the same way: its
      * finding ids are null ({@see ReviewStatusHook} — the epic run's coverage is the signal, not the
      * review body), and the repeat is a full epic run of the same slug and run kind.
@@ -742,7 +742,7 @@ final class JobRunner implements JobLauncher, RunControl
         // the run produced no turn at all. An error reply is never repeated either: there is nothing
         // to re-ask a session that did not answer.
         if ($context === null || $turn === null
-            || !$this->config->isOpencode()
+            || $this->config->hasContinuableStopHook()
             || ($kind !== RunKind::KIND_CHAT && $kind !== RunKind::KIND_EPIC)
             || $mode !== SystemPrompt::MODE_REVIEW
             || $claude->isError

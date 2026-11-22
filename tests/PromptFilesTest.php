@@ -207,7 +207,7 @@ final class PromptFilesTest extends TestCase
         ];
         // `common` and `contract_review` are load-ed, not rendered: their placeholders are the engine
         // tokens, which SystemPrompt::build replaces in one step over the assembled prompt.
-        $notRendered = ['common' => ['engine_session'], 'contract_review' => ['engine_review_check']];
+        $notRendered = ['common' => ['engine_session', 'engine_subagent'], 'contract_review' => ['engine_review_check']];
         $engineTokens = SystemPrompt::engineTokens(Config::DEFAULT_ENGINE_FINGERPRINT);
 
         foreach (array_keys(self::NAMES) as $name) {

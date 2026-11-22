@@ -396,6 +396,10 @@ final class OpencodeRunnerTest extends TestCase
             $claudeTokens = SystemPrompt::engineTokens(Config::DEFAULT_ENGINE_FINGERPRINT);
             $back = [];
             foreach (SystemPrompt::engineTokens(Config::ENGINE_OPENCODE) as $token => $value) {
+                // An optional token with no wording on this engine leaves nothing to map back.
+                if ($value === '') {
+                    continue;
+                }
                 $back[$value] = $claudeTokens[$token];
             }
 

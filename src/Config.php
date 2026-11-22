@@ -444,6 +444,17 @@ final class Config
     }
 
     /**
+     * Whether the engine has a Stop hook that can continue a turn: Claude Code's Stop hook blocks and
+     * continues a review turn until its status is set. OpenCode's plugin hook and Kimi's Stop hook
+     * cannot continue a `-p` turn (an exiting hook starts no continuation), so on those engines the
+     * Bot takes the same decision after the run ({@see JobRunner::repeatReviewRun()}).
+     */
+    public function hasContinuableStopHook(): bool
+    {
+        return !$this->isOpencode() && !$this->isKimi();
+    }
+
+    /**
      * Whether the gates of the bot have nowhere to run on this engine: the PM gate of a `pm` or `review`
      * run (and of an epic run) and the review commit hook of a `review` run. A run without its gate looks
      * normal and is not, so while this answers "yes" the gated modes and the epic runs are refused

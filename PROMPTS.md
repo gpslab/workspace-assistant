@@ -18,7 +18,7 @@ There are three kinds of file:
 
 | File                                | Kind     | Used in                                                             | Placeholders                    |
 |-------------------------------------|----------|---------------------------------------------------------------------|---------------------------------|
-| `common`                            | contract | System prompt of every run (`SystemPrompt`)                         | `{engine_session}`              |
+| `common`                            | contract | System prompt of every run (`SystemPrompt`)                         | `{engine_session}`, `{engine_subagent}` |
 | `common_limits`                     | contract | System prompt of every mode except `arch` (`SystemPrompt`)          |                                 |
 | `contract_review`                   | contract | System prompt of the `review` mode (`SystemPrompt`)                 | `{engine_review_check}`         |
 | `language_line`                     | contract | End of the system prompt of every run (`SystemPrompt`)              | `{language}`                    |
@@ -92,22 +92,29 @@ run starts the secret guard: before the gate in a gated run, alone in a run with
 
 #### Engine tokens
 
-`SystemPrompt::build` replaces two tokens in ONE substitution step over the assembled text
+`SystemPrompt::build` replaces three tokens in ONE substitution step over the assembled text
 (`SystemPrompt::engineTokens`), with the wording of the engine the instance runs (`ENGINE`):
 
 - `{engine_session}` — how the session is identified to the model. `ENGINE=claude` (the default):
-  `a Claude Code session`; `ENGINE=opencode`: `an OpenCode session`.
+  `a Claude Code session`; `ENGINE=opencode`: `an OpenCode session`; `ENGINE=kimi`:
+  `a Kimi Code session`.
 - `{engine_review_check}` — what enforces that the ids of the cold findings are in the published review
   body. `ENGINE=claude`: `the Stop hook does not read a body from a file (\`-F body=@file\`, \`--input\`) and
-  blocks the turn until every id is in the body`; `ENGINE=opencode`: `the bot reads the published review
-  after the run and does not see a body from a file (\`-F body=@file\`, \`--input\`): it repeats the turn
-  once when an id is missing from the body`.
+  blocks the turn until every id is in the body`; on `ENGINE=opencode` and `ENGINE=kimi`: `the bot reads
+  the published review after the run and does not see a body from a file (\`-F body=@file\`, \`--input\`):
+  it repeats the turn once when an id is missing from the body`. The wording follows the mechanism:
+  Kimi's Stop hook cannot continue a `-p` turn, so the Bot takes that decision after the run there,
+  exactly as on OpenCode.
+- `{engine_subagent}` — how a sub-agent is called. Empty on `ENGINE=claude` and `ENGINE=opencode`, so
+  their prompt is unchanged; on `ENGINE=kimi`: `A sub-agent is called with the \`Agent\` tool, naming the
+  agent in \`subagent_type\`; wait for its result before the next step.`
 
-These two texts are why the tokens exist: `common` and `contract_review` are `load`-ed, not rendered
+These texts are why the tokens exist: `common` and `contract_review` are `load`-ed, not rendered
 (`PromptFiles::render`), so without that step a placeholder in them would reach the model unfilled. The
 substitution runs over the whole assembled text, so a persona file may use the tokens as well. On Claude
-Code the values are that text exactly as it was before the tokens, byte for byte; on OpenCode the wording
-names the mechanics of that engine, which has neither a Stop hook nor `run_in_background`.
+Code the values are that text exactly as it was before the tokens, byte for byte; on OpenCode and Kimi
+the wording names the mechanics of those engines, which have no Stop hook that can continue a turn (and
+no `run_in_background` wording in the shared text).
 
 #### Memory
 
@@ -224,9 +231,9 @@ no longer become an extra task.
     `review_status_reason*`, `compact_*`, `secret_blocked` and `epic_runbook` a placeholder mistake passes silently (only the
     override warning appears), and `default_file_prompt` gets no checks, so keep the placeholders of the
     `.dist` exactly.
-  - *Engine tokens in a local override.* `common` and `contract_review` carry `{engine_session}` and
-    `{engine_review_check}` (see [Engine tokens](#engine-tokens)). A local `prompts/common.md` or
-    `prompts/contract_review.md` written before them has no such placeholder, and such an instance gets
+  - *Engine tokens in a local override.* `common` carries `{engine_session}` and `{engine_subagent}`,
+    `contract_review` carries `{engine_review_check}` (see [Engine tokens](#engine-tokens)). A local
+    `prompts/common.md` or `prompts/contract_review.md` written before them has no such placeholder, and such an instance gets
     the "placeholders differ from `.dist`" warning once in the reply of every run, until the local file
     carries the same tokens. The step replaces the tokens of the assembled text, so a local file without
     them is used as it is.
