@@ -47,6 +47,27 @@ final class KimiErrorClassifierTest extends TestCase
         self::assertNotSame(KimiErrorClass::Occupied, $class);
     }
 
+    /**
+     * The `session.occupied` event is part of the definition of `Occupied`: exit 4 without it is a
+     * different failure than a session held by another instance.
+     */
+    public function testExitCodeFourWithoutTheSessionOccupiedStreamErrorIsNotOccupied(): void
+    {
+        $class = KimiErrorClassifier::classify(4, '', self::emptyStream(), null, $this->text());
+
+        self::assertNotSame(KimiErrorClass::Occupied, $class);
+    }
+
+    /** Exit 4 with a stream error of another code is not `Occupied` either. */
+    public function testExitCodeFourWithANonOccupiedStreamErrorIsNotOccupied(): void
+    {
+        $stream = new KimiStream(null, [], '', null, ['code' => 'other.error', 'message' => 'boom'], 0);
+
+        $class = KimiErrorClassifier::classify(4, '', $stream, null, $this->text());
+
+        self::assertNotSame(KimiErrorClass::Occupied, $class);
+    }
+
     public function testRateFixtureIsRate(): void
     {
         $class = $this->classify('30-mock-rate', 1);
