@@ -73,6 +73,24 @@ final class KimiHookTest extends TestCase
         self::assertStringContainsString('not writable', $result['stderr']);
     }
 
+    public function testSelfTestFailsWhenTheRunHomeExistsButIsNotWritable(): void
+    {
+        // An existing directory that is not writable must fail the self-test: the `!is_dir` branch
+        // above would not catch it, so this pins the `!is_writable` check.
+        $home = $this->root.'/readonly';
+        mkdir($home, 0o700, true);
+        chmod($home, 0o500);
+        if (is_writable($home)) {
+            self::markTestSkipped('Running as a user that can write any directory.');
+        }
+
+        $result = $this->runShim([], ['KIMI_CODE_HOME' => $home], ['--self-test']);
+        chmod($home, 0o700);
+
+        self::assertNotSame(0, $result['code']);
+        self::assertStringContainsString('not writable', $result['stderr']);
+    }
+
     public function testSessionStartWritesTheSessionIdAndARecord(): void
     {
         $result = $this->runShim(['session_id' => self::SESSION, 'model' => 'kimi', 'profile' => 'x'], ['KIMI_CODE_HOME' => $this->home]);
@@ -112,6 +130,20 @@ final class KimiHookTest extends TestCase
     {
         $result = $this->runShim(
             ['tool_name' => 'Bash', 'tool_call_id' => 'tool_bash', 'tool_input' => ['command' => 'git status --short']],
+            ['KIMI_CODE_HOME' => $this->home],
+        );
+
+        self::assertSame(0, $result['code'], $result['stderr']);
+        self::assertSame('pass', $this->records()[0]['outcome']);
+    }
+
+    public function testAnIssueCreatingCommandInAnUngatedRunPasses(): void
+    {
+        // No KIND_ENV: the run is not gated, so `gh issue create` is not a gated command and passes.
+        // Without the `$kind !== ''` guard the empty kind would reach the gate and be denied as bad
+        // gate arguments.
+        $result = $this->runShim(
+            ['tool_name' => 'Bash', 'tool_call_id' => 'tool_bash', 'tool_input' => ['command' => self::CREATE]],
             ['KIMI_CODE_HOME' => $this->home],
         );
 
@@ -313,6 +345,51 @@ final class KimiHookTest extends TestCase
 
         self::assertSame(2, $result['code']);
         self::assertSame(KimiHook::FAILURE_REASON."\n", $result['stderr']);
+    }
+
+    public function testAWarningInsideTheGuardedSectionExitsTwo(): void
+    {
+        // An unreadable .env makes Env::load()'s file() raise a warning; the error handler turns it
+        // into an exception that exits 2. Without the handler the warning is suppressed and the
+        // command would pass, so this pins the handler body.
+        chmod($this->envFile, 0o000);
+        if (is_readable($this->envFile)) {
+            self::markTestSkipped('Running as a user that can read any file.');
+        }
+
+        $result = $this->runShim(
+            ['tool_name' => 'Bash', 'tool_call_id' => 'tool_bash', 'tool_input' => ['command' => 'git status --short']],
+            ['KIMI_CODE_HOME' => $this->home],
+        );
+
+        self::assertSame(2, $result['code']);
+        self::assertSame(KimiHook::FAILURE_REASON."\n", $result['stderr']);
+    }
+
+    public function testAFatalErrorAfterTheHandlersExitsTwo(): void
+    {
+        // A copy of the shim that exhausts memory after the handlers are registered: the shutdown
+        // handler turns the E_ERROR into exit 2, not the 255 Kimi lets through. Without E_ERROR in
+        // the handler's list the process would exit 255.
+        $dir = $this->root.'/shim';
+        mkdir($dir, 0o700, true);
+        $source = (string) file_get_contents(dirname(__DIR__, 2).'/bin/kimi-hook.php');
+        $fatal = "\n\nini_set('memory_limit', '8M');\n\$arr = [];\nwhile (true) { \$arr[] = str_repeat('x', 1024 * 1024); }\n";
+        $source = str_replace(
+            '// --self-test: the wiring task runs it before a gated run to prove the shim can write its files.',
+            $fatal.'// --self-test: the wiring task runs it before a gated run to prove the shim can write its files.',
+            $source,
+        );
+        file_put_contents($dir.'/kimi-hook.php', $source);
+
+        $result = $this->runScript(
+            $dir.'/kimi-hook.php',
+            '{"tool_name":"Bash","tool_call_id":"t","tool_input":{"command":"git status"}}',
+            ['KIMI_CODE_HOME' => $this->home],
+        );
+
+        self::assertSame(2, $result['code']);
+        self::assertStringContainsString(KimiHook::FAILURE_REASON, $result['stderr']);
     }
 
     public function testAnExceptionExitsTwo(): void
