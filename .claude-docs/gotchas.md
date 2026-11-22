@@ -321,6 +321,12 @@ so `0` never collides.
   reconstructed. `isUuid()` guards against a glob on a wildcard character.
 - The path comes from the bot's environment (`CLAUDE_CONFIG_DIR` or `$HOME/.claude`), the same one claude
   runs with; a mismatch makes `delete()` a harmless no-op.
+- On a Kimi instance the session is a directory `sessions/wd_<dir>_<hash>/session_<uuid>/` (its `state.json`
+  and the per-agent `wire.jsonl`). The `wd_<dir>_<hash>` bucket is derived from the cwd of the run and is not
+  reconstructed either: the directory is found by the id across every bucket of the home. The id must match
+  `^session_[0-9a-f-]{36}$`, the home comes from the instance (`KIMI_HOME`) or from `KIMI_CODE_HOME` of the
+  process, otherwise from `$HOME/.kimi-code`. The engine and the home are passed to `delete()` by its
+  callers: a caller that passes neither gets the Claude layout, which on Kimi is a no-op.
 - Irreversible and best-effort: `delete()` throws nothing, a filesystem failure must not break `/new`.
   Transcripts of sessions never closed with `/new`/`/compact` are not cleaned.
 

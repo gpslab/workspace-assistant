@@ -126,7 +126,7 @@ final class CompactFlow
         // when reseed fails (above) the old session is kept for a repeated
         // /compact and its file must not be touched.
         if ($compactOldSessionId !== null) {
-            $this->sessionFiles->delete($compactOldSessionId);
+            $this->sessionFiles->delete($compactOldSessionId, $this->config->engine, $this->config->kimiHome);
         }
 
         $text = $claude->text !== '' ? $claude->text : $this->t('result.empty');
