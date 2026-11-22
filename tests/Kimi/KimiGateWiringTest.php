@@ -15,6 +15,7 @@ use GpsLab\WorkspaceAssistant\JobRunner;
 use GpsLab\WorkspaceAssistant\KimiRunner;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Memory\MemorySync;
+use GpsLab\WorkspaceAssistant\PmGateHook;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
 use GpsLab\WorkspaceAssistant\RunKind;
 use GpsLab\WorkspaceAssistant\RunnerFactory;
@@ -23,6 +24,7 @@ use GpsLab\WorkspaceAssistant\RunState;
 use GpsLab\WorkspaceAssistant\SubRepoSync;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
 use GpsLab\WorkspaceAssistant\Tests\FakeTelegram;
+use GpsLab\WorkspaceAssistant\Tests\StderrCaptureFilter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -168,7 +170,7 @@ final class KimiGateWiringTest extends TestCase
 
     /**
      * The same difference on a chat run is a log line only: the reply is delivered and the run is a
-     * success. This pins the gated/chat split of the reporting.
+     * success. This pins the gated/chat split of the reporting, and the log line itself.
      */
     public function testAChatRunWithADifferenceOnlyLogs(): void
     {
@@ -176,13 +178,18 @@ final class KimiGateWiringTest extends TestCase
         $this->launch($runner, SystemPrompt::MODE_ARCH);
         $kimi = $this->activeKimiRunner();
         // No hook records at all: the wire call has no record, but this is not a gated run.
-        $outcome = $this->finish($runner);
+        $outcome = null;
+        $log = $this->capturedLog(function () use ($runner, &$outcome): void {
+            $outcome = $this->finish($runner);
+        });
 
         self::assertNotNull($outcome);
         self::assertNotNull($outcome->result, 'a chat run is not failed by a difference');
         self::assertNull($outcome->failure);
         $texts = $this->tg->textsTo(1, 0);
         self::assertSame([], array_values(array_filter($texts, static fn (string $text): bool => str_contains($text, 'Kimi gate violation'))));
+        self::assertStringContainsString('kimi gate audit: ', $log);
+        self::assertStringContainsString('tool calls with no hook record: '.self::WIRE_CALL, $log);
 
         $kimi->purgeRunHome();
     }
@@ -202,6 +209,94 @@ final class KimiGateWiringTest extends TestCase
         self::assertNull($outcome->failure);
 
         $kimi->purgeRunHome();
+    }
+
+    /**
+     * A gated run that ended in an error is not audited: it has no gate answer to check, and turning
+     * its missing hook records into a gate violation would hide the real error from the chat.
+     */
+    public function testAGatedRunThatErrsDeliversTheRealErrorNotAViolation(): void
+    {
+        $runner = $this->jobRunner($this->config(kimiBin: $this->failingKimi()));
+        $this->launchGated($runner);
+
+        $outcome = $this->finish($runner);
+
+        self::assertNotNull($outcome);
+        self::assertNotNull($outcome->result, 'the real error reply is delivered, not a violation');
+        self::assertNotNull($outcome->failure);
+        self::assertStringContainsString('Engine error', $outcome->failure);
+        self::assertStringNotContainsString('Kimi gate violation', $outcome->failure);
+        $texts = $this->tg->textsTo(1, 0);
+        self::assertSame([], array_values(array_filter($texts, static fn (string $text): bool => str_contains($text, 'Kimi gate violation'))));
+    }
+
+    /**
+     * A gate violation on a gated run that also had a PM-gate skip delivers both messages, the
+     * violation first and the skip notice after it, like the timeout ending orders its two messages.
+     */
+    public function testAGatedViolationWithAPmGateSkipDeliversBothInOrder(): void
+    {
+        $runner = $this->jobRunner($this->config());
+        $this->launchGated($runner);
+        $kimi = $this->activeKimiRunner();
+        // The shim records another call, not the wire's: a skipped hook, hence a violation.
+        $this->runShim($this->runHome(), ['tool_name' => 'Read', 'tool_call_id' => 'tool_anotherCall0000000000', 'tool_input' => []]);
+        // A PM-gate skip was applied during the run; the violation must still tell the author about it.
+        $context = $this->runState->jobContext;
+        self::assertNotNull($context, 'the gated run has a job context');
+        $runId = (string) $context['pm_gate_run_id'];
+        file_put_contents(PmGateHook::appliedPath($this->state, $runId), 'the stages were skipped');
+
+        $outcome = $this->finish($runner);
+
+        self::assertNotNull($outcome);
+        self::assertNull($outcome->result, 'a gate violation has no success result');
+        self::assertNotNull($outcome->failure);
+        self::assertStringContainsString('Kimi gate violation', $outcome->failure);
+
+        $texts = $this->tg->textsTo(1, 0);
+        $violationIndex = null;
+        $skipIndex = null;
+        foreach ($texts as $i => $text) {
+            if (str_contains($text, 'Kimi gate violation')) {
+                $violationIndex ??= $i;
+            }
+            if (str_contains($text, 'Issue creation went ahead without all pipeline stages')) {
+                $skipIndex ??= $i;
+            }
+        }
+        self::assertNotNull($violationIndex, 'the violation must be delivered');
+        self::assertNotNull($skipIndex, 'the PM-gate skip must be delivered');
+        self::assertLessThan($skipIndex, $violationIndex, 'the violation message comes before the PM-gate skip');
+
+        $kimi->purgeRunHome();
+    }
+
+    /** A run killed by a timeout never reaches its audit: bot.log says the audit was skipped. */
+    public function testATimedOutRunLogsTheSkippedAudit(): void
+    {
+        $runner = $this->jobRunner($this->config(kimiBin: $this->hangingKimi(), claudeTimeout: 1));
+        $this->launch($runner, SystemPrompt::MODE_ARCH);
+
+        $log = $this->capturedLog(function () use ($runner): void {
+            $this->finish($runner);
+        });
+
+        self::assertStringContainsString('kimi gate audit skipped: the run was killed by a timeout, its wire and hook records are incomplete', $log);
+    }
+
+    /** A cancelled run never reaches its audit: bot.log says the audit was skipped. */
+    public function testACancelledRunLogsTheSkippedAudit(): void
+    {
+        $runner = $this->jobRunner($this->config(kimiBin: $this->hangingKimi()));
+        $this->launch($runner, SystemPrompt::MODE_ARCH);
+
+        $log = $this->capturedLog(function () use ($runner): void {
+            $runner->cancelTopic(1, 0);
+        });
+
+        self::assertStringContainsString('kimi gate audit skipped: the run was cancelled, its wire and hook records are incomplete', $log);
     }
 
     private function launchGated(JobRunner $runner): void
@@ -309,6 +404,64 @@ final class KimiGateWiringTest extends TestCase
         return $path;
     }
 
+    /**
+     * A fake `kimi` that creates the session directory and its wire (so the audit has something to
+     * read) and then fails with an error, the way a run that dies right after the session starts does.
+     */
+    private function failingKimi(): string
+    {
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
+        $wire = (string) preg_replace(
+            '/"created_at":\d+/',
+            '"created_at":'.(time() * 1000),
+            (string) file_get_contents(dirname(__DIR__).'/fixtures/kimi/wire/15-subagent-bash/main.jsonl'),
+            1,
+        );
+
+        $body = '@mkdir('.var_export($sessionDir.'/agents/main', true).', 0700, true);'."\n"
+            .'file_put_contents('.var_export($sessionDir.'/agents/main/wire.jsonl', true).', '.var_export($wire, true).');'."\n"
+            .'file_put_contents('.var_export($sessionDir.'/state.json', true).', "{}");'."\n"
+            .'fwrite(STDERR, "kimi engine error: the session died");'."\n"
+            .'exit(255);'."\n";
+        $path = $this->root.'/fake-kimi-fail-'.bin2hex(random_bytes(4)).'.php';
+        file_put_contents($path, '#!'.PHP_BINARY."\n<?php\n".$body);
+        chmod($path, 0o755);
+
+        return $path;
+    }
+
+    /** A fake `kimi` that never finishes, for a run that is cancelled or timed out. */
+    private function hangingKimi(): string
+    {
+        $path = $this->root.'/fake-kimi-hang-'.bin2hex(random_bytes(4)).'.php';
+        file_put_contents($path, '#!'.PHP_BINARY."\n<?php\nsleep(60);\n");
+        chmod($path, 0o755);
+
+        return $path;
+    }
+
+    /**
+     * Collects what {@see GpsLab\WorkspaceAssistant\Log} writes to STDERR while {@see $run} runs.
+     *
+     * @param \Closure(): void $run
+     */
+    private function capturedLog(\Closure $run): string
+    {
+        if (!in_array('stderr_capture', stream_get_filters(), true)) {
+            stream_filter_register('stderr_capture', StderrCaptureFilter::class);
+        }
+        StderrCaptureFilter::$buffer = '';
+        $filter = stream_filter_append(STDERR, 'stderr_capture', STREAM_FILTER_WRITE);
+        self::assertNotFalse($filter);
+        try {
+            $run();
+        } finally {
+            stream_filter_remove($filter);
+        }
+
+        return StderrCaptureFilter::$buffer;
+    }
+
     private function jobRunner(Config $config, ?string $kimiHookShim = null): JobRunner
     {
         $locale = new Locale();
@@ -358,7 +511,7 @@ final class KimiGateWiringTest extends TestCase
         };
     }
 
-    private function config(?string $stateDir = null): Config
+    private function config(?string $stateDir = null, ?string $kimiBin = null, int $claudeTimeout = 0): Config
     {
         $state = $stateDir ?? $this->state;
 
@@ -368,7 +521,7 @@ final class KimiGateWiringTest extends TestCase
             repoPath: $this->repo,
             forgeRepo: '',
             claudeBin: 'claude',
-            claudeTimeout: 0,
+            claudeTimeout: $claudeTimeout,
             claudeStallTimeout: 0,
             claudeExtraArgs: [],
             claudeAppendSystemPrompt: '',
@@ -378,7 +531,7 @@ final class KimiGateWiringTest extends TestCase
             pollTimeout: 30,
             gitTimeout: 30,
             engine: Config::ENGINE_KIMI,
-            kimiBin: $this->fakeKimi(),
+            kimiBin: $kimiBin ?? $this->fakeKimi(),
             kimiHome: $this->kimiHome,
         );
     }

@@ -403,13 +403,13 @@ final class JobRunner implements JobLauncher, RunControl
     }
 
     /**
-     * Reports the post-run Kimi audit. A clean audit is silent; one that could not run is a log line;
-     * a difference is a gate violation on a gated run (a loud chat message and a log line, and the
-     * run must fail) and a log line only on a chat run.
-     *
-     * @return string|null the detail of a gate violation the caller must fail the run with, null otherwise
+     * Reports the post-run Kimi audit to bot.log and returns the detail of a gate violation the caller
+     * must fail the run with, or null. A clean audit is silent; one that could not run is a log line; a
+     * difference is a violation on a gated run (logged here) and a log line only on a chat run. The
+     * caller delivers the violation message to the chat: it belongs after the normal ending steps, not
+     * here.
      */
-    private function reportKimiAudit(int $chatId, int $threadId, KimiRunAudit $audit, bool $gated): ?string
+    private function reportKimiAudit(KimiRunAudit $audit, bool $gated): ?string
     {
         if (!$audit->audited) {
             Log::line('kimi gate audit skipped: '.$audit->describe());
@@ -427,7 +427,6 @@ final class JobRunner implements JobLauncher, RunControl
         }
 
         Log::line('kimi gate violation: '.$detail);
-        $this->delivery->deliver($chatId, $threadId, $this->t('run.kimi_gate_violation', ['detail' => $detail]));
 
         return $detail;
     }
@@ -533,16 +532,25 @@ final class JobRunner implements JobLauncher, RunControl
         }
         // After a completed Kimi run, audit the hook records against the wire window taken at launch.
         // The run home is still on disk here (Bot purges it after this poll()), so the shim's records
-        // are read before they go. A difference on a gated run is a gate violation: it goes to the
-        // chat loudly and the run has no success status. On a chat run it only goes to bot.log.
-        if ($this->config->isKimi() && $this->runState->activeJob instanceof KimiRunner) {
-            $violation = $this->reportKimiAudit($chatId, $threadId, $this->runState->activeJob->wireAudit(), $gated);
+        // are read before they go. A difference on a gated run is a gate violation: the run has no
+        // success status and the violation goes to the chat loudly. On a chat run it only goes to
+        // bot.log. A run that already failed is not audited: it has no gate answer to check, and the
+        // real error must reach the chat instead of being masked by a gate violation.
+        if ($this->config->isKimi() && $this->runState->activeJob instanceof KimiRunner && !$claude->isError) {
+            $violation = $this->reportKimiAudit($this->runState->activeJob->wireAudit(), $gated);
             if ($violation !== null) {
                 $this->reportPromptWarnings($chatId, $threadId, $promptWarnings, true);
                 $this->finishJobState($chatId, $threadId);
                 $this->inbox->deleteInboxFiles($inboxFiles);
                 $this->tg->deleteMessage($chatId, $thinkingId);
                 $this->delivery->flushOutbox($chatId, $threadId);
+                // The violation is this run's reply: delivered after the job state, the thinking
+                // message and the outbox, like every other ending — and, when the gate was also
+                // skipped, the skip notice follows it, again as on the other endings.
+                $this->delivery->deliver($chatId, $threadId, $this->t('run.kimi_gate_violation', ['detail' => $violation]));
+                if ($gateSkip !== '') {
+                    $this->reportPmGateSkip($chatId, $threadId, $kind, $epicSlug, $epicRun, $gateSkip);
+                }
 
                 return new RunOutcome(
                     $kind, $chatId, $threadId, $queueId,

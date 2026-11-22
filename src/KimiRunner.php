@@ -464,7 +464,6 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
             return KimiRunAudit::of(
                 KimiWireAudit::compare($dir, $this->wireWindow ?? [], $records->records),
                 !$records->found,
-                $records->skippedLines,
             );
         } catch (\RuntimeException $e) {
             return KimiRunAudit::unavailable($e->getMessage());

@@ -22,21 +22,20 @@ final class KimiRunAudit
         public readonly bool $audited,
         public readonly ?KimiWireAuditResult $result,
         public readonly bool $recordsMissing,
-        public readonly int $skippedRecordLines,
         public readonly string $unavailableReason,
     ) {
     }
 
     /** An audit that ran: a comparison plus whether the hook-records file was there at all. */
-    public static function of(KimiWireAuditResult $result, bool $recordsMissing, int $skippedRecordLines): self
+    public static function of(KimiWireAuditResult $result, bool $recordsMissing): self
     {
-        return new self(true, $result, $recordsMissing, $skippedRecordLines, '');
+        return new self(true, $result, $recordsMissing, '');
     }
 
     /** The audit could not run; `$reason` is the English text for `bot.log`. */
     public static function unavailable(string $reason): self
     {
-        return new self(false, null, false, 0, $reason);
+        return new self(false, null, false, $reason);
     }
 
     /** Whether the sets match both ways and the records file was found. */
@@ -69,9 +68,6 @@ final class KimiRunAudit
         }
         if ($this->result->recordsWithoutCalls !== []) {
             $parts[] = 'hook records with no tool call: '.implode(', ', $this->result->recordsWithoutCalls);
-        }
-        if ($this->skippedRecordLines > 0) {
-            $parts[] = $this->skippedRecordLines.' hook record line(s) skipped as invalid JSON';
         }
 
         return implode('; ', $parts);
