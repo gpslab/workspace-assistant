@@ -269,6 +269,9 @@ final class Bot implements LoopControl
 
         $this->runState->activeJob?->kill();
         if ($this->runState->activeJob instanceof DeferredRunHome) {
+            if ($this->config->isKimi() && $this->runState->activeJob instanceof KimiRunner) {
+                Log::line('kimi gate audit skipped: the bot stopped with the run in progress');
+            }
             $this->runState->activeJob->purgeRunHome();
         }
         Log::line('stopped.');

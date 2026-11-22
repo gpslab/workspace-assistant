@@ -260,6 +260,7 @@
     "result.tokens_cost": " · ≈${cost}",
     "result.tokens_none": "[Claude не повернув підсумки для цього запуску]",
     "run.killed": "Процес убито: {reason}.",
+    "run.kimi_gate_violation": "⛔ Порушення гейта Kimi: виклики інструментів запуску та записи хуків не збігаються. {detail}",
     "run.queue_paused_until": "⏸ Черга на паузі до {until}; запит залишається першим у черзі.",
     "run.timeout": "таймаут",
     "runner.timeout_stall": "немає виводу {seconds} с (завис)",

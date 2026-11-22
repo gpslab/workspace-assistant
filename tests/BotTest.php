@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\Delivery;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\JobRunner;
+use GpsLab\WorkspaceAssistant\KimiRunner;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\ModeAndLang;
 use GpsLab\WorkspaceAssistant\SessionFiles;
@@ -55,7 +56,7 @@ final class BotTest extends TestCase
         @rmdir($this->dbDir);
     }
 
-    private function makeConfig(string $repoPath = '', string $subreposDir = ''): Config
+    private function makeConfig(string $repoPath = '', string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT): Config
     {
         return new Config(
             botToken: 'test-token',
@@ -74,6 +75,7 @@ final class BotTest extends TestCase
             gitTimeout: 120,
             forgeOwners: new ForgeOwners(['anime-db', 'gpslab']),
             subreposDir: $subreposDir,
+            engine: $engine,
             botLocale: 'en',
         );
     }
@@ -434,5 +436,55 @@ final class BotTest extends TestCase
         } finally {
             $this->removeDir($repo);
         }
+    }
+
+    /**
+     * A Kimi run in progress when the bot stops never reaches its audit: bot.log says it was skipped.
+     * The audit needs the run home, which the stop purges, so a differential run is pointless.
+     */
+    public function testAKimiRunInProgressAtStopLogsTheSkippedAudit(): void
+    {
+        $bot = new Bot(
+            $this->makeConfig(engine: Config::ENGINE_KIMI),
+            $this->db,
+            new FakeTelegram(),
+            new GitManager(sys_get_temp_dir()),
+            new SessionFiles(sys_get_temp_dir()),
+        );
+        $state = (new \ReflectionProperty(Bot::class, 'runState'))->getValue($bot);
+        $state->activeJob = new KimiRunner('kimi', sys_get_temp_dir(), 0, []);
+
+        (new \ReflectionProperty(Bot::class, 'running'))->setValue($bot, false);
+        $log = $this->capturedLog(static function () use ($bot): void {
+            try {
+                $bot->run();
+            } catch (\Throwable) {
+                // pcntl may be absent; the shutdown line is best-effort.
+            }
+        });
+
+        self::assertStringContainsString('kimi gate audit skipped: the bot stopped with the run in progress', $log);
+    }
+
+    /**
+     * Collects what {@see GpsLab\WorkspaceAssistant\Log} writes to STDERR while {@see $run} runs.
+     *
+     * @param \Closure(): void $run
+     */
+    private function capturedLog(\Closure $run): string
+    {
+        if (!in_array('stderr_capture', stream_get_filters(), true)) {
+            stream_filter_register('stderr_capture', StderrCaptureFilter::class);
+        }
+        StderrCaptureFilter::$buffer = '';
+        $filter = stream_filter_append(STDERR, 'stderr_capture', STREAM_FILTER_WRITE);
+        self::assertNotFalse($filter);
+        try {
+            $run();
+        } finally {
+            stream_filter_remove($filter);
+        }
+
+        return StderrCaptureFilter::$buffer;
     }
 }

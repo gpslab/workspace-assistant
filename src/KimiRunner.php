@@ -8,10 +8,14 @@ use GpsLab\WorkspaceAssistant\FileSystem\Removal;
 use GpsLab\WorkspaceAssistant\Kimi\DeferredRunHome;
 use GpsLab\WorkspaceAssistant\Kimi\KimiErrorClassifier;
 use GpsLab\WorkspaceAssistant\Kimi\KimiFormatStatus;
+use GpsLab\WorkspaceAssistant\Kimi\KimiHook;
+use GpsLab\WorkspaceAssistant\Kimi\KimiHookRecords;
+use GpsLab\WorkspaceAssistant\Kimi\KimiRunAudit;
 use GpsLab\WorkspaceAssistant\Kimi\KimiRunHomeRenderer;
 use GpsLab\WorkspaceAssistant\Kimi\KimiStreamParser;
 use GpsLab\WorkspaceAssistant\Kimi\KimiVersionGuard;
 use GpsLab\WorkspaceAssistant\Kimi\KimiWire;
+use GpsLab\WorkspaceAssistant\Kimi\KimiWireAudit;
 use GpsLab\WorkspaceAssistant\Kimi\KimiWireReader;
 use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
 
@@ -130,6 +134,17 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
     /** @var array<string, true>|null session directories that existed before this run was launched */
     private ?array $launchSessionDirs = null;
 
+    /** Session directory of a resumed run, resolved at launch; null when the run starts a new session. */
+    private ?string $auditSessionDir = null;
+
+    /**
+     * The byte offsets of the session's wire files taken at launch, for {@see wireAudit()}.
+     * `[]` is the explicit empty window of a new session, which has no directory at launch.
+     *
+     * @var array<string, int>|null
+     */
+    private ?array $wireWindow = null;
+
     /**
      * @param list<string>          $extraArgs       extra argv for the run (`KIMI_EXTRA_ARGS`)
      * @param int                   $timeout         overall ceiling for a run (sec); 0 disables it
@@ -244,6 +259,13 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
             $runHome = $this->prepareRunHome();
             $this->runHome = $runHome;
             $this->writeRunHome($runHome, $built['text'], $languageLine, $memory);
+
+            // The audit window of the run: a resumed session's wire files exist now and are
+            // cumulative over its runs, so their current size is the start of this run's window. A
+            // new session has no directory yet: the empty window is an explicit case, not a missing
+            // one, and compare() then reads its files from 0 after the run.
+            $this->auditSessionDir = $this->findSessionDir($sessionId);
+            $this->wireWindow = $this->snapshotWire();
 
             $this->wirePath = $this->findWirePath($sessionId);
             $this->wireOffset = $this->wirePath !== null ? max(0, (int) @filesize($this->wirePath)) : 0;
@@ -411,6 +433,40 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         if ($this->tmpDir !== null) {
             @rmdir($this->tmpDir);
             $this->tmpDir = null;
+        }
+    }
+
+    /**
+     * The audit of the finished run: the wire window taken at launch against the hook records the
+     * shim wrote into the run home. Call it before {@see purgeRunHome()} — the records live there.
+     *
+     * A difference is not reported here; it is the caller's to route (a gate violation on a gated run,
+     * a log line on a chat run). An unavailable audit is reported as such rather than as a clean one,
+     * so nothing hides a run that could not be checked.
+     */
+    public function wireAudit(): KimiRunAudit
+    {
+        $records = KimiHookRecords::read($this->runHome !== null ? $this->runHome.'/'.KimiHook::HOOK_RECORDS_FILE : '');
+        if ($records->skippedLines > 0) {
+            Log::line('kimi gate audit: skipped '.$records->skippedLines.' invalid hook record line(s)');
+        }
+
+        $dir = $this->auditSessionDir;
+        if ($dir === null) {
+            $wire = $this->currentWirePath();
+            $dir = $wire !== null ? dirname($wire, 3) : null;
+        }
+        if ($dir === null) {
+            return KimiRunAudit::unavailable('the session directory is not available');
+        }
+
+        try {
+            return KimiRunAudit::of(
+                KimiWireAudit::compare($dir, $this->wireWindow ?? [], $records->records),
+                !$records->found,
+            );
+        } catch (\RuntimeException $e) {
+            return KimiRunAudit::unavailable($e->getMessage());
         }
     }
 
@@ -599,19 +655,48 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         return array_values(array_filter($dirs, static fn (string $path): bool => is_dir($path)));
     }
 
-    /** `wire.jsonl` of a known session id, or null when the session directory is not on disk. */
-    private function findWirePath(?string $sessionId): ?string
+    /** The session directory of a known session id, or null when it is not on disk. */
+    private function findSessionDir(?string $sessionId): ?string
     {
         if ($sessionId === null) {
             return null;
         }
         foreach ($this->sessionDirs() as $dir) {
             if (basename($dir) === $sessionId) {
-                return $dir.'/agents/main/wire.jsonl';
+                return $dir;
             }
         }
 
         return null;
+    }
+
+    /** `wire.jsonl` of a known session id, or null when the session directory is not on disk. */
+    private function findWirePath(?string $sessionId): ?string
+    {
+        $dir = $this->findSessionDir($sessionId);
+
+        return $dir !== null ? $dir.'/agents/main/wire.jsonl' : null;
+    }
+
+    /**
+     * The audit window taken at launch. A new session has no directory: the empty window is the
+     * explicit case. A snapshot that cannot be taken widens the window to the whole file rather than
+     * hiding a difference.
+     *
+     * @return array<string, int>
+     */
+    private function snapshotWire(): array
+    {
+        if ($this->auditSessionDir === null) {
+            return [];
+        }
+        try {
+            return KimiWireAudit::snapshot($this->auditSessionDir);
+        } catch (\RuntimeException $e) {
+            Log::line('kimi gate audit: the wire snapshot is not available: '.$e->getMessage());
+
+            return [];
+        }
     }
 
     /**
@@ -1009,6 +1094,8 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         $this->wireOffset = 0;
         $this->lastWireSize = 0;
         $this->launchSessionDirs = null;
+        $this->auditSessionDir = null;
+        $this->wireWindow = null;
     }
 
     private static function isAlive(int $pid): bool
