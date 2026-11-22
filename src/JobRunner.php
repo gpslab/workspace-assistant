@@ -31,6 +31,13 @@ final class JobRunner implements JobLauncher, RunControl
     /** Pause on a Claude limit when the reset time could not be parsed from the error text. */
     private const int LIMIT_PAUSE_FALLBACK_SEC = 3600;
 
+    /**
+     * Deadline for the Kimi gate self-test (a local bootstrap and writability check, normally < 1 s).
+     * Without it a stuck shim would freeze the single-threaded bot forever because `launchJob()` runs
+     * inside the polling loop.
+     */
+    private const int KIMI_SELF_TEST_TIMEOUT = 5;
+
     private readonly ClaudeErrorText $claudeErrorText;
 
     public function __construct(
@@ -47,6 +54,8 @@ final class JobRunner implements JobLauncher, RunControl
         private readonly RunState $runState,
         private readonly RunnerFactory $runnerFactory,
         private readonly MemorySync $memorySync,
+        /** Overrides the gate shim path for the timeout test; the real `bin/kimi-hook.php` in production. */
+        private readonly ?string $kimiHookShim = null,
     ) {
         $this->claudeErrorText = new ClaudeErrorText($locale);
     }
@@ -313,11 +322,14 @@ final class JobRunner implements JobLauncher, RunControl
      * created under, and returns the failure text or null when it passes. The shim checks that it
      * can write what the gate needs; a parse error or a missing bootstrap makes it exit non-zero.
      *
-     * Arguments are passed as an array to proc_open: no shell, no injection.
+     * Arguments are passed as an array to proc_open: no shell, no injection. The pipes are read
+     * non-blocking with a `stream_select` deadline so that a stuck shim (a blocking bootstrap
+     * `include`, a hung filesystem, a PHP binary waiting on stdin) cannot freeze the polling loop,
+     * and both pipes are drained on every pass so a full buffer can never stall the other.
      */
     private function runKimiSelfTest(): ?string
     {
-        $shim = dirname(__DIR__).'/bin/kimi-hook.php';
+        $shim = $this->kimiHookShim ?? dirname(__DIR__).'/bin/kimi-hook.php';
         if (!is_file($shim)) {
             return 'The Kimi gate shim is not installed: '.$shim;
         }
@@ -333,9 +345,55 @@ final class JobRunner implements JobLauncher, RunControl
             return 'The Kimi gate self-test could not be started.';
         }
         fclose($pipes[0]);
-        $stdout = (string) stream_get_contents($pipes[1]);
-        $stderr = (string) stream_get_contents($pipes[2]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+
+        $stdout = '';
+        $stderr = '';
+        $deadline = microtime(true) + self::KIMI_SELF_TEST_TIMEOUT;
+        $timedOut = false;
+
+        while (true) {
+            // Drain both pipes each pass: never wait for EOF on one while the other fills its buffer.
+            $stdout .= stream_get_contents($pipes[1]) ?: '';
+            $stderr .= stream_get_contents($pipes[2]) ?: '';
+
+            $running = proc_get_status($proc)['running'];
+            if (!$running) {
+                break;
+            }
+            if (microtime(true) >= $deadline) {
+                $timedOut = true;
+                break;
+            }
+
+            $read = [$pipes[1], $pipes[2]];
+            $write = null;
+            $except = null;
+            $remaining = $deadline - microtime(true);
+            $sec = (int) floor($remaining);
+            $usec = (int) (($remaining - $sec) * 1_000_000);
+            @stream_select($read, $write, $except, $sec, $usec);
+        }
+
+        if ($timedOut) {
+            proc_terminate($proc, 15); // SIGTERM
+            usleep(300_000);
+            $status = proc_get_status($proc);
+            if ($status['running'] === true) {
+                proc_terminate($proc, 9); // SIGKILL
+            }
+        }
+
+        $stdout .= stream_get_contents($pipes[1]) ?: '';
+        $stderr .= stream_get_contents($pipes[2]) ?: '';
+        fclose($pipes[1]);
+        fclose($pipes[2]);
         $code = proc_close($proc);
+
+        if ($timedOut) {
+            return 'Kimi gate self-test timed out';
+        }
         if ($code === 0) {
             return null;
         }

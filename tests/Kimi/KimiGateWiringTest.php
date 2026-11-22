@@ -103,6 +103,26 @@ final class KimiGateWiringTest extends TestCase
     }
 
     /**
+     * A gated run whose gate shim hangs must stop the launch, not freeze the bot: the self-test has a
+     * short deadline, the child is terminated and the refusal mentions the timeout.
+     */
+    public function testAGatedRunIsRefusedWhenTheSelfTestTimesOut(): void
+    {
+        $runner = $this->jobRunner($this->config(), $this->sleepingShim());
+        $started = microtime(true);
+        $error = $runner->launchJob(
+            1, 0, RunKind::KIND_CHAT, 'hello', null, 100, null,
+            SystemPrompt::MODE_PM, 0,
+        );
+        $elapsed = microtime(true) - $started;
+
+        self::assertNotNull($error, 'a self-test that hangs must be refused');
+        self::assertStringContainsString('timed out', $error);
+        self::assertNull($this->runState->activeJob, 'the hung shim must not leave a running job');
+        self::assertLessThan(30.0, $elapsed, 'the launch must return promptly instead of waiting for the stub');
+    }
+
+    /**
      * A gated run with a hook record missing: the audit sees the wire call, reports a violation
      * loudly in the chat and the run gets no success status.
      */
@@ -253,6 +273,15 @@ final class KimiGateWiringTest extends TestCase
         proc_close($proc);
     }
 
+    /** A gate-shim stub in place of `bin/kimi-hook.php` that hangs, to exercise the self-test deadline. */
+    private function sleepingShim(): string
+    {
+        $path = $this->root.'/sleeping-shim.php';
+        file_put_contents($path, "<?php\n// Simulate a stuck bootstrap: never finish.\nsleep(60);\n");
+
+        return $path;
+    }
+
     /**
      * A fake `kimi` that creates the session directory with a wire holding one tool call and prints a
      * valid successful stream.
@@ -280,7 +309,7 @@ final class KimiGateWiringTest extends TestCase
         return $path;
     }
 
-    private function jobRunner(Config $config): JobRunner
+    private function jobRunner(Config $config, ?string $kimiHookShim = null): JobRunner
     {
         $locale = new Locale();
         $delivery = new Delivery($this->tg, $config, $locale);
@@ -300,6 +329,7 @@ final class KimiGateWiringTest extends TestCase
             $this->runState,
             $this->factory($config, $locale),
             new MemorySync('', $config->stateDir, $this->repo),
+            $kimiHookShim,
         );
     }
 
