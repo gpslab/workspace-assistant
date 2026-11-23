@@ -7,11 +7,13 @@ namespace GpsLab\WorkspaceAssistant\Tests\Kimi;
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Kimi\KimiHook;
+use GpsLab\WorkspaceAssistant\Kimi\KimiVersionGuard;
 use GpsLab\WorkspaceAssistant\KimiRunner;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
 use GpsLab\WorkspaceAssistant\RunnerState;
 use GpsLab\WorkspaceAssistant\SystemPrompt;
+use GpsLab\WorkspaceAssistant\Tests\StderrCaptureFilter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -27,6 +29,16 @@ final class KimiRunnerTest extends TestCase
 
     /** The session id the 01-plain stream fixture prints in `session.resume_hint`. */
     private const string FIXTURE_SESSION = 'session_69baaee8-5306-4648-b06b-465a8bb88e1f';
+
+    /**
+     * A CLI version the shipped {@see KimiVersionGuard} was not verified against. The verified ones
+     * are read from the guard itself, never written out here, so a change of the constant reaches
+     * the tests.
+     */
+    private const string UNVERIFIED_VERSION = '0.0.0-unverified';
+
+    /** A wire protocol version the shipped {@see KimiVersionGuard} was not verified against. */
+    private const string UNVERIFIED_PROTOCOL = '0.0-unverified';
 
     private string $root;
     private string $repo;
@@ -770,6 +782,158 @@ final class KimiRunnerTest extends TestCase
         foreach (['credentials', 'sessions', 'oauth'] as $name) {
             self::assertFileExists($this->kimiHome.'/'.$name.'/bait.txt');
         }
+    }
+
+    /**
+     * The two formats of a run are checked one by one, and an unverified CLI version next to a
+     * verified wire protocol is the CLI-version line alone: the fact that the guard does not know
+     * the stream format says nothing about `wire.jsonl`. The verified value comes from the guard's
+     * constant, so a value it stops accepting fails this test rather than pass it silently.
+     */
+    public function testAnUnverifiedCliVersionIsTheOnlyLine(): void
+    {
+        $log = $this->logOfRunWithFormats(
+            self::UNVERIFIED_VERSION,
+            KimiVersionGuard::VERIFIED_FORMATS['protocol_version'][0],
+        );
+
+        self::assertStringContainsString('kimi: unverified CLI version '.self::UNVERIFIED_VERSION, $log);
+        self::assertStringNotContainsString('kimi: unverified wire protocol version', $log);
+    }
+
+    /** The other side: an unverified protocol version next to a verified CLI version is its own line. */
+    public function testAnUnverifiedProtocolVersionIsTheOnlyLine(): void
+    {
+        $log = $this->logOfRunWithFormats(
+            KimiVersionGuard::VERIFIED_FORMATS['version'][0],
+            self::UNVERIFIED_PROTOCOL,
+        );
+
+        self::assertStringContainsString(
+            'kimi: unverified wire protocol version '.self::UNVERIFIED_PROTOCOL.'; tokens, model and error may be read wrongly',
+            $log,
+        );
+        self::assertStringNotContainsString('kimi: unverified CLI version', $log);
+    }
+
+    /** A self-update that changes both formats is two warnings, not one. */
+    public function testBothUnverifiedFormatsAreTwoLines(): void
+    {
+        $log = $this->logOfRunWithFormats(self::UNVERIFIED_VERSION, self::UNVERIFIED_PROTOCOL);
+
+        self::assertStringContainsString('kimi: unverified CLI version '.self::UNVERIFIED_VERSION, $log);
+        self::assertStringContainsString('kimi: unverified wire protocol version '.self::UNVERIFIED_PROTOCOL, $log);
+    }
+
+    /**
+     * The formats the shipped guard was verified against warn about nothing. The values are the ones
+     * of the fixtures themselves, so this is the case a self-update of the guard alone would break —
+     * and the wire window of the run is read, so the silence is not a value that never arrived: the
+     * first record of that window is the `metadata` carrying the protocol version.
+     */
+    public function testTheVerifiedFormatsWarnAboutNothing(): void
+    {
+        $runner = $this->runnerOfFormats(
+            KimiVersionGuard::VERIFIED_FORMATS['version'][0],
+            KimiVersionGuard::VERIFIED_FORMATS['protocol_version'][0],
+        );
+
+        try {
+            $log = $this->capturedLog(function () use ($runner): void {
+                $this->finishRun($runner);
+            });
+
+            self::assertStringNotContainsString('kimi: unverified', $log);
+            self::assertNotNull($runner->result()->totals, 'the run reads the wire window of its session');
+        } finally {
+            $runner->purgeRunHome();
+        }
+    }
+
+    /**
+     * Runs the real runner against a fake `kimi` that reports $cliVersion in the `system.version`
+     * event of its stream and creates its session with a wire whose `metadata.protocol_version` is
+     * $protocolVersion, and returns what the run wrote to STDERR.
+     *
+     * The line is written in `poll()` → `buildResult()`, so the capture spans the poll loop to `Done`.
+     */
+    private function logOfRunWithFormats(string $cliVersion, string $protocolVersion): string
+    {
+        $runner = $this->runnerOfFormats($cliVersion, $protocolVersion);
+
+        try {
+            return $this->capturedLog(function () use ($runner): void {
+                $this->finishRun($runner);
+            });
+        } finally {
+            $runner->purgeRunHome();
+        }
+    }
+
+    private function runnerOfFormats(string $cliVersion, string $protocolVersion): KimiRunner
+    {
+        return $this->runner($this->fakeKimiOfFormats($cliVersion, $protocolVersion));
+    }
+
+    /** Starts the run and polls it to the end. The runner is ready to read its result afterwards. */
+    private function finishRun(KimiRunner $runner): void
+    {
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+    }
+
+    /**
+     * A fake `kimi` of the shape of {@see fakeKimi()} whose stream and wire carry the given formats
+     * instead of the recorded ones, so the version guard can be exercised from both sides without
+     * rewriting the committed fixtures.
+     */
+    private function fakeKimiOfFormats(string $cliVersion, string $protocolVersion): string
+    {
+        $stdout = (string) preg_replace(
+            '/"version":"[^"]*"/',
+            '"version":'.json_encode($cliVersion, JSON_THROW_ON_ERROR),
+            $this->fixtureContent('run/01-plain.stdout.jsonl'),
+            1,
+        );
+        $wire = (string) preg_replace(
+            '/"protocol_version":"[^"]*"/',
+            '"protocol_version":'.json_encode($protocolVersion, JSON_THROW_ON_ERROR),
+            $this->wireBodyForNow('wire/01-plain/main.jsonl'),
+            1,
+        );
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::FIXTURE_SESSION;
+        $body = $this->recordPrologue()
+            .'@mkdir('.var_export($sessionDir.'/agents/main', true).', 0700, true);'."\n"
+            .'file_put_contents('.var_export($sessionDir.'/agents/main/wire.jsonl', true).', '.var_export($wire, true).');'."\n"
+            .'file_put_contents('.var_export($sessionDir.'/state.json', true).', "{}");'."\n"
+            .'fwrite(STDOUT, '.var_export($stdout, true).');'."\n"
+            .'exit(0);'."\n";
+
+        return $this->writeFake($body);
+    }
+
+    /**
+     * Collects what the bot logs to STDERR while {@see $run} runs: the filter is registered only when
+     * the process does not know it yet, and the buffer is reset before the run. The same helper as in
+     * {@see KimiGateWiringTest}, where the log lines of a gated run are pinned.
+     *
+     * @param \Closure(): void $run
+     */
+    private function capturedLog(\Closure $run): string
+    {
+        if (!in_array('stderr_capture', stream_get_filters(), true)) {
+            stream_filter_register('stderr_capture', StderrCaptureFilter::class);
+        }
+        StderrCaptureFilter::$buffer = '';
+        $filter = stream_filter_append(STDERR, 'stderr_capture', STREAM_FILTER_WRITE);
+        self::assertNotFalse($filter);
+        try {
+            $run();
+        } finally {
+            stream_filter_remove($filter);
+        }
+
+        return StderrCaptureFilter::$buffer;
     }
 
     /**
