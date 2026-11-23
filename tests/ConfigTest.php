@@ -888,6 +888,25 @@ final class ConfigTest extends TestCase
         self::assertSame([], Config::load($this->envFile)->startupWarnings('/nonexistent-home'));
     }
 
+    public function testRelativeKimiHomeIsRejectedOnAKimiInstance(): void
+    {
+        // A relative home never works: the run home symlinks its credentials, sessions and oauth to it,
+        // and a relative symlink target resolves against the link's own directory, so the links dangle.
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nKIMI_HOME=kimi-home\n");
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('KIMI_HOME=kimi-home in .env must be an absolute path');
+        Config::load($this->envFile);
+    }
+
+    public function testRelativeKimiHomeIsNotRejectedOnAnotherEngine(): void
+    {
+        // KIMI_HOME is only read by a Kimi run, so a Claude or OpenCode instance starts without a check.
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nKIMI_HOME=kimi-home\n");
+
+        self::assertSame('kimi-home', Config::load($this->envFile)->kimiHome);
+    }
+
     public function testKimiEngineIsAcceptedFromEnvAndKeepsTheConfiguredFields(): void
     {
         $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nKIMI_HOME=/srv/kimi\nKIMI_MODEL=kimi-k2\n");

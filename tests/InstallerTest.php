@@ -456,6 +456,15 @@ final class InstallerTest extends TestCase
         self::assertStringNotContainsString('is in CLAUDE_EXTRA_ARGS', $out.$err);
     }
 
+    public function testRejectsRelativeKimiHome(): void
+    {
+        [$code, , $err] = $this->install([...$this->required(), '--engine=kimi', '--kimi-home=relative/kimi']);
+
+        self::assertNotSame(0, $code);
+        self::assertStringContainsString('KIMI_HOME: must be an absolute path', $err);
+        self::assertFileDoesNotExist($this->root.'/.env');
+    }
+
     public function testKimiEngineIsAcceptedAndWritesTheKeys(): void
     {
         [$code, , $err] = $this->install([...$this->required(), '--engine=kimi', '--kimi-bin=/usr/local/bin/kimi', '--kimi-model=kimi-k2']);

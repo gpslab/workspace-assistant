@@ -241,6 +241,15 @@ final class Config
         }
         $kimiBin = $kimiBin !== '' ? $kimiBin : 'kimi';
 
+        // Home of the logged-in Kimi CLI, which the run links its credentials, sessions and oauth to.
+        // Unlike KIMI_BIN (a bare `kimi` can still resolve on PATH) a relative home never works: a
+        // relative symlink target resolves against the link's own directory, so the links dangle and
+        // the session cleanup globs a different directory. Reject it outright on Kimi.
+        $kimiHome = trim((string) $env->get('KIMI_HOME', ''));
+        if ($engine === self::ENGINE_KIMI && $kimiHome !== '' && !str_starts_with($kimiHome, '/')) {
+            throw new \RuntimeException("KIMI_HOME={$kimiHome} in .env must be an absolute path: a relative home never works.");
+        }
+
         $claudeExtraArgs = $env->list('CLAUDE_EXTRA_ARGS', '--dangerously-skip-permissions');
         $claudeModels = array_values(array_unique($env->list('CLAUDE_MODELS', implode(',', self::DEFAULT_CLAUDE_MODELS))));
         $claudeModelsSet = trim((string) $env->get('CLAUDE_MODELS', '')) !== '';
@@ -324,7 +333,7 @@ final class Config
             opencodeModel: trim((string) $env->get('OPENCODE_MODEL', '')),
             opencodeExtraArgs: array_values($env->list('OPENCODE_EXTRA_ARGS')),
             kimiBin: $kimiBin,
-            kimiHome: trim((string) $env->get('KIMI_HOME', '')),
+            kimiHome: $kimiHome,
             kimiModel: trim((string) $env->get('KIMI_MODEL', '')),
             kimiExtraArgs: array_values($env->list('KIMI_EXTRA_ARGS')),
             configWarnings: $configWarnings,
