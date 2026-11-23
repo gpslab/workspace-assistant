@@ -28,6 +28,9 @@ final class ChatSurface
     /** How many start candidates the /epic list shows at most. */
     private const int EPIC_CANDIDATES_MAX = 10;
 
+    /** `answerCallbackQuery` shows at most 200 characters; longer callback text is cut to fit. */
+    private const int CALLBACK_ANSWER_MAX = 200;
+
     public function __construct(
         private readonly Database $db,
         private readonly TelegramClient $tg,
@@ -307,7 +310,7 @@ final class ChatSurface
         // epic run (start, resume) are refused like the command itself.
         $gateRefusal = $this->kimiGate->refusal();
         if ($gateRefusal !== null) {
-            $this->tg->answerCallback($callbackId, $this->t('epic.gates_unavailable', ['reason' => $gateRefusal]));
+            $this->tg->answerCallback($callbackId, $this->callbackText($this->t('epic.gates_unavailable', ['reason' => $gateRefusal])));
 
             return;
         }
@@ -435,5 +438,15 @@ final class ChatSurface
     private function t(string $key, array $params = []): string
     {
         return $this->locale->t($key, $params);
+    }
+
+    /**
+     * The text of a callback toast: `answerCallbackQuery` shows at most {@see self::CALLBACK_ANSWER_MAX}
+     * characters and the API answers a 400 silently when it is longer. A long refusal (a self-test error
+     * can carry a full path) is cut so the user still sees something instead of nothing.
+     */
+    private function callbackText(string $text): string
+    {
+        return mb_strlen($text) > self::CALLBACK_ANSWER_MAX ? mb_substr($text, 0, self::CALLBACK_ANSWER_MAX - 1).'…' : $text;
     }
 }

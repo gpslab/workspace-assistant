@@ -122,8 +122,8 @@ final class Bot implements LoopControl
         $this->runResult = new RunResult($config, $db, $git, $this->subRepoSync, $this->delivery, $this->locale, $this->runState, $this->secretBlocker);
         $this->inbox = new Inbox($tg, $config, $this->locale);
         // The refusal predicate of the gated modes and the epics on Kimi: one instance for the whole
-        // bot, so the self-test of the gate shim is taken once per process (see KimiGateGuard). The
-        // parameter is the seam of the tests, which run the bot under a home of their own.
+        // bot, so a passing self-test of the gate shim is cached for the process (see KimiGateGuard).
+        // The parameter is the seam of the tests, which run the bot under a home of their own.
         $this->kimiGate = $kimiGate ?? new KimiGateGuard($config, $this->locale);
         $this->albumBuffer = new AlbumBuffer();
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
@@ -147,7 +147,7 @@ final class Bot implements LoopControl
         ];
         $notifier = new EpicNotifier($db, $this->delivery, $this->epicCard, $this->locale);
         $runPrompt = new RunPrompt($db, $config, $github);
-        $this->queueScheduler = new QueueScheduler($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->locales, $this->queueTexts, $this->dirtyTree, $this->runState, $runPrompt, $this->inbox, $this->subRepoSync, $this->jobRunner, $this->kimiGate);
+        $this->queueScheduler = new QueueScheduler($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->locales, $this->queueTexts, $this->dirtyTree, $this->runState, $runPrompt, $this->inbox, $this->subRepoSync, $this->jobRunner, $this->kimiGate, $notifier->blockEpic(...));
         $this->commandRouter = $this->buildCommandRouter();
         $this->commandMenu = new Menu($this->commandRouter, $tg, $this->locale);
         // The Orchestrator connects wherever epics do, Kimi included: what a gated epic run needs is

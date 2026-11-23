@@ -220,8 +220,10 @@ What differs from a Claude instance:
     reads it from the newest session on the source home, the one the installed engine wrote last; a home with
     no session yet has no version to distrust.
   - **The gate shim fails its self-test.** Kimi's hooks fail open, so a shim that cannot start or write would
-    let every call through unnoticed. The self-test is taken once per process: a shim that is repaired while
-    the bot runs needs a restart, like any other change of the installation.
+    let every call through unnoticed. A passing self-test is cached for the process, so a repaired shim still
+    needs a restart like any other change of the installation; a failure is retried after a short delay, so a
+    single slow call or a transiently unwritable state directory does not block the gated modes until a
+    restart.
 - Every run gets its own home (`STATE_DIR/kimi-<runId>/`, mode 0700) with the rendered `config.toml`, the
   assembled prompt in `agent.md` and the agents of the instance. The `credentials/`, `sessions/` and `oauth/`
   entries of the source home (`KIMI_HOME`, default `~/.kimi-code`) are linked into it, never copied: the

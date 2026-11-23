@@ -92,13 +92,33 @@ final class KimiGateGuardTest extends TestCase
         self::assertSame('the wire protocol version 9.9 is unknown to the bot', $guard->refusalLog());
     }
 
-    /** The version of a session the engine wrote is read from the newest one on the source home. */
+    /**
+     * The version of a session the engine wrote is read from the newest one on the source home. The ids
+     * are chosen so that the newest session sorts FIRST alphabetically: an implementation that ignores
+     * `filemtime` and takes the last `glob()` entry would pick the old 9.9 and refuse instead of passing.
+     */
     public function testTheProtocolVersionComesFromTheNewestSession(): void
     {
-        $this->session('9.9', 'session_11111111-1111-1111-1111-111111111111', time() - 3600);
-        $this->session('1.5', 'session_22222222-2222-2222-2222-222222222222');
+        $this->session('9.9', 'session_22222222-2222-2222-2222-222222222222', time() - 3600);
+        $this->session('1.5', 'session_11111111-1111-1111-1111-111111111111');
 
         self::assertNull($this->guard()->refusal());
+    }
+
+    /**
+     * The newest session carries the unknown version, while the older, known one sorts LAST: picking the
+     * last `glob()` entry would return the known 1.5 and pass, so the refusal proves the version is
+     * read by mtime.
+     */
+    public function testAnUnknownVersionOfTheNewestSessionRefuses(): void
+    {
+        $this->session('1.5', 'session_22222222-2222-2222-2222-222222222222', time() - 3600);
+        $this->session('9.9', 'session_11111111-1111-1111-1111-111111111111');
+
+        $guard = $this->guard();
+
+        self::assertSame($this->text('gate.kimi_protocol_unknown', ['version' => '9.9']), $guard->refusal());
+        self::assertSame('the wire protocol version 9.9 is unknown to the bot', $guard->refusalLog());
     }
 
     /** A home with no session at all has no version to distrust: the format is unread, not changed. */
@@ -150,8 +170,8 @@ final class KimiGateGuardTest extends TestCase
     }
 
     /**
-     * The self-test belongs to the installation and is taken once per process: a shim that is probed
-     * twice for two messages of the same bot does not spawn twice.
+     * A passing self-test belongs to the installation and is cached for the process: a shim that is
+     * probed twice for two messages of the same bot does not spawn twice.
      */
     public function testTheSelfTestIsTakenOncePerProcess(): void
     {
@@ -166,6 +186,33 @@ final class KimiGateGuardTest extends TestCase
         self::assertNull($guard->refusalLog());
 
         self::assertSame("x\n", (string) file_get_contents($calls));
+    }
+
+    /**
+     * A failure is not cached for the process: the self-test is re-taken (with the backoff removed here)
+     * and a later pass lifts the refusal. Only the pass is what gets cached.
+     */
+    public function testASelfTestFailureIsRetriedAndAPassIsCached(): void
+    {
+        $this->session('1.5');
+        $calls = $this->root.'/self-test.calls';
+        $shim = $this->root.'/flaky-shim.php';
+        file_put_contents($shim, '<?php'."\n"
+            .'$n = (int) @file_get_contents('.var_export($calls, true).');'."\n"
+            .'file_put_contents('.var_export($calls, true).', $n + 1);'."\n"
+            .'if ($n === 0) { fwrite(STDERR, "first call fails"); exit(1); }'."\n"
+            .'exit(0);'."\n");
+
+        $guard = $this->guard(selfTestShim: $shim);
+
+        self::assertStringContainsString('first call fails', (string) $guard->refusal());
+
+        // The failure is not permanent: the next check re-runs the self-test, which now passes.
+        self::assertNull($guard->refusal());
+        self::assertNull($guard->refusalLog());
+
+        // The pass is cached: the shim was probed exactly twice (fail, then pass).
+        self::assertSame('2', (string) file_get_contents($calls));
     }
 
     /** `$HOME/.agents` is read on every call: removing it while the bot runs lifts the refusal. */
@@ -194,11 +241,11 @@ final class KimiGateGuardTest extends TestCase
     /**
      * @param string|null $selfTestShim the shim to self-test; null = the one of this installation
      */
-    private function guard(string $engine = Config::ENGINE_KIMI, ?string $selfTestShim = null): KimiGateGuard
+    private function guard(string $engine = Config::ENGINE_KIMI, ?string $selfTestShim = null, int $selfTestRetrySec = 0): KimiGateGuard
     {
         $config = $this->config($engine);
 
-        return new KimiGateGuard($config, Locale::fromConfig($config), $this->home, $selfTestShim);
+        return new KimiGateGuard($config, Locale::fromConfig($config), $this->home, $selfTestShim, $selfTestRetrySec);
     }
 
     private function config(string $engine = Config::ENGINE_KIMI): Config

@@ -3620,7 +3620,12 @@ final class QueueFlowTest extends TestCase
         self::assertSame(0, $this->launches());
     }
 
-    public function testKimiDropsAStrayEpicItemSilently(): void
+    /**
+     * An epic that is running while the gate breaks is stopped once, with the localized refusal, instead
+     * of stalling silently: its orchestrator would otherwise keep re-enqueuing runs that are each dropped
+     * without a chat message. Blocking it stops that loop, so the chat sees exactly one message.
+     */
+    public function testKimiBlocksARunningEpicOnceWhenTheGateBreaks(): void
     {
         $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateHome: $this->homeWithAgents());
         $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
@@ -3630,7 +3635,34 @@ final class QueueFlowTest extends TestCase
 
         self::assertSame([], $this->db->queueWaiting());
         self::assertSame(0, $this->launches());
-        self::assertSame([], $this->tg->textsTo(100, 1));
+        self::assertSame('blocked', $this->db->epicGet('demo')['status'] ?? null);
+
+        // Exactly one chat notification tells why: the refusal text, delivered once by the block.
+        // (The status card is edited too, but it is the card, not a repeated refusal.)
+        $notices = array_values(array_filter(
+            $this->tg->textsTo(100, 1),
+            static fn (string $t): bool => str_contains($t, 'epic is stopped'),
+        ));
+        self::assertCount(1, $notices);
+        self::assertStringContainsString($this->agentsReason(), $notices[0]);
+
+        // The epic is blocked: the orchestrator no longer enqueues runs for it, so no repeated message.
+        self::assertFalse($this->queueScheduler()->enqueueEpicRun('demo', Run::TICK));
+    }
+
+    /** A long self-test failure is cut to the 200-character `answerCallbackQuery` limit, not swallowed. */
+    public function testKimiTruncatesALongEpicCallbackRefusal(): void
+    {
+        $shim = $this->root.'/long-shim.php';
+        file_put_contents($shim, '<?php'."\nfwrite(STDERR, ".var_export(str_repeat('x', 500), true).");\nexit(1);\n");
+
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateShim: $shim);
+
+        $this->commitCallback(777, 100, 1, 'epic:go:1:demo');
+
+        self::assertCount(1, $this->tg->answers);
+        self::assertLessThanOrEqual(200, mb_strlen($this->tg->answers[0]));
+        self::assertStringContainsString('Epics are refused', $this->tg->answers[0]);
     }
 
     /** The orchestrator is what drives the epics: a Kimi instance connects it like the other engines. */

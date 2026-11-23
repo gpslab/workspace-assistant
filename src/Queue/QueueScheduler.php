@@ -79,6 +79,7 @@ final class QueueScheduler implements QueueControl
         private readonly SubRepoSync $subRepoSync,
         private readonly JobLauncher $launcher,
         private readonly KimiGateGuard $kimiGate,
+        private readonly \Closure $blockEpic,
     ) {
     }
 
@@ -689,11 +690,16 @@ final class QueueScheduler implements QueueControl
         $run = (string) ($head['parts'][0]['run'] ?? '');
 
         // An epic run carries a gate that does not hold right now (a queue item can also outlive a restart
-        // into another engine): it is dropped silently — no chat message, so that the refusal cannot repeat
-        // on every tick of an orchestrator that keeps enqueuing the same run — and named in bot.log.
-        $gateRefusal = $this->kimiGate->refusalLog();
+        // into another engine). A running epic is stopped once with the localized refusal — its
+        // orchestrator would otherwise keep re-enqueuing the same run, each one dropped silently but for
+        // a bot.log line per tick. A stray item of a paused or done epic is dropped without a message.
+        $gateRefusal = $this->kimiGate->refusal();
         if ($gateRefusal !== null) {
-            Log::line("queue: epic run {$slug} ({$run}) dropped - {$gateRefusal}");
+            $epic = $this->db->epicGet($slug);
+            if ($epic !== null && $epic['status'] === self::EPIC_RUNNING) {
+                ($this->blockEpic)($slug, $gateRefusal);
+            }
+            Log::line("queue: epic run {$slug} ({$run}) dropped - ".$this->kimiGate->refusalLog());
 
             $this->dropItem($head, null);
 

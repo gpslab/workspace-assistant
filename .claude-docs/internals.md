@@ -295,13 +295,15 @@ startup log line, since neither applies here.
   is refused by.
 - `KimiGateGuard` is the refusal predicate of the gated modes and the epics on Kimi, and the one production
   caller of `KimiGatedPreconditions::check()`: it reads `$HOME/.agents` and the `metadata.protocol_version`
-  of the newest session on the source home on every call (both change while the bot runs), takes the
-  self-test of the gate shim at most once per process (`KimiGateSelfTest`, which `JobRunner` shares), and
-  returns the refusal text of each failing condition — in the chat through `KimiGateGuard::refusal()` and in
-  bot.log through `refusalLog()`. The queue (`QueueScheduler`), the `/epic` surface (`Epic\ChatSurface`) and
-  `/compact` (`CompactFlow`) are its callers; `Bot` builds one instance for the whole process. An engine that
-  is not Kimi is never refused by it. With the preconditions holding, the orchestrator of a Kimi instance is
-  connected like on the other engines.
+  of the newest session on the source home on every call (both change while the bot runs), and takes the
+  self-test of the gate shim (`KimiGateSelfTest`, which `JobRunner` shares) — a pass is cached for the
+  process, a failure is retried after a short backoff — and returns the refusal text of each failing
+  condition — in the chat through `KimiGateGuard::refusal()` and in bot.log through `refusalLog()`. The queue
+  (`QueueScheduler`), the `/epic` surface (`Epic\ChatSurface`) and `/compact` (`CompactFlow`) are its callers;
+  `Bot` builds one instance for the whole process. An engine that is not Kimi is never refused by it. With the
+  preconditions holding, the orchestrator of a Kimi instance is connected like on the other engines; an epic
+  run that reaches the queue while a running epic's gate does not hold blocks the epic once with the refusal,
+  so the orchestrator does not keep re-enqueuing a run that is dropped silently.
 - The memory of the instance is injected here, because this engine reads no user scope (see [Memory](#memory)).
 
 ---

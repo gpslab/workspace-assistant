@@ -23,27 +23,35 @@ use GpsLab\WorkspaceAssistant\Locale;
  *   The protocol version is the one of the newest session on the source home: Kimi writes
  *   `metadata.protocol_version` once per session, so the session the running engine created last
  *   tells the format it speaks. No session yet (a fresh instance) is not an unknown version.
- * - The self-test of the gate shim is taken at most once per process: the shim belongs to the
- *   installation, so a change of it comes with a restart. The self-test of {@see \GpsLab\WorkspaceAssistant\JobRunner}
- *   stays the authoritative one before a gated run.
+ * - The self-test of the gate shim is cached only when it passes: the shim belongs to the installation,
+ *   so a change of it comes with a restart. A failure is re-taken (with a short backoff), because the
+ *   self-test also probes state that can heal — the state directory's writability — or can be a single
+ *   slow call under load. The self-test of {@see \GpsLab\WorkspaceAssistant\JobRunner} stays the
+ *   authoritative one before a gated run.
  */
 final class KimiGateGuard
 {
     /** Complete lines of the head of a `wire.jsonl` read for the protocol version. */
     private const int WIRE_HEAD_BYTES = 65536;
 
+    /** A failed self-test is re-taken no more often than this: a broken shim must not cost its 5 s timeout per message. */
+    private const int SELF_TEST_RETRY_SEC = 60;
+
     private ?string $selfTestFailure = null;
-    private bool $selfTestTaken = false;
+    private bool $selfTestPassed = false;
+    private float $selfTestFailedAt = 0.0;
 
     /**
-     * @param string|null $homeDir      home of the user the bot runs as; null = the real `$HOME`
-     * @param string|null $selfTestShim shim to self-test; null = the one of this installation (test seam)
+     * @param string|null $homeDir          home of the user the bot runs as; null = the real `$HOME`
+     * @param string|null $selfTestShim     shim to self-test; null = the one of this installation (test seam)
+     * @param int         $selfTestRetrySec how long a failed self-test is trusted before it is re-taken (test seam)
      */
     public function __construct(
         private readonly Config $config,
         private readonly Locale $locale,
         private readonly ?string $homeDir = null,
         private readonly ?string $selfTestShim = null,
+        private readonly int $selfTestRetrySec = self::SELF_TEST_RETRY_SEC,
     ) {
     }
 
@@ -172,12 +180,27 @@ final class KimiGateGuard
         return explode("\n", substr($body, 0, $end));
     }
 
-    /** The self-test failure of the shim, taken once per process; null when it passed. */
+    /**
+     * The self-test failure of the shim. A pass is cached for the process — the shim belongs to the
+     * installation, so a change of it comes with a restart. A failure is not: it is re-taken, but no
+     * more often than {@see self::SELF_TEST_RETRY_SEC}, because a single slow call or a transiently
+     * unwritable state directory must not block the gated modes until a restart. The self-test of
+     * {@see \GpsLab\WorkspaceAssistant\JobRunner} still runs before every gated run.
+     */
     private function selfTestFailure(): ?string
     {
-        if (!$this->selfTestTaken) {
-            $this->selfTestTaken = true;
-            $this->selfTestFailure = (new KimiGateSelfTest($this->selfTestShim))->run($this->config->stateDir);
+        if ($this->selfTestPassed) {
+            return null;
+        }
+        if ($this->selfTestFailure === null || microtime(true) - $this->selfTestFailedAt >= $this->selfTestRetrySec) {
+            $failure = (new KimiGateSelfTest($this->selfTestShim))->run($this->config->stateDir);
+            if ($failure === null) {
+                $this->selfTestPassed = true;
+                $this->selfTestFailure = null;
+            } else {
+                $this->selfTestFailure = $failure;
+                $this->selfTestFailedAt = microtime(true);
+            }
         }
 
         return $this->selfTestFailure;
