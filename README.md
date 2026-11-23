@@ -53,7 +53,8 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
 - Modes (`arch`, `review`, `pm`) with replaceable personas, interface locales, and *epics*: sets of
   GitHub tasks with dependencies that the bot's `Orchestrator` drives to completion — independent
   tasks run in parallel, dependent ones start once everything they depend on is merged. Epics work on
-  both engines ([OpenCode](#opencode)).
+  both engines that can run their gates ([OpenCode](#opencode)); on Kimi they are refused for now
+  ([Kimi](#kimi)).
 
 ## How it works
 
@@ -133,7 +134,8 @@ In an epic it runs as a step of the final check, on the merged PR diffs.
 
 - PHP 8.4+ with the extensions `curl`, `pdo_sqlite`, `pcntl` (and `posix`).
 - Claude Code CLI, authenticated for the account you want to use. With `ENGINE=opencode` the
-  [OpenCode CLI](https://opencode.ai) is used instead, see [OpenCode](#opencode).
+  [OpenCode CLI](https://opencode.ai) is used instead, see [OpenCode](#opencode); with `ENGINE=kimi` the
+  Kimi Code CLI (`kimi`) is used instead, see [Kimi](#kimi).
 - git with access to the workspace's remote (for example an SSH key).
 - [GitHub CLI](https://cli.github.com/) (`gh`), authenticated with `gh auth login` as the user that
   runs the bot. Both Claude (issues, pull requests) and the bot itself (epic polling) call it.
@@ -181,6 +183,34 @@ OpenCode keys are ignored. Verified against OpenCode **2.3.0**.
 
 The keys, the installer questions and the checks are in [INSTALL.md](INSTALL.md#opencode); how the prompt
 is assembled on OpenCode is in [PROMPTS.md](PROMPTS.md).
+
+### Kimi
+
+`ENGINE=kimi` runs chat through the Kimi Code CLI (`kimi`) instead of Claude Code. The engine is chosen in
+`.env` and needs a bot restart; with the default `ENGINE=claude` the `KIMI_*` keys are ignored. Verified
+against Kimi Code **2.7.2** (its `wire.jsonl` protocol version `1.5`).
+
+- `KIMI_MODEL` is the model of every run, named as the alias your own Kimi `config.toml` defines (empty =
+  the `default_model` of that file). `/model` is read-only, and `CLAUDE_MODELS` and `MODEL_EPIC_*` do not
+  apply: the bot logs one line at startup naming each of those keys that is set.
+- Chat, `/compact` and the file exchange work. **The gated modes (`pm`, `review`) and the epics are
+  refused** while this engine has nowhere to run their gates: a `pm` message is answered with the same
+  refusal as on an instance whose gate preconditions do not hold, and nothing is queued. `/mode arch` is
+  the mode to chat in.
+- The bot gives every run its own Kimi home with the assembled prompt and the agents of the instance, and
+  links the credentials, sessions and OAuth state of `KIMI_HOME` (default `~/.kimi-code`) into it. It never
+  copies the credentials: the server rotates the refresh token, and a copy would be invalidated by the next
+  refresh. The home is shared with any other Kimi client of that user, so run Kimi there and nothing else.
+- A Kimi run reads no user scope, so the memory of the instance reaches it only through `MEMORY_3LAYER_BIN`
+  — the same injected block as on OpenCode, into the agent file of a new session (a resumed session keeps
+  the snapshot it was created with). See [INSTALL.md](INSTALL.md#memory) and
+  [PROMPTS.md](PROMPTS.md#memory).
+- Changing `KIMI_MODEL` starts a new session, like changing `ENGINE`.
+- Every run is approved automatically: `kimi -p` runs under `auto` permission, with no equivalent of a
+  stricter `CLAUDE_EXTRA_ARGS`. The `[[permission.rules]]` of your Kimi configuration keep their effect in
+  a run and are the only thing that can deny a call. See [Security](#security).
+- The `KIMI_*` keys, the installer questions and the checks are in [INSTALL.md](INSTALL.md#kimi); how the
+  prompt is assembled on Kimi is in [PROMPTS.md](PROMPTS.md).
 
 ### Recommended
 
@@ -256,9 +286,9 @@ the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.
 | `/stats` | Session statistics: messages and Claude's totals for the whole session (input, cache read, cache write, output tokens, estimated cost) |
 | `/verbose` | Show the token usage and cost of this run under every reply, plus the sync profile sent before "Thinking…" |
 | `/mode` | Switch the mode: `arch`, `review` or `pm` |
-| `/model` | Choose the Claude model (`--model`) from `CLAUDE_MODELS`: `/model <name>` for this topic, `/model <name> all` for all topics, `default` clears a level; without an argument — buttons. The topic choice is sticky like `/mode`; `/stats` shows the model. A `--model` in `CLAUDE_EXTRA_ARGS` pins it and `/model` becomes read-only. With `ENGINE=opencode` it is read-only too: the model comes from `OPENCODE_MODEL` |
+| `/model` | Choose the Claude model (`--model`) from `CLAUDE_MODELS`: `/model <name>` for this topic, `/model <name> all` for all topics, `default` clears a level; without an argument — buttons. The topic choice is sticky like `/mode`; `/stats` shows the model. A `--model` in `CLAUDE_EXTRA_ARGS` pins it and `/model` becomes read-only. With `ENGINE=opencode` or `ENGINE=kimi` it is read-only too: the model comes from `OPENCODE_MODEL` or `KIMI_MODEL` |
 | `/lang` | Language of Claude's replies in the chat |
-| `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation). Works on both engines |
+| `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation). Works on both engines that can run the epics; refused on Kimi |
 | `/restart` | Restart the bot to pick up new code |
 | `/help` | Help |
 
@@ -370,6 +400,9 @@ remote shell for everyone in `ALLOWED_USER_IDS`.
   (files, issues, PR text) can steer it too (prompt injection).
 - **With `ENGINE=opencode` the same holds by construction**: OpenCode runs with `--auto` unconditionally,
   so every run is approved automatically and no `OPENCODE_EXTRA_ARGS` value makes it stricter.
+- **With `ENGINE=kimi` the same holds by construction as well**: `kimi -p` runs under `auto` permission, so
+  every run is approved automatically except for what the `[[permission.rules]]` of your Kimi
+  configuration deny, and no `KIMI_EXTRA_ARGS` value makes it stricter.
 - With the default `AUTO_COMMIT=1` every successful run is committed and pushed to the current branch
   automatically with no review (see [How it works](#how-it-works)), including edits to persona and
   locale files. With `AUTO_COMMIT=0` nothing is committed or pushed by the bot.

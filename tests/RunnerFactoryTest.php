@@ -238,42 +238,60 @@ final class RunnerFactoryTest extends TestCase
     }
 
     /**
-     * The Kimi runner is implemented, but the engine is not selectable yet: the factory still
-     * rejects `kimi` until the task that adds its keys, fingerprint, installer check and docs.
+     * `ENGINE=kimi` is selectable: the factory builds the Kimi runner with the `KIMI_*` keys — the binary
+     * of the instance, the model it pins and its extra argv — and the topic's Claude Code `--model` never
+     * reaches it (the model comes from the instance).
      */
-    public function testKimiIsStillRejectedByCreate(): void
+    public function testResolvesTheKimiEngineToARunnerWithTheInstanceKeys(): void
     {
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Unsupported ENGINE=kimi.');
-
-        $this->factory($this->config(engine: Config::ENGINE_KIMI))->create(
-            SystemPrompt::MODE_ARCH,
-            '',
-            [],
-            Locale::DEFAULT,
-            true,
-            false,
-            null,
-            null,
+        $kimiHome = sys_get_temp_dir().'/factory-kimi-home-'.uniqid('', true);
+        $stateDir = sys_get_temp_dir().'/factory-kimi-state-'.uniqid('', true);
+        $argvFile = tempnam(sys_get_temp_dir(), 'factory-kimi-argv-');
+        self::assertIsString($argvFile);
+        foreach (['credentials', 'sessions', 'oauth'] as $name) {
+            self::assertTrue(mkdir($kimiHome.'/'.$name, 0700, true));
+        }
+        $bin = sys_get_temp_dir().'/factory-kimi-bin-'.uniqid('', true);
+        file_put_contents(
+            $bin,
+            '#!'.PHP_BINARY."\n<?php\n"
+            .'file_put_contents('.(string) var_export($argvFile, true).", json_encode(\$argv));\n"
+            .'fwrite(STDOUT, \'{"role":"meta","type":"session.resume_hint","session_id":"session_11111111-1111-1111-1111-111111111111"}\'."\n");'."\n"
+            .'exit(0);'."\n",
         );
-    }
+        chmod($bin, 0o755);
 
-    /** The test hook is the only way to build a KimiRunner; it does not make the engine selectable. */
-    public function testTheTestHookBuildsAKimiRunner(): void
-    {
-        $config = $this->config(engine: Config::ENGINE_KIMI);
-        $factory = new class($config, new Locale()) extends RunnerFactory {
-            /**
-             * @param array<string, string> $extraEnv
-             */
-            public function kimi(string $mode, array $extraEnv, string $localeCode, bool $updateOnResume, ?string $savedPromptHash): KimiRunner
-            {
-                return $this->createKimiRunner($mode, $extraEnv, $localeCode, $updateOnResume, $savedPromptHash);
+        try {
+            $runner = $this->factory($this->config(
+                engine: Config::ENGINE_KIMI,
+                kimiBin: $bin,
+                kimiHome: $kimiHome,
+                kimiModel: 'kimi-k2',
+                kimiExtraArgs: ['--foo'],
+                stateDir: $stateDir,
+            ))->create(SystemPrompt::MODE_ARCH, '', [], Locale::DEFAULT, true, false, null, 'opus');
+
+            self::assertInstanceOf(KimiRunner::class, $runner);
+            $runner->start('hello', null);
+            while ($runner->poll() === RunnerState::Running) {
+                usleep(50000);
             }
-        };
 
-        $runner = $factory->kimi(SystemPrompt::MODE_ARCH, [], Locale::DEFAULT, false, null);
-        self::assertNull($runner->promptHash(), 'a runner built but not started has no prompt hash');
+            /** @var list<string> $argv */
+            $argv = json_decode((string) file_get_contents($argvFile), true);
+            self::assertSame($bin, $argv[0]);
+            $modelAt = array_search('-m', $argv, true);
+            self::assertIsInt($modelAt);
+            self::assertSame('kimi-k2', $argv[$modelAt + 1]);
+            self::assertContains('--foo', $argv);
+            // The topic model is a Claude Code alias: on Kimi the instance pins the model.
+            self::assertNotContains('opus', $argv);
+        } finally {
+            unlink($bin);
+            unlink($argvFile);
+            self::removeTree($kimiHome);
+            self::removeTree($stateDir);
+        }
     }
 
     private function factory(Config $config): RunnerFactory
@@ -503,6 +521,7 @@ final class RunnerFactoryTest extends TestCase
      * A minimal config: only the fields the factory reads, so a signature change breaks the test, not the factory.
      *
      * @param list<string> $opencodeExtraArgs
+     * @param list<string> $kimiExtraArgs
      */
     private function config(
         string $engine = 'claude',
@@ -517,6 +536,8 @@ final class RunnerFactoryTest extends TestCase
         string $memory3LayerBin = '',
         string $kimiBin = 'kimi',
         string $kimiHome = '',
+        string $kimiModel = '',
+        array $kimiExtraArgs = [],
     ): Config {
         return new Config(
             botToken: 't',
@@ -541,6 +562,8 @@ final class RunnerFactoryTest extends TestCase
             memory3LayerBin: $memory3LayerBin,
             kimiBin: $kimiBin,
             kimiHome: $kimiHome,
+            kimiModel: $kimiModel,
+            kimiExtraArgs: $kimiExtraArgs,
         );
     }
 

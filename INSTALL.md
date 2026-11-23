@@ -25,13 +25,14 @@ The list of changes between versions is on the
 ### Installer (`bin/install.php`)
 
 `bin/install.php` writes `.env`, checks the environment and the network and prints a systemd unit and a cron
-line. It installs no packages, does not log in to the agent CLI (`claude` or `opencode`) or `gh`, does not
+line. It installs no packages, does not log in to the agent CLI (`claude`, `opencode` or `kimi`) or `gh`, does not
 touch `/etc` or `systemctl` and does not start the bot. The output is in English.
 
 - **Modes.** With `--non-interactive`, or when stdin is not a terminal, nothing is asked: values come from the
   options and the existing `.env`. Otherwise the installer is interactive: it asks for every key (except
-  `STATE_DIR`, and except the `OPENCODE_*` keys unless `ENGINE=opencode`) with the current value as the
-  default (an empty answer keeps it) and repeats a question on an invalid answer. `CLAUDE_EXTRA_ARGS` is a
+  `STATE_DIR`, and except the `OPENCODE_*` keys unless `ENGINE=opencode` and the `KIMI_*` keys unless
+  `ENGINE=kimi`) with the current value as the default (an empty answer keeps it) and repeats a question on
+  an invalid answer. `CLAUDE_EXTRA_ARGS` is a
   separate question preceded by the security warning. The bot token is typed without echo; the terminal echo
   is restored even on Ctrl+C.
 
@@ -41,7 +42,7 @@ touch `/etc` or `systemctl` and does not start the bot. The output is in English
 | `--bot-token-file=PATH`     | read `BOT_TOKEN` from a file (a trailing line break is trimmed)    |
 | `--allowed-user-ids`        | `ALLOWED_USER_IDS` (required; digits separated by commas)          |
 | `--repo-path`               | `REPO_PATH` (required)                                             |
-| `--forge`, `--forge-host`, `--forge-owners`, `--forge-repo` (`--github-owners` and `--github-repo` are accepted as aliases), `--engine`, `--claude-bin`, `--opencode-bin`, `--opencode-model`, `--opencode-extra-args`, `--bot-locale`, `--timezone`, `--openronin-logins`, `--claude-extra-args` | the key of the same name (optional) |
+| `--forge`, `--forge-host`, `--forge-owners`, `--forge-repo` (`--github-owners` and `--github-repo` are accepted as aliases), `--engine`, `--claude-bin`, `--opencode-bin`, `--opencode-model`, `--opencode-extra-args`, `--kimi-bin`, `--kimi-home`, `--kimi-model`, `--kimi-extra-args`, `--bot-locale`, `--timezone`, `--openronin-logins`, `--claude-extra-args` | the key of the same name (optional) |
 | `--non-interactive`         | never ask questions (implied when stdin is not a terminal)         |
 | `--skip-network-checks`     | report a failed `getMe` / `git ls-remote` as a warning, not an error |
 | `--unit-file=PATH`          | also write the systemd unit to `PATH` (the directory must exist)   |
@@ -62,7 +63,8 @@ touch `/etc` or `systemctl` and does not start the bot. The output is in English
 - With `--dangerously-skip-permissions` in `CLAUDE_EXTRA_ARGS` (the default) the installer always warns on
   stderr and in the summary; see [Security](README.md#security). With `ENGINE=opencode` that warning does not
   apply (there is no `OPENCODE_EXTRA_ARGS` value that makes OpenCode stricter) and is replaced by the
-  `--auto` warning described in [OpenCode](#opencode).
+  `--auto` warning described in [OpenCode](#opencode); with `ENGINE=kimi` the same happens with the
+  `auto` permission warning described in [Kimi](#kimi).
 - The installer refuses to run as root unless `--allow-root` is given; files it creates then belong to root,
   so `chown` them to the bot's user if that is a different one.
 - `REPO_PATH` must be an absolute path to a git repository.
@@ -73,7 +75,7 @@ touch `/etc` or `systemctl` and does not start the bot. The output is in English
   |-------------------------------------------------------------------------|-------------------------------------------------|
   | PHP version from `composer.json`; extensions `curl`, `pdo_sqlite`, `pcntl`, `posix` | error                           |
   | `FORGE` is `github` or `gitlab`                                         | error                                           |
-  | `git`, the forge CLI (`gh`, or `glab` for `FORGE=gitlab`) and the agent binary (`CLAUDE_BIN`, or `OPENCODE_BIN` with `ENGINE=opencode`) run (`--version`) | error |
+  | `git`, the forge CLI (`gh`, or `glab` for `FORGE=gitlab`) and the agent binary (`CLAUDE_BIN`, `OPENCODE_BIN` with `ENGINE=opencode`, `KIMI_BIN` with `ENGINE=kimi`) run (`--version`) | error |
   | `BOT_LOCALE` is in the catalog; `TIMEZONE` is valid; `REPO_PATH` is a git repository | error                      |
   | Bot API `getMe` accepts the token                                       | error (warning with `--skip-network-checks`)    |
   | `git -C REPO_PATH ls-remote` works without prompts                      | error (warning with `--skip-network-checks`)    |
@@ -185,6 +187,60 @@ What differs from a Claude instance:
   after the run has launched its first sub-agent: OpenCode waits for sub-agents in silence, so silence then
   no longer means "hung" (the Claude runner never sees this, its sub-agent calls are progress lines).
 
+### Kimi
+
+With `ENGINE=kimi` chat runs through the Kimi Code CLI (`kimi`) instead of Claude Code. Install the CLI as
+the bot's user, log in there once (the bot never logs in for you) and set `KIMI_BIN` to the **absolute** path
+of the binary: the engine installs itself per user into `~/.kimi-code/bin`, which the `PATH` of a service
+does not carry. The verified version is **2.7.2**; its `wire.jsonl` carries `metadata.protocol_version` `1.5`,
+a private format the bot reads after a run to classify a failure. A newer version works only once it has been
+verified against that format.
+
+```bash
+php bin/install.php ... --engine=kimi --kimi-bin=/home/you/.kimi-code/bin/kimi
+```
+
+What differs from a Claude instance:
+
+- The installer checks `KIMI_BIN` (`kimi` by default) instead of `CLAUDE_BIN` and warns about the automatic
+  approval of a Kimi run instead of about `--dangerously-skip-permissions`.
+- The model of every run is `KIMI_MODEL`, named as the alias your own Kimi `config.toml` defines; with it
+  empty the `default_model` of that file applies. `/model` is read-only, and `CLAUDE_MODELS`, `MODEL_EPIC_*`
+  and a `--model` in `CLAUDE_EXTRA_ARGS` do not apply; the keys that are set are named in one startup log
+  line. Changing `KIMI_MODEL` starts a new session, like changing `ENGINE`.
+- **Chat and `/compact` work; the gated modes (`pm`, `review`) and the epics are refused.** A Kimi run has
+  nowhere to run the PM gate and the review commit hook yet, and a run without its gate looks normal and is
+  not, so a message in one of those modes is answered with a refusal naming the mode and nothing is queued.
+  `/mode arch` is the mode to chat in.
+- Every run gets its own home (`STATE_DIR/kimi-<runId>/`, mode 0700) with the rendered `config.toml`, the
+  assembled prompt in `agent.md` and the agents of the instance. The `credentials/`, `sessions/` and `oauth/`
+  entries of the source home (`KIMI_HOME`, default `~/.kimi-code`) are linked into it, never copied: the
+  server rotates the refresh token, so a copy would be invalidated by the next refresh. The source home is
+  therefore a **single-consumer** resource: a second Kimi client that uses the same home at the same time
+  shares the credentials and can refresh them concurrently, which was not tested. Run Kimi there and nothing
+  else, and remember that the user's own `[[hooks]]` are dropped from a run while their
+  `[[permission.rules]]` stay in effect.
+- **A user-level `$HOME/.agents` is read by every Kimi run**, whatever `KIMI_HOME` and the run home say:
+  agents, skills and `AGENTS.md` from that directory reach the model even though the bot relocates the home.
+  The bot logs a warning at startup when the directory exists, and the condition is one a gated run will have
+  to pass once the refusal below is lifted. Remove it, or run the bot under a home that has none, if the model
+  must be told only what the bot wrote.
+- **Every run is approved automatically.** `kimi -p` runs under `auto` permission, so every action the
+  configuration does not explicitly deny is approved and whatever a Telegram message asks for runs with the
+  rights of the bot's system user and its forge token. `KIMI_EXTRA_ARGS` cannot make that stricter; the
+  `[[permission.rules]]` of your Kimi configuration keep their effect and are the only thing that can deny a
+  call. Run the bot as a dedicated unprivileged user with a narrowly scoped forge token.
+- A Kimi hook that is killed, times out or is missing does **not** block the call (only exit code 2 does), so
+  the gate of a Kimi run could be verified **after the fact** only: the shim records every hook call in the
+  run home, and the bot would read those records and compare them with the run window of `wire.jsonl` at the
+  end of the run, reporting a mismatch in the chat. That is a detection, never a hard stop — the reason the
+  gated modes (`pm`, `review`) and the epics are refused on this engine: the refusal, not an audit, is what
+  keeps a run from starting without a gate that holds.
+- `CLAUDE_TIMEOUT` and `CLAUDE_STALL_TIMEOUT` bound a Kimi run as well. The stall timer counts the bytes of
+  stdout and the growth of the session's `wire.jsonl`: stdout is quiet while a background sub-agent works.
+- Memory: like OpenCode, a Kimi run reads no user scope, so `MEMORY_3LAYER_BIN` is what brings the memory of
+  the instance into a new session ([Memory](#memory)).
+
 ### Memory
 
 An OpenCode or Kimi run reads no user scope, so it gets no memory of the instance the way a Claude Code run
@@ -226,20 +282,24 @@ Claude; nothing filters the injected memory. The same holds for a Kimi run and t
 | `FORGE_REPO` | empty | Workspace repository as `owner/name`, for commit links (alias: `GITHUB_REPO`; the new key wins, a warning is logged when both are set) |
 | `FORGE_OWNERS` | empty | Owners the bot works with; the first is the default owner; with `FORGE=gitlab` an owner may be a namespace path `group/subgroup` (alias: `GITHUB_OWNERS`) |
 | `OPENRONIN_LOGINS` | empty | Logins allowed to author the `<!-- openronin:bot -->` marker |
-| `ENGINE` | `claude` | Agent engine that runs the jobs: `claude` or `opencode`; anything else is a startup error. See [OpenCode](#opencode) |
+| `ENGINE` | `claude` | Agent engine that runs the jobs: `claude`, `opencode` or `kimi`; anything else is a startup error. See [OpenCode](#opencode) and [Kimi](#kimi) |
 | `CLAUDE_BIN` | `claude` | Path or name of the `claude` binary (`ENGINE=claude`) |
 | `OPENCODE_BIN` | `opencode` | Path or name of the `opencode` binary (`ENGINE=opencode`) |
 | `OPENCODE_MODEL` | empty | Model of every OpenCode run as `provider/model[#variant]`; empty = the model of your OpenCode configuration. Changing it starts a new session |
 | `OPENCODE_EXTRA_ARGS` | empty | Extra `opencode` arguments, comma-separated; they are added after the ones the bot passes itself |
+| `KIMI_BIN` | `kimi` | Absolute path of the `kimi` binary (`ENGINE=kimi`); the engine installs itself into `~/.kimi-code/bin`, which the `PATH` of a service does not carry. Needs a restart |
+| `KIMI_HOME` | empty | Home of the logged-in Kimi CLI; empty = the default home. Every run links the credentials, sessions and OAuth state of this home into its own run home. Needs a restart |
+| `KIMI_MODEL` | empty | Model of every Kimi run, as the alias your Kimi `config.toml` defines; empty = the `default_model` of that file. Changing it starts a new session |
+| `KIMI_EXTRA_ARGS` | empty | Extra `kimi` arguments, comma-separated; they are added after the ones the bot passes itself |
 | `MEMORY_3LAYER_BIN` | empty | Absolute path of the `memory-3layer` client. Set = the bot injects the memory of the instance into the system prompt of an OpenCode run and of a new Kimi session (a resume keeps that snapshot) and syncs it in the background; with `ENGINE=claude` the setting changes nothing. Empty = off (default). See [Memory](#memory). Needs a restart |
 | `MEMORY_3LAYER_CONTEXT_MAX_BYTES` | `32768` | Ceiling of the injected part of ONE memory file, bytes; above it only the newest part is injected. 0 = no injection. Needs a restart |
 | `CLAUDE_TIMEOUT` | `0` | Overall limit of one Claude call, seconds (0 = off) |
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |
 | `CLAUDE_EXTRA_ARGS` | `--dangerously-skip-permissions` | Extra `claude` arguments, comma-separated |
-| `CLAUDE_MODELS` | `fable,opus[1m],opus,sonnet,haiku` | Models selectable with `/model`, comma-separated; values are passed to `claude --model` as they are. A `--model` in `CLAUDE_EXTRA_ARGS` pins the model and `/model` becomes read-only |
-| `MODEL_EPIC_TICK` | empty | Model of the Orchestrator `tick` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode` |
-| `MODEL_EPIC_FINAL` | empty | Model of the `final` (acceptance) epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode` |
-| `MODEL_EPIC_REVIEW` | empty | Model of the `review` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode` |
+| `CLAUDE_MODELS` | `fable,opus[1m],opus,sonnet,haiku` | Models selectable with `/model`, comma-separated; values are passed to `claude --model` as they are. A `--model` in `CLAUDE_EXTRA_ARGS` pins the model and `/model` becomes read-only. Not applied with `ENGINE=opencode` or `ENGINE=kimi` |
+| `MODEL_EPIC_TICK` | empty | Model of the Orchestrator `tick` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` epics do not run |
+| `MODEL_EPIC_FINAL` | empty | Model of the `final` (acceptance) epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` epics do not run |
+| `MODEL_EPIC_REVIEW` | empty | Model of the `review` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` epics do not run |
 | `ANTHROPIC_BASE_URL` | empty | Base URL of the Anthropic-compatible API; empty, `api.anthropic.com` and `*.anthropic.com` mean Anthropic, any other host switches on foreign-provider limit handling (see below) |
 | `ANTHROPIC_MODEL` | empty | Model recorded in the engine fingerprint of a stored session on a foreign provider, when the run has no pinned `--model`; empty = no model is appended to the fingerprint |
 | `ANTHROPIC_AUTH_TOKEN` | empty | Auth token for an external Anthropic-compatible provider; replaces the Claude Code subscription (see below) |
@@ -269,7 +329,7 @@ member of `CLAUDE_MODELS` (otherwise the bot fails at startup). With a key empty
 model for all topics (`/model <name> all`), and with all three empty only that model applies. A `--model` in
 `CLAUDE_EXTRA_ARGS` overrides them all (one warning is logged at startup). These are Claude Code keys: with
 `ENGINE=opencode` the model of every run, epic runs included, is `OPENCODE_MODEL`, and a set key is named in
-one startup log line. Built-in agents of the bot declare
+one startup log line; on `ENGINE=kimi` epics do not run at all ([Kimi](#kimi)). Built-in agents of the bot declare
 `model: inherit`, so an epic key also moves every built-in agent that run calls, unless
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is set. `opus` and `opus[1m]` are different context windows — pick the one
 your endpoint actually resolves.

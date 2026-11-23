@@ -258,11 +258,17 @@ final class ConfigTest extends TestCase
         self::assertSame('opencode', Config::load($this->envFile)->engine);
     }
 
+    public function testEngineKimiIsAccepted(): void
+    {
+        $this->writeEnv('ENGINE=kimi');
+        self::assertSame('kimi', Config::load($this->envFile)->engine);
+    }
+
     public function testUnknownEngineFailsTheStart(): void
     {
         $this->writeEnv('ENGINE=gemini');
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Invalid ENGINE=gemini in .env: expected claude or opencode.');
+        $this->expectExceptionMessage('Invalid ENGINE=gemini in .env: expected claude, opencode or kimi.');
         Config::load($this->envFile);
     }
 
@@ -650,7 +656,7 @@ final class ConfigTest extends TestCase
     }
 
     /** A minimal Config for the fingerprint helpers, with the provider-relevant fields overridden. */
-    private function fingerprintConfig(?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, string $opencodeModel = ''): Config
+    private function fingerprintConfig(?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, string $opencodeModel = '', string $kimiModel = ''): Config
     {
         return new Config(
             botToken: 't',
@@ -671,6 +677,7 @@ final class ConfigTest extends TestCase
             anthropicModel: $anthropicModel,
             engine: $engine,
             opencodeModel: $opencodeModel,
+            kimiModel: $kimiModel,
         );
     }
 
@@ -827,11 +834,9 @@ final class ConfigTest extends TestCase
         self::assertSame('anthropic/sonnet', $config->opencodeModel);
     }
 
-    public function testKimiFieldsDefaultAndAreNotParsedFromEnv(): void
+    public function testKimiKeysKeepTheirDefaultsWhenUnset(): void
     {
-        // The KIMI_* keys belong to the future ENGINE=kimi task: they are not read yet, so even when
-        // present they must not move the defaults (and the engine stays claude).
-        $this->writeEnv("KIMI_BIN=/usr/bin/kimi\nKIMI_HOME=/srv/kimi\nKIMI_MODEL=kimi-k2\nKIMI_EXTRA_ARGS=--foo\n");
+        $this->writeEnv();
         $config = Config::load($this->envFile);
 
         self::assertSame('kimi', $config->kimiBin);
@@ -842,12 +847,196 @@ final class ConfigTest extends TestCase
         self::assertFalse($config->gatesUnavailable());
     }
 
-    public function testEngineKimiIsStillRejectedByFromEnv(): void
+    public function testKimiKeysAreParsedFromEnv(): void
     {
-        $this->writeEnv('ENGINE=kimi');
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nKIMI_BIN=/usr/local/bin/kimi\nKIMI_HOME=/srv/kimi\nKIMI_MODEL=kimi-k2\nKIMI_EXTRA_ARGS=--foo, bar\n");
+        $config = Config::load($this->envFile);
+
+        self::assertTrue($config->isKimi());
+        self::assertSame('/usr/local/bin/kimi', $config->kimiBin);
+        self::assertSame('/srv/kimi', $config->kimiHome);
+        self::assertSame('kimi-k2', $config->kimiModel);
+        self::assertSame(['--foo', 'bar'], $config->kimiExtraArgs);
+        self::assertSame([], $config->startupWarnings('/nonexistent-home'));
+    }
+
+    public function testEmptyKimiBinFallsBackToTheDefaultBinary(): void
+    {
+        // An empty KIMI_BIN must resolve to `kimi` exactly as the installer probes it: otherwise the
+        // installer check passes but every run starts an empty argv[0].
+        $this->writeEnv("ENGINE=kimi\nKIMI_BIN=\n");
+
+        self::assertSame('kimi', Config::load($this->envFile)->kimiBin);
+    }
+
+    public function testRelativeKimiBinWarnsOnAKimiInstance(): void
+    {
+        // The bot's PATH has no `~/.kimi-code/bin`, so a bare name starts nothing.
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nKIMI_BIN=kimi\n");
+
+        self::assertSame(
+            ['KIMI_BIN=kimi is not an absolute path: a non-interactive shell resolves it against PATH, where `~/.kimi-code/bin` usually is not.'],
+            Config::load($this->envFile)->startupWarnings('/nonexistent-home'),
+        );
+    }
+
+    public function testRelativeKimiBinIsNotReportedOnAnotherEngine(): void
+    {
+        // The key is only read by a Kimi run, so a Claude or OpenCode instance is not warned about it.
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nKIMI_BIN=kimi\n");
+
+        self::assertSame([], Config::load($this->envFile)->startupWarnings('/nonexistent-home'));
+    }
+
+    public function testRelativeKimiHomeIsRejectedOnAKimiInstance(): void
+    {
+        // A relative home never works: the run home symlinks its credentials, sessions and oauth to it,
+        // and a relative symlink target resolves against the link's own directory, so the links dangle.
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nKIMI_HOME=kimi-home\n");
+
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Invalid ENGINE=kimi in .env: expected claude or opencode.');
+        $this->expectExceptionMessage('KIMI_HOME=kimi-home in .env must be an absolute path');
         Config::load($this->envFile);
+    }
+
+    public function testRelativeKimiHomeIsNotRejectedOnAnotherEngine(): void
+    {
+        // KIMI_HOME is only read by a Kimi run, so a Claude or OpenCode instance starts without a check.
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nKIMI_HOME=kimi-home\n");
+
+        self::assertSame('kimi-home', Config::load($this->envFile)->kimiHome);
+    }
+
+    public function testKimiEngineIsAcceptedFromEnvAndKeepsTheConfiguredFields(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nKIMI_HOME=/srv/kimi\nKIMI_MODEL=kimi-k2\n");
+        $config = Config::load($this->envFile);
+
+        self::assertTrue($config->isKimi());
+        self::assertSame(Config::ENGINE_KIMI, $config->engine);
+        // The gated modes and the epics stay refused: the task that lifts that refusal is separate.
+        self::assertTrue($config->gatesUnavailable());
+        self::assertSame('/srv/kimi', $config->kimiHome);
+        self::assertSame('kimi-k2', $config->kimiModel);
+    }
+
+    public function testKimiFingerprintCarriesTheInstanceModel(): void
+    {
+        $config = $this->fingerprintConfig(engine: Config::ENGINE_KIMI, kimiModel: 'kimi-k2');
+
+        // A Claude Code alias never reaches the fingerprint: the model of the instance does.
+        self::assertSame('kimi:kimi-k2', $config->engineFingerprint());
+        self::assertSame('kimi:kimi-k2', $config->engineFingerprint('opus'));
+    }
+
+    public function testKimiFingerprintWithoutAModelIsTheDefault(): void
+    {
+        $config = $this->fingerprintConfig(engine: Config::ENGINE_KIMI);
+
+        self::assertSame('kimi:default', $config->engineFingerprint());
+        self::assertNotSame(
+            $config->engineFingerprint(),
+            $this->fingerprintConfig(engine: Config::ENGINE_KIMI, kimiModel: 'kimi-k2')->engineFingerprint(),
+        );
+    }
+
+    /** A changed engine or model starts a new session, so the fingerprints of the three engines differ. */
+    public function testEveryEngineHasItsOwnFingerprint(): void
+    {
+        self::assertNotSame(
+            $this->fingerprintConfig()->engineFingerprint(),
+            $this->fingerprintConfig(engine: Config::ENGINE_KIMI, kimiModel: 'kimi-k2')->engineFingerprint(),
+        );
+        self::assertNotSame(
+            $this->fingerprintConfig(engine: Config::ENGINE_OPENCODE, opencodeModel: 'anthropic/sonnet')->engineFingerprint(),
+            $this->fingerprintConfig(engine: Config::ENGINE_KIMI, kimiModel: 'kimi-k2')->engineFingerprint(),
+        );
+    }
+
+    public function testEachEpicModelKeyIsReportedAsNotAppliedOnKimi(): void
+    {
+        foreach (['MODEL_EPIC_TICK', 'MODEL_EPIC_FINAL', 'MODEL_EPIC_REVIEW'] as $key) {
+            $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\n{$key}=kimi-k2\n");
+            self::assertSame(
+                [$key.' is not applied on Kimi: /model is read-only and the model of every run comes from KIMI_MODEL.'],
+                Config::load($this->envFile)->startupWarnings('/nonexistent-home'),
+            );
+        }
+    }
+
+    public function testEpicModelKeyOutsideClaudeModelsDoesNotFailOnKimi(): void
+    {
+        // A Kimi alias (`KIMI_MODEL`) is not a member of CLAUDE_MODELS and must not stop the start:
+        // the key is reported as not applied instead.
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nMODEL_EPIC_TICK=kimi-k2\n");
+
+        self::assertSame(
+            ['MODEL_EPIC_TICK is not applied on Kimi: /model is read-only and the model of every run comes from KIMI_MODEL.'],
+            Config::load($this->envFile)->startupWarnings('/nonexistent-home'),
+        );
+    }
+
+    public function testTheKimiWarningNamesEveryKeyItCovers(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nMODEL_EPIC_TICK=kimi-k2\nMODEL_EPIC_FINAL=kimi-k2\nCLAUDE_MODELS=kimi-k2\n");
+
+        self::assertSame(
+            ['MODEL_EPIC_TICK, MODEL_EPIC_FINAL and CLAUDE_MODELS are not applied on Kimi: /model is read-only and the model of every run comes from KIMI_MODEL.'],
+            Config::load($this->envFile)->startupWarnings('/nonexistent-home'),
+        );
+    }
+
+    public function testClaudeModelsAloneIsReportedOnKimi(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\nCLAUDE_MODELS=kimi-k2,kimi-k2-mini\n");
+
+        self::assertSame(
+            ['CLAUDE_MODELS is not applied on Kimi: /model is read-only and the model of every run comes from KIMI_MODEL.'],
+            Config::load($this->envFile)->startupWarnings('/nonexistent-home'),
+        );
+    }
+
+    public function testNoKimiWarningWhenTheKeysAreUnset(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\n");
+
+        self::assertSame([], Config::load($this->envFile)->startupWarnings('/nonexistent-home'));
+    }
+
+    public function testNoKimiWarningOnAnotherEngine(): void
+    {
+        $this->writeEnv("OPENRONIN_LOGINS=bot\nCLAUDE_MODELS=sonnet\n");
+
+        self::assertSame([], Config::load($this->envFile)->startupWarnings('/nonexistent-home'));
+    }
+
+    /** A user-level `.agents` reaches every Kimi run, so the operator is told at start. */
+    public function testAPresentHomeAgentsIsReportedAtStartOnAKimiInstance(): void
+    {
+        $home = sys_get_temp_dir().'/tghome_'.uniqid('', true);
+        mkdir($home.'/.agents', 0777, true);
+        try {
+            $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE=kimi\n");
+            self::assertStringContainsString('.agents', Config::load($this->envFile)->startupWarnings($home)[0]);
+        } finally {
+            rmdir($home.'/.agents');
+            rmdir($home);
+        }
+    }
+
+    public function testTheHomeAgentsWarningIsKimiOnly(): void
+    {
+        $home = sys_get_temp_dir().'/tghome_'.uniqid('', true);
+        mkdir($home.'/.agents', 0777, true);
+        try {
+            foreach ([Config::DEFAULT_ENGINE_FINGERPRINT, Config::ENGINE_OPENCODE] as $engine) {
+                $this->writeEnv("OPENRONIN_LOGINS=bot\nENGINE={$engine}\n");
+                self::assertSame([], Config::load($this->envFile)->startupWarnings($home));
+            }
+        } finally {
+            rmdir($home.'/.agents');
+            rmdir($home);
+        }
     }
 
     public function testKimiEngineKeepsTheConfiguredFieldsAndRefusesTheGatedModes(): void
@@ -878,7 +1067,7 @@ final class ConfigTest extends TestCase
         self::assertFalse($this->engineConfig(Config::ENGINE_KIMI)->hasContinuableStopHook());
     }
 
-    /** A Config of one engine, built directly because `fromEnv()` does not accept every engine name yet. */
+    /** A Config of one engine, built directly so a predicate of a single engine can be read on its own. */
     private function engineConfig(string $engine, string $kimiModel = '', string $kimiHome = '', string $memory3LayerBin = ''): Config
     {
         return new Config(

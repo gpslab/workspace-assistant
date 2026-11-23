@@ -11,13 +11,9 @@ use GpsLab\WorkspaceAssistant\Memory\MemoryContext;
  *
  * The engine is a property of the instance (see {@see Config::$engine}), not of a
  * chat: it is set once in `.env` and never switched at runtime. `claude` builds a
- * {@see ClaudeRunner} and `opencode` an {@see OpencodeRunner}; every other value is
- * rejected by {@see Config::fromEnv()} at startup, and the default arm fails loudly
+ * {@see ClaudeRunner}, `opencode` an {@see OpencodeRunner} and `kimi` a {@see KimiRunner}; every
+ * other value is rejected by {@see Config::fromEnv()} at startup, and the default arm fails loudly
  * rather than falling back to an engine the instance did not ask for.
- *
- * `kimi` is still rejected by {@see create()}. Its runner is reachable only through
- * {@see createKimiRunner()}, a test hook: the engine becomes selectable in the task that adds its
- * keys, fingerprint, installer check and docs.
  */
 class RunnerFactory
 {
@@ -43,6 +39,7 @@ class RunnerFactory
         return match ($this->config->engine) {
             Config::DEFAULT_ENGINE_FINGERPRINT => $this->createClaudeRunner($mode, $settingsJson, $extraEnv, $localeCode, $withAgents, $updateOnResume, $savedPromptHash, $model),
             Config::ENGINE_OPENCODE => $this->createOpencodeRunner($mode, $localeCode, $extraEnv, $withAgents),
+            Config::ENGINE_KIMI => $this->createKimiRunner($mode, $extraEnv, $localeCode, $updateOnResume, $savedPromptHash),
             default => throw new \RuntimeException("Unsupported ENGINE={$this->config->engine}."),
         };
     }
@@ -132,10 +129,12 @@ class RunnerFactory
     /**
      * The Kimi Code runner for the current configuration.
      *
-     * A test hook, not a selectable engine yet: {@see create()} still rejects `kimi`. The topic's
-     * `$model` is a Claude Code alias and is ignored — the model of a Kimi run is pinned by
-     * `KIMI_MODEL` ({@see Config::$kimiModel}). `$settingsJson` is Claude Code mechanics; Kimi takes
-     * its hooks from the rendered run home, so it is not wired either.
+     * Two arguments of a Claude run are deliberately dropped, as on OpenCode. The topic's `$model` is
+     * a Claude Code alias and is ignored — the model of a Kimi run is pinned by `KIMI_MODEL`
+     * ({@see Config::$kimiModel}). `$settingsJson` is Claude Code mechanics; Kimi takes its hooks from
+     * the rendered run home, so it is not wired either. `$savedPromptHash` and `$updateOnResume` are
+     * wired: a resumed Kimi session is continued with `-S`, so the instructions-update block has to
+     * reach the prompt like it does on Claude Code.
      *
      * Like OpenCode, Kimi reads no user scope, so the memory of the instance reaches it as the same
      * injected block ({@see memory()}): its run home renders no `~/.claude/CLAUDE.md` and no hooks to

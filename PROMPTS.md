@@ -148,7 +148,10 @@ In the `pm` mode the message is prefixed by the PM runbook line. It is built in 
 the path of `pm_runbook` plus `PROMPTS_DIR/pm_runbook.md` if it exists. No file overrides the line itself.
 A resumed session whose system prompt changed gets `session_update` (the whole new prompt is `{prompt}`) in
 front of the message. On OpenCode it is never used: the runner renders the instructions anew on every run
-and OpenCode applies the change to a resumed session itself.
+and OpenCode applies the change to a resumed session itself. On Kimi it is used: `--agent-file` is rejected
+together with `-S`, so a resumed session keeps the prompt it was created with and the update block is the
+only way a changed instructions file reaches it (it arrives as a user message, and the role it names holds
+on the following runs).
 While the bot's commit is blocked by a secret (see [README](README.md#commit-gate)), the next chat run gets
 `secret_blocked` in front of the message: the findings as `- file:line (type)` lines, without values (`{findings}`,
 built in code), and the instruction to remove the secret and rewrite an unpushed commit that holds it.
@@ -167,9 +170,11 @@ built in code), and the instruction to remove the secret and rewrite an unpushed
 `tick` and `final` run in the `pm` mode, `review` in the `review` mode, always in a new session. The system
 prompt is the one above. The message is built in code by `Epic\Run::prompt()`, no file overrides it: a
 pointer to `epic_runbook` (Claude reads the file itself), the text of `PROMPTS_DIR/epic.md` if present,
-the PM runbook line, and the paths and data of the run. Both engines run epics with this same assembly: on
+the PM runbook line, and the paths and data of the run. Both engines that run epics use this same assembly: on
 OpenCode the run is gated by the shim of its run kind (`tick`, `final` or `epic_review`) and its model is
-`OPENCODE_MODEL`, since `MODEL_EPIC_*` is a Claude Code key.
+`OPENCODE_MODEL`, since `MODEL_EPIC_*` is a Claude Code key. A Kimi instance runs no epic at all: the
+gated modes and the epics are refused while this engine has nowhere to run their gates, so this assembly
+is never used there.
 
 With `AUTO_COMMIT=0` the journal line reads "write it to disk right after each external action; do not
 commit or push it" instead of "commit and push it right after each external action", and one more line
