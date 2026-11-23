@@ -6,6 +6,8 @@ namespace GpsLab\WorkspaceAssistant\Tests\Kimi;
 
 use GpsLab\WorkspaceAssistant\Kimi\KimiStream;
 use GpsLab\WorkspaceAssistant\Kimi\KimiStreamParser;
+use GpsLab\WorkspaceAssistant\SecretScanner;
+use GpsLab\WorkspaceAssistant\Tests\StderrCaptureFilter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -13,6 +15,9 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(KimiStream::class)]
 final class KimiStreamParserTest extends TestCase
 {
+    /** A GitHub token: `ghp_` and a body of 36 characters, so the shape pattern of the scanner matches. */
+    private const string TOKEN = 'ghp_AbCdEf0123456789AbCdEf0123456789AbCd';
+
     public function testToolRunYieldsTheVersionTheProgressTheAnswerAndTheSession(): void
     {
         $stream = $this->parseRun('02-tool');
@@ -236,6 +241,45 @@ final class KimiStreamParserTest extends TestCase
     }
 
     /**
+     * The argument of a tool call is masked before it is clipped: a secret the 80-character clip
+     * cuts in the middle matches no shape pattern any more, so the send-time mask of the caller
+     * would let its tail through. The three offsets put the clip inside the token, exactly at its
+     * end and after it.
+     */
+    public function testACommandIsMaskedBeforeTheClip(): void
+    {
+        $cases = [
+            // 60 + 1 characters before the token: the clip at 80 falls 19 characters into it.
+            'the clip falls inside the token' => str_repeat('a', 60).' ',
+            // 40 characters before the token: the clip at 80 falls exactly at its end.
+            'the token ends exactly at the clip' => str_repeat('b', 40),
+            // 20 + 1 characters before the token: the whole token is before the clip.
+            'the token lies wholly before the clip' => str_repeat('c', 20).' ',
+        ];
+
+        foreach ($cases as $case => $prefix) {
+            $stream = $this->parseOneCall('Bash', ['command' => $prefix.self::TOKEN.' tail']);
+
+            self::assertStringContainsString(SecretScanner::PLACEHOLDER, $stream->progressLines[0], $case);
+            self::assertNoPartOfTheSecret(self::TOKEN, $stream->progressLines[0], $case);
+        }
+    }
+
+    /**
+     * The same property for an argument key that is not `command`: a `url` is not seen by the Bash
+     * secret guard, and the 45 characters before the token put the clip 35 characters into it.
+     */
+    public function testAnArgumentOfAnotherKeyIsMaskedBeforeTheClip(): void
+    {
+        $stream = $this->parseOneCall('WebFetch', [
+            'url' => 'https://api.example.com/v1/hook?access_token='.self::TOKEN.'&next=1',
+        ]);
+
+        self::assertStringContainsString(SecretScanner::PLACEHOLDER, $stream->progressLines[0]);
+        self::assertNoPartOfTheSecret(self::TOKEN, $stream->progressLines[0]);
+    }
+
+    /**
      * The neutral record of the turn ({@see \GpsLab\WorkspaceAssistant\TurnRecord}): a `Bash` call is
      * the neutral `shell` call with its command and the call id; the stream carries no per-call status,
      * so it is null. Non-shell calls are kept by name and have no command.
@@ -288,5 +332,55 @@ final class KimiStreamParserTest extends TestCase
             explode("\n", $content),
             static fn (string $line): bool => trim($line) !== '',
         )));
+    }
+
+    /**
+     * Parses one assistant message with one tool call and returns the stream, capturing the
+     * "secrets: masked" line that {@see SecretScanner::mask()} logs instead of printing it.
+     *
+     * @param array<string, string> $arguments
+     */
+    private function parseOneCall(string $tool, array $arguments): KimiStream
+    {
+        $event = (string) json_encode([
+            'role' => 'assistant',
+            'tool_calls' => [[
+                'type' => 'function',
+                'id' => 'tool_1',
+                'function' => ['name' => $tool, 'arguments' => json_encode($arguments, JSON_THROW_ON_ERROR)],
+            ]],
+        ], JSON_THROW_ON_ERROR);
+
+        if (!in_array('stderr_capture', stream_get_filters(), true)) {
+            stream_filter_register('stderr_capture', StderrCaptureFilter::class);
+        }
+        StderrCaptureFilter::$buffer = '';
+        $filter = stream_filter_append(STDERR, 'stderr_capture', STREAM_FILTER_WRITE);
+        self::assertNotFalse($filter);
+        try {
+            $stream = KimiStreamParser::parse([$event]);
+        } finally {
+            stream_filter_remove($filter);
+        }
+
+        self::assertCount(1, $stream->progressLines);
+
+        return $stream;
+    }
+
+    /**
+     * Asserts that no 8-character substring of the secret reaches the line. The placeholder itself
+     * ({@see SecretScanner::PLACEHOLDER}) contains a run of 8 letters, so a "no run of letters"
+     * check would fail on correct output; the windows slide over the secret instead.
+     */
+    private static function assertNoPartOfTheSecret(string $secret, string $line, string $message = ''): void
+    {
+        for ($offset = 0; $offset + 8 <= strlen($secret); ++$offset) {
+            self::assertStringNotContainsString(
+                substr($secret, $offset, 8),
+                $line,
+                $message.' — the line carries a part of the secret: '.$line,
+            );
+        }
     }
 }

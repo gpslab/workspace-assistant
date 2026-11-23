@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Kimi;
 
+use GpsLab\WorkspaceAssistant\SecretScanner;
+
 /**
  * Parses the stdout of `kimi -p … --output-format stream-json` (Kimi Code CLI 2.7.2) into one
  * {@see KimiStream}.
  *
- * Pure: it consumes a list of pre-read lines and performs no I/O. The event schema is undocumented
- * upstream, so the parser is verified only against the committed fixtures in
- * `tests/fixtures/kimi/run/` and the facts in `.claude-docs/internals.md`.
+ * It consumes a list of pre-read lines and reads nothing else: the only outside access is the mask
+ * of a tool-call argument ({@see SecretScanner}), which reads the known secret values and logs a
+ * finding. The event schema is undocumented upstream, so the parser is verified only against the
+ * committed fixtures in `tests/fixtures/kimi/run/` and the facts in `.claude-docs/internals.md`.
  *
  * Two properties of that stdout drive the shape of the parser:
  *
@@ -21,8 +24,9 @@ namespace GpsLab\WorkspaceAssistant\Kimi;
  *   printed right before the failed tool call is repeated. Such a notice is not the answer of the
  *   run, so any text that a tool call follows is dropped ({@see parse()}).
  *
- * The lines of the answer and of the progress lines are the raw text of the engine: the caller
- * masks them before they reach a Telegram message.
+ * The lines of the answer are the raw text of the engine: the caller masks them before they reach a
+ * Telegram message. The argument of a tool call is masked here, before the clip, because a secret
+ * cut in the middle matches neither a shape pattern nor a known value any more.
  */
 final class KimiStreamParser
 {
@@ -171,8 +175,13 @@ final class KimiStreamParser
 
     /**
      * A short summary of the arguments of a call: the value of the first {@see SUMMARY_KEYS} key
-     * the arguments carry (`arguments` is a JSON string of the engine), clipped to one line. An
-     * unreadable or unrecognised argument object has no summary.
+     * the arguments carry (`arguments` is a JSON string of the engine), masked and clipped to one
+     * line. An unreadable or unrecognised argument object has no summary.
+     *
+     * Masked before the clip, as {@see \GpsLab\WorkspaceAssistant\ClaudeRunner::formatToolUse} and
+     * {@see \GpsLab\WorkspaceAssistant\OpencodeRunner} do it: a secret cut in the middle of a token
+     * matches neither a shape pattern nor a known value, so the send-time mask of the caller would
+     * let the tail through.
      */
     private static function summary(mixed $arguments): string
     {
@@ -184,7 +193,7 @@ final class KimiStreamParser
         foreach (self::SUMMARY_KEYS as $key) {
             $value = $args[$key] ?? null;
             if (is_string($value) && trim($value) !== '') {
-                return self::clip($value);
+                return self::clip(SecretScanner::shared()->mask($value));
             }
         }
 
