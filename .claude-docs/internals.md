@@ -279,9 +279,14 @@ startup log line, since neither applies here.
 - Gates: the shim is rendered into the run home, and Kimi lets a call pass when a hook is killed, times out
   or is missing (only exit code 2 blocks), so a gated run is verified **after the fact**. `JobRunner` runs
   the shim's self-test before a gated run and afterwards compares `hook-records.jsonl` with the run window of
-  `wire.jsonl` (`KimiRunAudit`); a mismatch is reported in the chat. `Config::gatesUnavailable()` is a
-  constant on Kimi, so the gated modes (`pm`, `review`) and the epics are refused outright: an audit taken
-  after the run, not a hook that blocks a call, would be the only protection they could have.
+  `wire.jsonl` (`KimiRunAudit`). The audit runs after a run that did not end in an error only: a run that
+  ended in an error is not audited and leaves no line. A `kimi gate audit skipped: …` line in bot.log and no
+  audit come from a run that was killed by a timeout, was cancelled, was still in progress when the bot
+  stopped, or ended but whose audit could not be taken. A mismatch on a chat run is a
+  `kimi gate audit: …` line in bot.log and goes no further; it reaches the chat only on a gated run, and
+  `Config::gatesUnavailable()` — a constant on Kimi — refuses those outright along with the gated modes
+  (`pm`, `review`) and the epics: an audit taken after the run, not a hook that blocks a call, would be the
+  only protection they could have.
 - Review status: Kimi's `Stop` hook cannot continue a `-p` turn, so `JobRunner::repeatReviewRun()` takes the
   decision after the run, exactly as on OpenCode.
 - `$HOME/.agents` (agents, skills and `AGENTS.md`) is read by every run, whatever `KIMI_CODE_HOME` says.

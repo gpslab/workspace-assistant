@@ -33,6 +33,7 @@ Which file to read for which task. Start here when unsure.
 | `bin/review-stop-hook.php`                       | Claude Stop hook of the `review` mode (`ReviewStatusHook`)                                                                       |
 | `bin/review-commit-hook.php`                     | PreToolUse hook of the `review` mode and the epic review run: a review is published only with `commit_id` = the reviewed SHA, fail-closed (`ReviewCommitHook`) |
 | `bin/pm-gate-hook.php`                           | PreToolUse hook gating issue creation in `pm`/`review` and the epic runs (`tick`, `final`, `review`), fail-closed (`PmGateHook`) |
+| `bin/kimi-hook.php`                              | `SessionStart`/`PreToolUse` shim of a Kimi run (`KimiHooksRenderer` registers it), fail-CLOSED (`KimiHook`): the secret guard, the PM gate and the review commit hook, and one hook record per call in the run home |
 | `bootstrap.php`                                  | PSR-4 autoloader + `date_default_timezone_set('UTC')`                                                                            |
 | `src/Bot.php`                                    | Main loop: polling, the front controller, wiring and the routing of a `RunOutcome`; implements `LoopControl`; one-line delegates to `QueueScheduler` and `JobRunner`  |
 | `src/JobRunner.php` / `RunOutcome.php`           | The Claude process lifecycle (`launchJob`, `poll`, `cancelTopic`, progress, early session save); owns `RunState`, implements `JobLauncher` and `RunControl`; `poll()` returns a `RunOutcome` that `Bot` routes |
