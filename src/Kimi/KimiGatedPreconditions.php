@@ -16,9 +16,9 @@ namespace GpsLab\WorkspaceAssistant\Kimi;
  *
  * The predicate is pure. The caller supplies the values: {@see self::check()} takes the home
  * directory, the protocol version read for the session (null when not known) and the self-test
- * failure (null when it passed). It is deliberately not connected to the refusal of gated modes
- * yet: the task that lifts that refusal does so. The `$HOME/.agents` check lives here so the
- * enabling task can reuse it for its start-up warning.
+ * failure (null when it passed). {@see KimiGateGuard} supplies them from the running instance and is
+ * what the gated modes and the epics are refused by; the `$HOME/.agents` check is shared with the
+ * startup warning of the bot.
  */
 final class KimiGatedPreconditions
 {
@@ -31,19 +31,22 @@ final class KimiGatedPreconditions
 
     public static function check(string $homeDir, ?string $protocolVersion, ?string $selfTestFailure): KimiGatedPreconditionResult
     {
-        $reasons = [];
+        $failed = [];
+        $details = [];
 
         if (self::homeAgentsPresent($homeDir)) {
-            $reasons[] = self::HOME_AGENTS_REASON;
+            $failed[] = KimiGateReason::HomeAgents;
         }
         if (KimiVersionGuard::check(null, $protocolVersion)->protocol === KimiFormatStatus::Unknown) {
-            $reasons[] = 'the wire protocol version '.(string) $protocolVersion.' is unknown to the bot';
+            $failed[] = KimiGateReason::ProtocolUnknown;
+            $details[KimiGateReason::ProtocolUnknown->value] = (string) $protocolVersion;
         }
         if ($selfTestFailure !== null) {
-            $reasons[] = 'the gate shim self-test failed'.($selfTestFailure !== '' ? ': '.$selfTestFailure : '');
+            $failed[] = KimiGateReason::SelfTestFailed;
+            $details[KimiGateReason::SelfTestFailed->value] = $selfTestFailure;
         }
 
-        return $reasons === [] ? KimiGatedPreconditionResult::ok() : KimiGatedPreconditionResult::failed($reasons);
+        return $failed === [] ? KimiGatedPreconditionResult::ok() : KimiGatedPreconditionResult::failed($failed, $details);
     }
 
     /** Whether the user's home has the `.agents` directory Kimi reads regardless of the run home. */

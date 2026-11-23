@@ -6,6 +6,7 @@ namespace GpsLab\WorkspaceAssistant;
 
 use GpsLab\WorkspaceAssistant\Callback\DirtyTreeDecision;
 use GpsLab\WorkspaceAssistant\Exception\GitStatusException;
+use GpsLab\WorkspaceAssistant\Kimi\KimiGateGuard;
 
 /**
  * The two phases of /compact after their runs finish: the summary of the old session, then the reseed.
@@ -25,6 +26,7 @@ final class CompactFlow
         private readonly DirtyTreeDecision $dirtyTree,
         private readonly RunState $runState,
         private readonly JobLauncher $launcher,
+        private readonly KimiGateGuard $kimiGate,
     ) {
     }
 
@@ -91,12 +93,12 @@ final class CompactFlow
 
             return;
         }
-        // The reseed normally continues in the topic's own mode. On an engine whose gates have nowhere
-        // to run that mode (pm by default, or review) would attach a gate that does not exist, and the
-        // run would start without it — the same gap the enqueue and queue-head guards close for chat
-        // messages. Launch the reseed in arch instead, like its summarize phase, so /compact stays
-        // usable without ever starting a run that passes without its gate.
-        $reseedMode = $this->config->gatesUnavailable() ? SystemPrompt::MODE_ARCH : $this->db->getMode($chatId, $threadId);
+        // The reseed normally continues in the topic's own mode. While the gate of that mode (pm by
+        // default, or review) does not hold, the run would start without it — the same gap the enqueue
+        // and queue-head guards close for chat messages. Launch the reseed in arch instead, like its
+        // summarize phase, so /compact stays usable without ever starting a run that passes without its
+        // gate.
+        $reseedMode = $this->kimiGate->refusal() !== null ? SystemPrompt::MODE_ARCH : $this->db->getMode($chatId, $threadId);
         $error = $this->launcher->launchJob($chatId, $threadId, RunKind::KIND_COMPACT_RESEED, $prompt, null, $thinkingId, $compactOldSessionId, $reseedMode, $queueId, localeCode: $localeCode, model: (new ModelChoice($this->config, $this->db))->resolve($chatId, $threadId));
         if ($error !== null) {
             $this->tg->deleteMessage($chatId, $thinkingId);

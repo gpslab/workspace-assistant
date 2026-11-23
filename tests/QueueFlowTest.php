@@ -17,6 +17,7 @@ use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Inbox;
+use GpsLab\WorkspaceAssistant\Kimi\KimiGateGuard;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\PmGateHook;
 use GpsLab\WorkspaceAssistant\PmRunbook;
@@ -124,7 +125,7 @@ final class QueueFlowTest extends TestCase
         return is_file($log) ? count(file($log) ?: []) : 0;
     }
 
-    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $opencodeModel = '', string $memory3LayerBin = '', string $kimiModel = '', string $kimiHome = ''): Bot
+    private function makeBot(?Forge $github = null, string $promptsDir = '', string $localesDir = '', ?string $locale = 'en', string $forge = Config::FORGE_GITHUB, bool $autoCommit = true, string $subreposDir = '', string $engine = Config::DEFAULT_ENGINE_FINGERPRINT, ?string $anthropicBaseUrl = null, ?string $anthropicModel = null, string $opencodeModel = '', string $memory3LayerBin = '', string $kimiModel = '', string $kimiHome = '', ?string $gateHome = null, ?string $gateShim = null): Bot
     {
         $config = new Config(...[
             'botToken' => 't',
@@ -158,7 +159,32 @@ final class QueueFlowTest extends TestCase
             'memory3LayerBin' => $memory3LayerBin,
         ] + ($locale === null ? [] : ['botLocale' => $locale]));
 
-        return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github, runnerFactory: $this->runnerFactoryFor($config));
+        // The gate preconditions of a Kimi instance are read from a home of the test's own (an empty
+        // directory by default, so they hold): neither `$HOME/.agents` nor the sessions of the machine
+        // the suite runs on decide what these tests see.
+        $gate = new KimiGateGuard($config, Locale::fromConfig($config), $gateHome ?? $this->root.'/gate-home', $gateShim);
+
+        return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root), $github, runnerFactory: $this->runnerFactoryFor($config), kimiGate: $gate);
+    }
+
+    /**
+     * The home of a Kimi instance whose gate preconditions do not hold: it has the `.agents` directory
+     * every Kimi run reads, whatever run home it is given.
+     */
+    private function homeWithAgents(): string
+    {
+        $home = $this->root.'/gate-home-agents';
+        if (!is_dir($home.'/.agents')) {
+            mkdir($home.'/.agents', 0o700, true);
+        }
+
+        return $home;
+    }
+
+    /** The reason text of the failing precondition of {@see self::homeWithAgents()}, as `en` carries it. */
+    private function agentsReason(): string
+    {
+        return 'the home directory has a .agents directory, which every Kimi run reads (agents, skills and AGENTS.md) even with a relocated home.';
     }
 
     /**
@@ -3271,27 +3297,27 @@ final class QueueFlowTest extends TestCase
         return $lines;
     }
 
-    public function testKimiRefusesTheDefaultPmMode(): void
+    public function testKimiRefusesTheDefaultPmModeWhileTheGateDoesNotHold(): void
     {
-        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateHome: $this->homeWithAgents());
         $this->say(100, 1, 'hi', 10);
 
         self::assertSame(
-            ['Mode pm is not available on this instance: the engine cannot run the gate of this mode yet. Switch with /mode arch.'],
+            ['Mode pm is refused on this instance: '.$this->agentsReason().' Switch with /mode arch.'],
             $this->tg->textsTo(100, 1),
         );
         self::assertSame([], $this->db->queueWaiting());
         self::assertSame(0, $this->launches());
     }
 
-    public function testKimiRefusesTheReviewMode(): void
+    public function testKimiRefusesTheReviewModeWhileTheGateDoesNotHold(): void
     {
-        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateHome: $this->homeWithAgents());
         $this->db->setMode(100, 1, 'review');
         $this->say(100, 1, 'hi', 11);
 
         self::assertSame(
-            ['Mode review is not available on this instance: the engine cannot run the gate of this mode yet. Switch with /mode arch.'],
+            ['Mode review is refused on this instance: '.$this->agentsReason().' Switch with /mode arch.'],
             $this->tg->textsTo(100, 1),
         );
         self::assertSame([], $this->db->queueWaiting());
@@ -3304,31 +3330,32 @@ final class QueueFlowTest extends TestCase
         $this->say(100, 1, 'queued under claude', 10);
         self::assertCount(1, $this->db->queueWaiting());
 
-        // The instance restarts into ENGINE=kimi: the surviving chat item is refused at the head,
-        // not launched without its gate.
-        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        // The instance restarts into ENGINE=kimi with a gate that does not hold: the surviving chat item
+        // is refused at the head, not launched without its gate.
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateHome: $this->homeWithAgents());
         $this->call('startQueueHead');
 
         self::assertSame([], $this->db->queueWaiting());
         self::assertSame(0, $this->launches());
         $texts = $this->tg->textsTo(100, 1);
         self::assertSame(
-            'Mode pm is not available on this instance: the engine cannot run the gate of this mode yet. Switch with /mode arch.',
+            'Mode pm is refused on this instance: '.$this->agentsReason().' Switch with /mode arch.',
             $texts[count($texts) - 1],
         );
     }
 
     public function testTheGatePreconditionAloneRefusesTheGatedModes(): void
     {
-        // The same message and the same mode path: the engine whose gate preconditions do not hold
-        // refuses it, an engine whose gates run starts it. The refusal is the predicate, nothing else.
-        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        // The same message and the same mode path: the instance whose gate preconditions do not hold
+        // refuses it, the same instance with the preconditions holding starts it. The refusal is the
+        // predicate, nothing else.
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateHome: $this->homeWithAgents());
         $this->say(100, 1, 'hi', 10);
         self::assertSame([], $this->db->queueWaiting());
         self::assertSame(0, $this->launches());
         self::assertCount(1, $this->tg->textsTo(100, 1));
 
-        $this->bot = $this->makeBot();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
         $this->runChat('hi', 11);
 
         self::assertSame(1, $this->launches());
@@ -3451,14 +3478,14 @@ final class QueueFlowTest extends TestCase
     }
 
     /**
-     * `/compact` stays usable on a Kimi instance, but its reseed must not adopt the topic's gated mode:
-     * a `pm`/`review` reseed would attach a gate this engine has nowhere to run, so the reseed runs in
-     * `arch`, without a gate, like its summarize phase.
+     * `/compact` stays usable on a Kimi instance whose gate does not hold, but its reseed must not adopt
+     * the topic's gated mode: a `pm`/`review` reseed would attach a gate that does not hold, so the
+     * reseed runs in `arch`, without a gate, like its summarize phase.
      */
     #[DataProvider('kimiCompactTopicModes')]
-    public function testKimiCompactReseedRunsGateFree(?string $mode): void
+    public function testKimiCompactReseedRunsGateFreeWhileTheGateDoesNotHold(?string $mode): void
     {
-        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateHome: $this->homeWithAgents());
         if ($mode !== null) {
             $this->db->setMode(100, 1, $mode);
         }
@@ -3471,6 +3498,32 @@ final class QueueFlowTest extends TestCase
 
         self::assertSame(SystemPrompt::MODE_ARCH, $reseed['mode']);
         self::assertNull($reseed['pm_gate_run_id']);
+
+        $this->finishJob();
+
+        self::assertSame('s-new', $this->db->getSessionId(100, 1));
+    }
+
+    /**
+     * With the gate preconditions holding, the reseed continues in the mode of the topic, as it does on
+     * every other engine: nothing about a Kimi instance makes `/compact` special then.
+     */
+    #[DataProvider('kimiCompactTopicModes')]
+    public function testKimiCompactReseedKeepsTheTopicModeWhenTheGateHolds(?string $mode): void
+    {
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        if ($mode !== null) {
+            $this->db->setMode(100, 1, $mode);
+        }
+        $this->db->recordRun(100, 1, 's-old', null, null, 'kimi:default');
+        $this->command(100, 1, '/compact', 30);
+        $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
+
+        $this->call('startQueueHead');
+        $reseed = $this->startReseedAndCapture();
+
+        self::assertSame($mode ?? SystemPrompt::MODE_PM, $reseed['mode']);
+        self::assertNotNull($reseed['pm_gate_run_id'], 'a gated reseed carries its gate');
 
         $this->finishJob();
 
@@ -3550,34 +3603,26 @@ final class QueueFlowTest extends TestCase
         self::fail('the /compact reseed did not start');
     }
 
-    public function testKimiRefusesTheEpicCommandsAndCallbacks(): void
+    public function testKimiRefusesTheEpicCommandsAndCallbacksWhileTheGateDoesNotHold(): void
     {
-        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        $refusal = 'Epics are refused on this instance: '.$this->agentsReason();
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateHome: $this->homeWithAgents());
 
         $this->command(100, 1, '/epic start demo', 20);
-        // A resumption is refused like a start: there is no orchestrator to continue it.
+        // A resumption is refused like a start: the gate of the epic run does not hold either.
         $this->command(100, 1, '/epic resume', 21);
         // A keyboard sent before the refusal landed is stale, not a way around it.
         $this->commitCallback(777, 100, 1, 'epic:go:1:demo');
 
-        self::assertSame(
-            [
-                'Epics are not available on this instance: the engine cannot run the gate of an epic run yet.',
-                'Epics are not available on this instance: the engine cannot run the gate of an epic run yet.',
-            ],
-            $this->tg->textsTo(100, 1),
-        );
-        self::assertSame(
-            ['Epics are not available on this instance: the engine cannot run the gate of an epic run yet.'],
-            $this->tg->answers,
-        );
+        self::assertSame([$refusal, $refusal], $this->tg->textsTo(100, 1));
+        self::assertSame([$refusal], $this->tg->answers);
         self::assertNull($this->db->epicGet('demo'));
         self::assertSame(0, $this->launches());
     }
 
     public function testKimiDropsAStrayEpicItemSilently(): void
     {
-        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, gateHome: $this->homeWithAgents());
         $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
         self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::TICK));
 
@@ -3588,11 +3633,70 @@ final class QueueFlowTest extends TestCase
         self::assertSame([], $this->tg->textsTo(100, 1));
     }
 
-    public function testKimiDoesNotConnectTheOrchestrator(): void
+    /** The orchestrator is what drives the epics: a Kimi instance connects it like the other engines. */
+    public function testKimiConnectsTheOrchestrator(): void
     {
+        require_once __DIR__.'/Epic/OrchestratorTest.php';
         $this->bot = $this->makeBot(new FakeGitHub(), engine: Config::ENGINE_KIMI);
 
         $orchestrator = (new \ReflectionProperty(Bot::class, 'orchestrator'))->getValue($this->bot);
-        self::assertNull($orchestrator);
+        self::assertNotNull($orchestrator);
+    }
+
+    /**
+     * With the gate preconditions holding, the gated modes of a Kimi instance run end to end: the
+     * message is queued and the real {@see \GpsLab\WorkspaceAssistant\KimiRunner} starts it against a
+     * fake `kimi`, in the mode the topic carries.
+     */
+    #[DataProvider('gatedModes')]
+    public function testKimiRunsTheGatedModesWhenThePreconditionsHold(string $mode): void
+    {
+        $this->realKimiRunner = true;
+        $this->kimiTurns([['commands' => [], 'errored' => []]]);
+        mkdir($this->root.'/kimi-home', 0700, true);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $this->root.'/kimi-home');
+        $this->db->setMode(100, 1, $mode);
+
+        $this->say(100, 1, 'hi', 10);
+        $this->call('startQueueHead');
+
+        self::assertTrue($this->activeJob(), 'the gated mode of a Kimi instance with its preconditions holding starts');
+        self::assertSame($mode, $this->jobContext()['mode'] ?? null);
+
+        $this->finishJob();
+
+        self::assertSame(1, $this->launches());
+        self::assertSame([], $this->db->queueWaiting());
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function gatedModes(): array
+    {
+        return ['pm' => ['pm'], 'review' => ['review']];
+    }
+
+    /**
+     * An epic run of a Kimi instance starts when the preconditions hold: the item queued by the
+     * orchestrator reaches the queue head and is launched, not dropped the way a refused one is.
+     */
+    public function testKimiStartsAnEpicRunWhenThePreconditionsHold(): void
+    {
+        $this->realKimiRunner = true;
+        $this->kimiTurns([['commands' => [], 'errored' => []]]);
+        mkdir($this->root.'/kimi-home', 0700, true);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $this->root.'/kimi-home');
+        $this->db->epicCreate('demo', 100, 1, [['task' => 'gpslab/ws#4', 'after' => []]], []);
+        $this->db->epicSetStatus('demo', 'running');
+
+        self::assertTrue($this->queueScheduler()->enqueueEpicRun('demo', Run::TICK));
+        $this->call('startQueueHead');
+
+        self::assertTrue($this->activeJob(), 'the epic run of a Kimi instance with its preconditions holding starts');
+        $this->finishJob();
+
+        self::assertSame([], $this->db->queueWaiting());
+        self::assertSame(1, $this->launches());
     }
 }

@@ -18,6 +18,7 @@ use GpsLab\WorkspaceAssistant\Exception\TelegramApiException;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Inbox;
 use GpsLab\WorkspaceAssistant\JobLauncher;
+use GpsLab\WorkspaceAssistant\Kimi\KimiGateGuard;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\Log;
 use GpsLab\WorkspaceAssistant\ModelChoice;
@@ -77,6 +78,7 @@ final class QueueScheduler implements QueueControl
         private readonly Inbox $inbox,
         private readonly SubRepoSync $subRepoSync,
         private readonly JobLauncher $launcher,
+        private readonly KimiGateGuard $kimiGate,
     ) {
     }
 
@@ -243,12 +245,13 @@ final class QueueScheduler implements QueueControl
         }
 
         $mode = $this->db->getMode($chatId, $threadId);
-        // A `pm` or `review` run would pass without its gate on an engine whose gates have no place to
-        // run, and such a run looks normal: refuse the message instead of queuing it. This covers text
-        // and files alike; `arch` and `/compact` need no gate and stay available. The default mode is
-        // pm, so a new topic is refused until /mode arch.
-        if ($this->config->gatesUnavailable() && $mode !== SystemPrompt::MODE_ARCH) {
-            $this->tg->sendText($chatId, $this->t('mode.gates_unavailable', ['mode' => $mode]), null, $threadId);
+        // A `pm` or `review` run whose gate does not hold would pass without it, and such a run looks
+        // normal: refuse the message instead of queuing it. This covers text and files alike; `arch` and
+        // `/compact` need no gate and stay available. The default mode is pm, so a new topic is refused
+        // until /mode arch while the refusal stands.
+        $gateRefusal = $mode !== SystemPrompt::MODE_ARCH ? $this->kimiGate->refusal() : null;
+        if ($gateRefusal !== null) {
+            $this->tg->sendText($chatId, $this->t('mode.gates_unavailable', ['mode' => $mode, 'reason' => $gateRefusal]), null, $threadId);
 
             return;
         }
@@ -502,8 +505,11 @@ final class QueueScheduler implements QueueControl
         // 0. The gate of the mode: the enqueue gate refuses a new message, but a chat item queued under
         //    another engine survives a restart into this one and would be launched here without its gate
         //    (the epic head-start guard below does the same for epic items). Re-check the mode at the head.
-        if ($head['kind'] === self::ITEM_CHAT && $this->config->gatesUnavailable() && $head['mode'] !== SystemPrompt::MODE_ARCH) {
-            $this->dropItem($head, $this->t('mode.gates_unavailable', ['mode' => $head['mode']]));
+        $headGateRefusal = $head['kind'] === self::ITEM_CHAT && $head['mode'] !== SystemPrompt::MODE_ARCH
+            ? $this->kimiGate->refusal()
+            : null;
+        if ($headGateRefusal !== null) {
+            $this->dropItem($head, $this->t('mode.gates_unavailable', ['mode' => $head['mode'], 'reason' => $headGateRefusal]));
 
             return;
         }
@@ -682,11 +688,12 @@ final class QueueScheduler implements QueueControl
         $slug = (string) ($head['parts'][0]['slug'] ?? '');
         $run = (string) ($head['parts'][0]['run'] ?? '');
 
-        // An epic run carries a gate the engine has nowhere to run, and no orchestrator connects on such
-        // an instance: an item queued before the refusal landed is dropped silently (no chat message) so
-        // that the refusal cannot repeat on every tick.
-        if ($this->config->gatesUnavailable()) {
-            Log::line("queue: epic run {$slug} ({$run}) dropped - the gates of the engine cannot run");
+        // An epic run carries a gate that does not hold right now (a queue item can also outlive a restart
+        // into another engine): it is dropped silently — no chat message, so that the refusal cannot repeat
+        // on every tick of an orchestrator that keeps enqueuing the same run — and named in bot.log.
+        $gateRefusal = $this->kimiGate->refusalLog();
+        if ($gateRefusal !== null) {
+            Log::line("queue: epic run {$slug} ({$run}) dropped - {$gateRefusal}");
 
             $this->dropItem($head, null);
 

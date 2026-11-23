@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests\Kimi;
 
-use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Kimi\KimiGatedPreconditionResult;
 use GpsLab\WorkspaceAssistant\Kimi\KimiGatedPreconditions;
+use GpsLab\WorkspaceAssistant\Kimi\KimiGateReason;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(KimiGatedPreconditions::class)]
 #[CoversClass(KimiGatedPreconditionResult::class)]
+#[CoversClass(KimiGateReason::class)]
 final class KimiGatedPreconditionsTest extends TestCase
 {
     private string $home;
@@ -34,6 +35,7 @@ final class KimiGatedPreconditionsTest extends TestCase
 
         self::assertTrue($result->isOk());
         self::assertSame([], $result->reasons);
+        self::assertSame([], $result->failed);
     }
 
     /** Kimi reads agents, skills and AGENTS.md from `$HOME/.agents` even with a relocated home. */
@@ -44,6 +46,7 @@ final class KimiGatedPreconditionsTest extends TestCase
         $result = KimiGatedPreconditions::check($this->home, '1.5', null);
 
         self::assertFalse($result->isOk());
+        self::assertSame([KimiGateReason::HomeAgents], $result->failed);
         self::assertCount(1, $result->reasons);
         self::assertStringContainsString('.agents', $result->reasons[0]);
     }
@@ -53,8 +56,11 @@ final class KimiGatedPreconditionsTest extends TestCase
         $result = KimiGatedPreconditions::check($this->home, '9.9', null);
 
         self::assertFalse($result->isOk());
+        self::assertSame([KimiGateReason::ProtocolUnknown], $result->failed);
         self::assertCount(1, $result->reasons);
         self::assertStringContainsString('protocol version 9.9 is unknown', $result->reasons[0]);
+        // The version is kept apart: the chat text names it as its own placeholder.
+        self::assertSame('9.9', $result->detail(KimiGateReason::ProtocolUnknown));
     }
 
     /** A missing protocol version is not unknown: the window simply did not reach the head of the file. */
@@ -68,9 +74,11 @@ final class KimiGatedPreconditionsTest extends TestCase
         $result = KimiGatedPreconditions::check($this->home, '1.5', 'the run home is not writable');
 
         self::assertFalse($result->isOk());
+        self::assertSame([KimiGateReason::SelfTestFailed], $result->failed);
         self::assertCount(1, $result->reasons);
         self::assertStringContainsString('self-test failed', $result->reasons[0]);
         self::assertStringContainsString('the run home is not writable', $result->reasons[0]);
+        self::assertSame('the run home is not writable', $result->detail(KimiGateReason::SelfTestFailed));
     }
 
     public function testEveryFailingConditionIsReported(): void
@@ -79,32 +87,10 @@ final class KimiGatedPreconditionsTest extends TestCase
 
         $result = KimiGatedPreconditions::check($this->home, '9.9', 'boom');
 
-        self::assertCount(3, $result->reasons);
-    }
-
-    /**
-     * This task does not connect the predicate: the refusal of gated modes on Kimi is unchanged.
-     */
-    public function testTheRefusalOfGatedModesOnKimiIsUnchanged(): void
-    {
-        $config = new Config(
-            botToken: 't',
-            allowedUserIds: [1],
-            repoPath: sys_get_temp_dir(),
-            forgeRepo: '',
-            claudeBin: 'claude',
-            claudeTimeout: 0,
-            claudeStallTimeout: 0,
-            claudeExtraArgs: [],
-            claudeAppendSystemPrompt: '',
-            stateDir: sys_get_temp_dir(),
-            outboxDir: sys_get_temp_dir(),
-            inboxDir: sys_get_temp_dir(),
-            pollTimeout: 30,
-            gitTimeout: 30,
-            engine: Config::ENGINE_KIMI,
+        self::assertSame(
+            [KimiGateReason::HomeAgents, KimiGateReason::ProtocolUnknown, KimiGateReason::SelfTestFailed],
+            $result->failed,
         );
-
-        self::assertTrue($config->gatesUnavailable());
+        self::assertCount(3, $result->reasons);
     }
 }

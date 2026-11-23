@@ -170,11 +170,12 @@ built in code), and the instruction to remove the secret and rewrite an unpushed
 `tick` and `final` run in the `pm` mode, `review` in the `review` mode, always in a new session. The system
 prompt is the one above. The message is built in code by `Epic\Run::prompt()`, no file overrides it: a
 pointer to `epic_runbook` (Claude reads the file itself), the text of `PROMPTS_DIR/epic.md` if present,
-the PM runbook line, and the paths and data of the run. Both engines that run epics use this same assembly: on
-OpenCode the run is gated by the shim of its run kind (`tick`, `final` or `epic_review`) and its model is
-`OPENCODE_MODEL`, since `MODEL_EPIC_*` is a Claude Code key. A Kimi instance runs no epic at all: the
-gated modes and the epics are refused while this engine has nowhere to run their gates, so this assembly
-is never used there.
+the PM runbook line, and the paths and data of the run. Every engine that runs epics uses this same assembly:
+on OpenCode the run is gated by the shim of its run kind (`tick`, `final` or `epic_review`) and its model is
+`OPENCODE_MODEL`, since `MODEL_EPIC_*` is a Claude Code key. On Kimi the run carries the gate of the same
+run kind through the gate shim of the bot, and its model is `KIMI_MODEL`; the run starts while the
+preconditions of that gate hold and is refused, with the failing one named, while they do not — the
+assembly itself is the same, and nothing about it is engine-specific.
 
 With `AUTO_COMMIT=0` the journal line reads "write it to disk right after each external action; do not
 commit or push it" instead of "commit and push it right after each external action", and one more line

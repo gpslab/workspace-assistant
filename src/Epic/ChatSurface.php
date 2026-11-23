@@ -9,6 +9,7 @@ use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\GitManager;
 use GpsLab\WorkspaceAssistant\Keyboard;
 use GpsLab\WorkspaceAssistant\Keyboards;
+use GpsLab\WorkspaceAssistant\Kimi\KimiGateGuard;
 use GpsLab\WorkspaceAssistant\Locale;
 use GpsLab\WorkspaceAssistant\TelegramClient;
 
@@ -34,13 +35,15 @@ final class ChatSurface
         private readonly GitManager $git,
         private readonly Card $card,
         private readonly Locale $locale,
+        private readonly KimiGateGuard $kimiGate,
     ) {
     }
 
     public function cmdEpic(int $chatId, int $threadId, string $argument): void
     {
-        if ($this->config->gatesUnavailable()) {
-            $this->tg->sendText($chatId, $this->t('epic.gates_unavailable'), null, $threadId);
+        $gateRefusal = $this->kimiGate->refusal();
+        if ($gateRefusal !== null) {
+            $this->tg->sendText($chatId, $this->t('epic.gates_unavailable', ['reason' => $gateRefusal]), null, $threadId);
 
             return;
         }
@@ -302,8 +305,9 @@ final class ChatSurface
     {
         // A keyboard sent before the refusal landed is stale, not a way around it: the callbacks of an
         // epic run (start, resume) are refused like the command itself.
-        if ($this->config->gatesUnavailable()) {
-            $this->tg->answerCallback($callbackId, $this->t('epic.gates_unavailable'));
+        $gateRefusal = $this->kimiGate->refusal();
+        if ($gateRefusal !== null) {
+            $this->tg->answerCallback($callbackId, $this->t('epic.gates_unavailable', ['reason' => $gateRefusal]));
 
             return;
         }

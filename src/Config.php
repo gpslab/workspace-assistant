@@ -498,8 +498,8 @@ final class Config
 
     /**
      * Whether the instance runs Kimi Code ({@see self::ENGINE_KIMI}): `/model` is read-only, the model of
-     * every run comes from `KIMI_MODEL`, and the bot's gates have no place to run yet — so the gated modes
-     * and the epics are refused; lifting that refusal is a task of its own.
+     * every run comes from `KIMI_MODEL`, and the gates of the bot run through the Kimi gate shim, whose
+     * preconditions a gated run has to pass ({@see Kimi\KimiGateGuard}).
      */
     public function isKimi(): bool
     {
@@ -515,20 +515,6 @@ final class Config
     public function hasContinuableStopHook(): bool
     {
         return !$this->isOpencode() && !$this->isKimi();
-    }
-
-    /**
-     * Whether the gates of the bot have nowhere to run on this engine: the PM gate of a `pm` or `review`
-     * run (and of an epic run) and the review commit hook of a `review` run. A run without its gate looks
-     * normal and is not, so while this answers "yes" the gated modes and the epic runs are refused
-     * outright (see the queue and the /epic surface) instead of started.
-     *
-     * Kimi has nowhere to run those hooks yet, so the answer is a constant there: the task that lands its
-     * gate shim changes this body alone, and every caller and its refusal text stay as they are.
-     */
-    public function gatesUnavailable(): bool
-    {
-        return $this->isKimi();
     }
 
     /**

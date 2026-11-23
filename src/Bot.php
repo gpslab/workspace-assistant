@@ -37,6 +37,7 @@ use GpsLab\WorkspaceAssistant\Epic\RunLifecycle;
 use GpsLab\WorkspaceAssistant\Epic\RunPrompt;
 use GpsLab\WorkspaceAssistant\Exception\TelegramTransportException;
 use GpsLab\WorkspaceAssistant\Kimi\DeferredRunHome;
+use GpsLab\WorkspaceAssistant\Kimi\KimiGateGuard;
 use GpsLab\WorkspaceAssistant\Memory\MemorySync;
 use GpsLab\WorkspaceAssistant\Queue\QueueScheduler;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
@@ -85,6 +86,7 @@ final class Bot implements LoopControl
     private readonly SecretBlocker $secretBlocker;
     private readonly JobRunner $jobRunner;
     private readonly MemorySync $memorySync;
+    private readonly KimiGateGuard $kimiGate;
     private readonly ?Orchestrator $orchestrator;
     private readonly Locales $locales;
     private readonly QueueScheduler $queueScheduler;
@@ -109,6 +111,7 @@ final class Bot implements LoopControl
         ?Locale $locale = null,
         private readonly ?string $selfRepoPath = null,
         ?RunnerFactory $runnerFactory = null,
+        ?KimiGateGuard $kimiGate = null,
     ) {
         $this->locale = $locale ?? Locale::fromConfig($config);
         $this->locales = new Locales($this->locale, $db);
@@ -118,9 +121,13 @@ final class Bot implements LoopControl
         $this->secretBlocker = new SecretBlocker($db, $this->delivery, $this->locale);
         $this->runResult = new RunResult($config, $db, $git, $this->subRepoSync, $this->delivery, $this->locale, $this->runState, $this->secretBlocker);
         $this->inbox = new Inbox($tg, $config, $this->locale);
+        // The refusal predicate of the gated modes and the epics on Kimi: one instance for the whole
+        // bot, so the self-test of the gate shim is taken once per process (see KimiGateGuard). The
+        // parameter is the seam of the tests, which run the bot under a home of their own.
+        $this->kimiGate = $kimiGate ?? new KimiGateGuard($config, $this->locale);
         $this->albumBuffer = new AlbumBuffer();
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
-        $this->epicChat = new ChatSurface($db, $tg, $config, $git, $this->epicCard, $this->locale);
+        $this->epicChat = new ChatSurface($db, $tg, $config, $git, $this->epicCard, $this->locale, $this->kimiGate);
         $this->queueTexts = new QueueTexts($this->locale);
         // Memory of the instance: off unless MEMORY_3LAYER_BIN is set, and off on Claude Code whatever the
         // setting says, because that engine reads the user scope itself (Config::memoryBin()) — OpenCode
@@ -140,10 +147,13 @@ final class Bot implements LoopControl
         ];
         $notifier = new EpicNotifier($db, $this->delivery, $this->epicCard, $this->locale);
         $runPrompt = new RunPrompt($db, $config, $github);
-        $this->queueScheduler = new QueueScheduler($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->locales, $this->queueTexts, $this->dirtyTree, $this->runState, $runPrompt, $this->inbox, $this->subRepoSync, $this->jobRunner);
+        $this->queueScheduler = new QueueScheduler($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->locales, $this->queueTexts, $this->dirtyTree, $this->runState, $runPrompt, $this->inbox, $this->subRepoSync, $this->jobRunner, $this->kimiGate);
         $this->commandRouter = $this->buildCommandRouter();
         $this->commandMenu = new Menu($this->commandRouter, $tg, $this->locale);
-        $this->orchestrator = $github === null || !$config->epicsAvailable() || $config->gatesUnavailable() ? null : new Orchestrator(
+        // The Orchestrator connects wherever epics do, Kimi included: what a gated epic run needs is
+        // decided per run — the /epic surface and the queue refuse one whose gate does not hold — and
+        // not by the engine of the instance.
+        $this->orchestrator = $github === null || !$config->epicsAvailable() ? null : new Orchestrator(
             $db,
             $github,
             $this->queueScheduler->enqueueEpicRun(...),
@@ -160,7 +170,7 @@ final class Bot implements LoopControl
             locale: $this->locale,
         );
         $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator, $this->secretBlocker, $github);
-        $this->compactFlow = new CompactFlow($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->dirtyTree, $this->runState, $this->jobRunner);
+        $this->compactFlow = new CompactFlow($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->dirtyTree, $this->runState, $this->jobRunner, $this->kimiGate);
     }
 
     /** Menu order = registration order. */

@@ -208,10 +208,20 @@ What differs from a Claude instance:
   empty the `default_model` of that file applies. `/model` is read-only, and `CLAUDE_MODELS`, `MODEL_EPIC_*`
   and a `--model` in `CLAUDE_EXTRA_ARGS` do not apply; the keys that are set are named in one startup log
   line. Changing `KIMI_MODEL` starts a new session, like changing `ENGINE`.
-- **Chat and `/compact` work; the gated modes (`pm`, `review`) and the epics are refused.** A Kimi run has
-  nowhere to run the PM gate and the review commit hook yet, and a run without its gate looks normal and is
-  not, so a message in one of those modes is answered with a refusal naming the mode and nothing is queued.
-  `/mode arch` is the mode to chat in.
+- **Chat and `/compact` work; the gated modes (`pm`, `review`) and the epics run while their gate
+  preconditions hold.** A Kimi run without its gate looks normal and is not, so a `pm` or `review` message
+  and an epic run are refused while one of these three conditions fails, with the failing one named in the
+  refusal and nothing queued (`/mode arch` is the mode to chat in until then):
+  - **`$HOME/.agents` exists.** Kimi reads agents, skills and `AGENTS.md` from that directory whatever
+    `KIMI_HOME` and the run home say, so the bot does not control what the model is told. Remove it, or run
+    the bot under a home that has none, if the model must be told only what the bot wrote.
+  - **The `protocol_version` of the sessions is not one the bot was verified against** (see the version note
+    above): the audit reads a private format, so an unverified one is not trusted with a gated run. The bot
+    reads it from the newest session on the source home, the one the installed engine wrote last; a home with
+    no session yet has no version to distrust.
+  - **The gate shim fails its self-test.** Kimi's hooks fail open, so a shim that cannot start or write would
+    let every call through unnoticed. The self-test is taken once per process: a shim that is repaired while
+    the bot runs needs a restart, like any other change of the installation.
 - Every run gets its own home (`STATE_DIR/kimi-<runId>/`, mode 0700) with the rendered `config.toml`, the
   assembled prompt in `agent.md` and the agents of the instance. The `credentials/`, `sessions/` and `oauth/`
   entries of the source home (`KIMI_HOME`, default `~/.kimi-code`) are linked into it, never copied: the
@@ -222,9 +232,8 @@ What differs from a Claude instance:
   `[[permission.rules]]` stay in effect.
 - **A user-level `$HOME/.agents` is read by every Kimi run**, whatever `KIMI_HOME` and the run home say:
   agents, skills and `AGENTS.md` from that directory reach the model even though the bot relocates the home.
-  The bot logs a warning at startup when the directory exists, and the condition is one a gated run will have
-  to pass once the refusal below is lifted. Remove it, or run the bot under a home that has none, if the model
-  must be told only what the bot wrote.
+  The bot logs a warning at startup when the directory exists, and it is the first precondition of a gated
+  run: while it is there, the gated modes and the epics are refused.
 - **Every run is approved automatically.** `kimi -p` runs under `auto` permission, so every action the
   configuration does not explicitly deny is approved and whatever a Telegram message asks for runs with the
   rights of the bot's system user and its forge token. `KIMI_EXTRA_ARGS` cannot make that stricter; the
@@ -236,11 +245,15 @@ What differs from a Claude instance:
   audit runs after a run that did not end in an error only: a run that ended in an error is not audited and
   leaves no line. A `kimi gate audit skipped: …` line in `state/bot.log` (and no audit) is left by a run that
   was killed by a timeout, was cancelled, was still in progress when the bot stopped, or ended but whose audit
-  could not be taken. On a chat run a mismatch is a `kimi gate audit: …` line in
-  `state/bot.log` and nowhere else; it reaches the chat only on a gated run, and those runs are refused on
-  this engine (`Config::gatesUnavailable()`). That is a detection, never a hard stop — the reason the
-  gated modes (`pm`, `review`) and the epics are refused on this engine: the refusal, not an audit, is what
-  keeps a run from starting without a gate that holds.
+  could not be taken. A mismatch on a chat run is a `kimi gate audit: …` line in `state/bot.log` and nowhere
+  else; on a gated run it is a gate violation: a `kimi gate violation: …` line in `state/bot.log`, the same
+  text in the chat, and no success status for the run. That is a detection, never a hard stop — a call a
+  failing hook let through is reported after the run, not prevented — and it is the residual risk of running
+  the gated modes on this engine: what keeps a run from starting without a gate that holds is the refusal
+  above, which is why its preconditions are checked before the run and not after it. The report of a gated
+  run is deliberately the loud one and not a `bot.log` line only: a run whose gate could not be confirmed
+  must not end as a success, and a report the records do not support is a defect of the comparator to fix,
+  not a run to retry.
 - `CLAUDE_TIMEOUT` and `CLAUDE_STALL_TIMEOUT` bound a Kimi run as well. The stall timer counts the bytes of
   stdout and the growth of the session's `wire.jsonl`: stdout is quiet while a background sub-agent works.
 - Memory: like OpenCode, a Kimi run reads no user scope, so `MEMORY_3LAYER_BIN` is what brings the memory of
@@ -302,9 +315,9 @@ Claude; nothing filters the injected memory. The same holds for a Kimi run and t
 | `CLAUDE_STALL_TIMEOUT` | `900` | Kill Claude after this many silent seconds (0 = off) |
 | `CLAUDE_EXTRA_ARGS` | `--dangerously-skip-permissions` | Extra `claude` arguments, comma-separated |
 | `CLAUDE_MODELS` | `fable,opus[1m],opus,sonnet,haiku` | Models selectable with `/model`, comma-separated; values are passed to `claude --model` as they are. A `--model` in `CLAUDE_EXTRA_ARGS` pins the model and `/model` becomes read-only. Not applied with `ENGINE=opencode` or `ENGINE=kimi` |
-| `MODEL_EPIC_TICK` | empty | Model of the Orchestrator `tick` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` epics do not run |
-| `MODEL_EPIC_FINAL` | empty | Model of the `final` (acceptance) epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` epics do not run |
-| `MODEL_EPIC_REVIEW` | empty | Model of the `review` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` epics do not run |
+| `MODEL_EPIC_TICK` | empty | Model of the Orchestrator `tick` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` the model of an epic run is `KIMI_MODEL` |
+| `MODEL_EPIC_FINAL` | empty | Model of the `final` (acceptance) epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` the model of an epic run is `KIMI_MODEL` |
+| `MODEL_EPIC_REVIEW` | empty | Model of the `review` epic run, passed to `claude --model`; empty = the model for all topics; must be in `CLAUDE_MODELS`. Not applied with `ENGINE=opencode`; on `ENGINE=kimi` the model of an epic run is `KIMI_MODEL` |
 | `ANTHROPIC_BASE_URL` | empty | Base URL of the Anthropic-compatible API; empty, `api.anthropic.com` and `*.anthropic.com` mean Anthropic, any other host switches on foreign-provider limit handling (see below) |
 | `ANTHROPIC_MODEL` | empty | Model recorded in the engine fingerprint of a stored session on a foreign provider, when the run has no pinned `--model`; empty = no model is appended to the fingerprint |
 | `ANTHROPIC_AUTH_TOKEN` | empty | Auth token for an external Anthropic-compatible provider; replaces the Claude Code subscription (see below) |
@@ -334,7 +347,8 @@ member of `CLAUDE_MODELS` (otherwise the bot fails at startup). With a key empty
 model for all topics (`/model <name> all`), and with all three empty only that model applies. A `--model` in
 `CLAUDE_EXTRA_ARGS` overrides them all (one warning is logged at startup). These are Claude Code keys: with
 `ENGINE=opencode` the model of every run, epic runs included, is `OPENCODE_MODEL`, and a set key is named in
-one startup log line; on `ENGINE=kimi` epics do not run at all ([Kimi](#kimi)). Built-in agents of the bot declare
+one startup log line; on `ENGINE=kimi` the model of every run is `KIMI_MODEL`, so the keys are named in that
+line and do not apply ([Kimi](#kimi)). Built-in agents of the bot declare
 `model: inherit`, so an epic key also moves every built-in agent that run calls, unless
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is set. `opus` and `opus[1m]` are different context windows — pick the one
 your endpoint actually resolves.
