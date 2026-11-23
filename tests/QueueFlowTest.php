@@ -53,7 +53,7 @@ final class QueueFlowTest extends TestCase
     private Bot $bot;
     /** A runner every job of this test gets instead of a real one. */
     private ?FixedRunner $fixedRunner = null;
-    /** Build a real {@see \GpsLab\WorkspaceAssistant\KimiRunner} for `ENGINE=kimi` instead of the Claude fallback. */
+    /** Build the real {@see \GpsLab\WorkspaceAssistant\KimiRunner} for `ENGINE=kimi` instead of the Claude stand-in. */
     private bool $realKimiRunner = false;
 
     protected function setUp(): void
@@ -195,19 +195,11 @@ final class QueueFlowTest extends TestCase
             };
         }
 
-        if (in_array($config->engine, [Config::DEFAULT_ENGINE_FINGERPRINT, Config::ENGINE_OPENCODE], true)) {
+        // Every selectable engine goes through the real factory, as production does. A Kimi instance is
+        // the exception until the test asks for the real runner (`realKimiRunner`): those tests are
+        // engine-neutral (refusals, session reset, the queue) and keep the fake claude stand-in.
+        if (in_array($config->engine, Config::ENGINES, true) && ($config->engine !== Config::ENGINE_KIMI || $this->realKimiRunner)) {
             return new RunnerFactory($config, Locale::fromConfig($config));
-        }
-
-        // The Kimi engine is not selectable through create() yet, but a test can still drive its real
-        // runner: the post-run review check is what these tests are about.
-        if ($config->engine === Config::ENGINE_KIMI && $this->realKimiRunner) {
-            return new class($config, Locale::fromConfig($config)) extends RunnerFactory {
-                public function create(string $mode, string $settingsJson, array $extraEnv, string $localeCode, bool $withAgents, bool $updateOnResume, ?string $savedPromptHash, ?string $model): AgentRunner
-                {
-                    return $this->createKimiRunner($mode, $extraEnv, $localeCode, $updateOnResume, $savedPromptHash);
-                }
-            };
         }
 
         return new class($config, Locale::fromConfig($config)) extends RunnerFactory {
@@ -3351,6 +3343,84 @@ final class QueueFlowTest extends TestCase
         self::assertSame(1, $this->launches());
     }
 
+    /**
+     * `ENGINE=kimi` runs a chat message through the real runner end to end, and the next message
+     * resumes the session the first run stored. The argv is a Kimi one: none of the Claude Code prompt
+     * plumbing reaches it, and the fingerprint of the instance is `kimi:default` (no `KIMI_MODEL`).
+     */
+    public function testKimiChatRunsEndToEndAndResumesTheSameSession(): void
+    {
+        $this->realKimiRunner = true;
+        $this->kimiTurns([
+            ['commands' => [], 'errored' => []],
+            ['commands' => [], 'errored' => []],
+        ]);
+        mkdir($this->root.'/kimi-home', 0700, true);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $this->root.'/kimi-home');
+        $this->db->setMode(100, 1, 'arch');
+
+        $this->runChat('hi', 10);
+
+        self::assertSame(1, $this->launches());
+        $argv = $this->kimiArgvOfLaunch(0);
+        self::assertContains('-p', $argv);
+        self::assertContains('--output-format', $argv);
+        self::assertNotContains('-S', $argv, 'the first run starts the session');
+        self::assertNotContains('--append-system-prompt', $argv);
+        self::assertNotContains('--agents', $argv);
+        self::assertSame('kimi:default', $this->db->getEngineFingerprint(100, 1));
+
+        $this->runChat('again', 11);
+
+        self::assertSame(2, $this->launches());
+        $argv = $this->kimiArgvOfLaunch(1);
+        $sessionAt = array_search('-S', $argv, true);
+        self::assertIsInt($sessionAt);
+        self::assertSame('session_11111111-1111-1111-1111-111111111111', $argv[$sessionAt + 1]);
+        // The answer of the engine reaches the chat, so the run is not only started but finished.
+        self::assertStringContainsString('🟢 Merge — a#1', $this->textsOfTopic());
+    }
+
+    /**
+     * `KIMI_MODEL` pins the model of the instance, so it is part of the engine fingerprint: a stored
+     * session of another model is dropped and the chat is told a new session was started, like a
+     * changed `ENGINE`.
+     */
+    public function testChangingTheKimiModelStartsANewSessionWithANotice(): void
+    {
+        $this->realKimiRunner = true;
+        $this->kimiTurns([['commands' => [], 'errored' => []]]);
+        mkdir($this->root.'/kimi-home', 0700, true);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $this->root.'/kimi-home', kimiModel: 'kimi-k2');
+        $this->db->setMode(100, 1, 'arch');
+        $this->db->recordRun(100, 1, 'session_11111111-1111-1111-1111-111111111111', null, null, 'kimi:default');
+
+        $this->runChat('hi', 10);
+
+        self::assertNotContains('-S', $this->kimiArgvOfLaunch(0));
+        self::assertStringContainsString('new session was started', implode("\n", $this->tg->textsTo(100, 1)));
+        self::assertSame('kimi:kimi-k2', $this->db->getEngineFingerprint(100, 1));
+    }
+
+    /** The same model resumes: the fingerprint of the stored session matches the one being run. */
+    public function testKimiResumesTheSessionOfTheSameInstanceModel(): void
+    {
+        $this->realKimiRunner = true;
+        $this->kimiTurns([['commands' => [], 'errored' => []]]);
+        mkdir($this->root.'/kimi-home', 0700, true);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $this->root.'/kimi-home', kimiModel: 'kimi-k2');
+        $this->db->setMode(100, 1, 'arch');
+        $this->db->recordRun(100, 1, 'session_11111111-1111-1111-1111-111111111111', null, null, 'kimi:kimi-k2');
+
+        $this->runChat('hi', 10);
+
+        $argv = $this->kimiArgvOfLaunch(0);
+        $sessionAt = array_search('-S', $argv, true);
+        self::assertIsInt($sessionAt);
+        self::assertSame('session_11111111-1111-1111-1111-111111111111', $argv[$sessionAt + 1]);
+        self::assertStringNotContainsString('new session was started', implode("\n", $this->tg->textsTo(100, 1)));
+    }
+
     /** At bot start the run homes of dead Kimi runs are swept; a live run's home is kept. */
     public function testBotStartSweepsDeadKimiRunHomesAndKeepsLiveOnes(): void
     {
@@ -3392,7 +3462,7 @@ final class QueueFlowTest extends TestCase
         if ($mode !== null) {
             $this->db->setMode(100, 1, $mode);
         }
-        $this->db->recordRun(100, 1, 's-old', null, null, 'kimi');
+        $this->db->recordRun(100, 1, 's-old', null, null, 'kimi:default');
         $this->command(100, 1, '/compact', 30);
         $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
 
@@ -3449,7 +3519,7 @@ final class QueueFlowTest extends TestCase
         file_put_contents($session.'/state.json', '{}');
 
         $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $kimiHome);
-        $this->db->recordRun(100, 1, 'session_07e50475-f1e5-4a5a-8c46-14e25ad4cd83', null, null, 'kimi');
+        $this->db->recordRun(100, 1, 'session_07e50475-f1e5-4a5a-8c46-14e25ad4cd83', null, null, 'kimi:default');
         $this->command(100, 1, '/compact', 30);
         $this->claudeOutput('{"type":"result","is_error":false,"result":"summary","session_id":"s-new","usage":{}}');
 

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests\Kimi;
 
-use GpsLab\WorkspaceAssistant\AgentRunner;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\Delivery;
@@ -32,10 +31,9 @@ use PHPUnit\Framework\TestCase;
  * The Kimi gate wiring of {@see JobRunner}: the self-test before a gated run and the post-run audit
  * of the hook records against the wire window.
  *
- * The engine is not selectable yet ({@see RunnerFactory::create()} still rejects `kimi`), so the
- * factory is a test hook that dispatches to {@see RunnerFactory::createKimiRunner()}. The fake
- * `kimi` creates the session directory and its wire, and the real gate shim writes the hook records:
- * the audit is exercised end to end, not on hand-written record arrays.
+ * The engine is selectable, so the real factory builds the {@see KimiRunner} here. The fake `kimi`
+ * creates the session directory and its wire, and the real gate shim writes the hook records: the
+ * audit is exercised end to end, not on hand-written record arrays.
  */
 #[CoversClass(JobRunner::class)]
 #[CoversClass(KimiRunner::class)]
@@ -486,29 +484,9 @@ final class KimiGateWiringTest extends TestCase
         );
     }
 
-    /**
-     * The test hook of the not-yet-selectable engine: `create()` still rejects `kimi`, so this
-     * subclass dispatches to {@see RunnerFactory::createKimiRunner()}.
-     */
     private function factory(Config $config, Locale $locale): RunnerFactory
     {
-        return new class($config, $locale) extends RunnerFactory {
-            /**
-             * @param array<string, string> $extraEnv
-             */
-            public function create(
-                string $mode,
-                string $settingsJson,
-                array $extraEnv,
-                string $localeCode,
-                bool $withAgents,
-                bool $updateOnResume,
-                ?string $savedPromptHash,
-                ?string $model,
-            ): AgentRunner {
-                return $this->createKimiRunner($mode, $extraEnv, $localeCode, $updateOnResume, $savedPromptHash);
-            }
-        };
+        return new RunnerFactory($config, $locale);
     }
 
     private function config(?string $stateDir = null, ?string $kimiBin = null, int $claudeTimeout = 0): Config

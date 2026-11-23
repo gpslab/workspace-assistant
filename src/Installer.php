@@ -25,6 +25,10 @@ final class Installer
         'OPENCODE_BIN',
         'OPENCODE_MODEL',
         'OPENCODE_EXTRA_ARGS',
+        'KIMI_BIN',
+        'KIMI_HOME',
+        'KIMI_MODEL',
+        'KIMI_EXTRA_ARGS',
         'BOT_LOCALE',
         'TIMEZONE',
         'OPENRONIN_LOGINS',
@@ -56,6 +60,16 @@ final class Installer
         .'configuration does not explicitly deny and executes whatever a Telegram message makes it do, with the rights of the '
         ."bot's system user and its forge CLI token. This is not configurable. Use a dedicated unprivileged user and a "
         .'narrowly scoped forge token.';
+
+    /**
+     * The Kimi counterpart of {@see self::OPENCODE_WARNING}: `kimi -p` runs under `auto` permission and
+     * the bot has no switch for it. The `[[permission.rules]]` of the operator's own Kimi configuration
+     * keep their effect in a run and are the only thing that can still deny a call.
+     */
+    private const KIMI_WARNING = 'WARNING: Kimi runs -p under auto permission: it approves every action the configuration '
+        ."does not explicitly deny and executes whatever a Telegram message makes it do, with the rights of the bot's system "
+        .'user and its forge CLI token. This is not configurable through the bot: use a dedicated unprivileged user, a narrowly '
+        .'scoped forge token, and deny what a run must never do in the [[permission.rules]] of your Kimi configuration.';
 
     private const DANGEROUS_FLAG = '--dangerously-skip-permissions';
 
@@ -221,10 +235,12 @@ final class Installer
             }
         }
 
-        // On OpenCode the CLAUDE_EXTRA_ARGS warning does not apply: the engine runs with --auto whatever
-        // the key says, so the OpenCode warning replaces it instead of adding to it.
+        // On OpenCode and Kimi the CLAUDE_EXTRA_ARGS warning does not apply: those engines approve
+        // everything whatever the key says, so the warning of the engine replaces it instead of adding to it.
         if (self::engineOf($values) === Config::ENGINE_OPENCODE) {
             $warnings[] = self::OPENCODE_WARNING;
+        } elseif (self::engineOf($values) === Config::ENGINE_KIMI) {
+            $warnings[] = self::KIMI_WARNING;
         } else {
             $extraArgs = $values['CLAUDE_EXTRA_ARGS'] ?? self::DANGEROUS_FLAG;
             if (in_array(self::DANGEROUS_FLAG, array_map('trim', explode(',', $extraArgs)), true)) {
@@ -248,9 +264,11 @@ final class Installer
         }
         fwrite($out, "Keys set:\n");
         foreach ($values as $key => $value) {
+            // A key the previous file did not carry is what "new" means.
+            $was = $previous[$key] ?? null;
             $status = match (true) {
-                $previous[$key] === null => 'new',
-                $previous[$key] !== $value => 'changed',
+                $was === null => 'new',
+                $was !== $value => 'changed',
                 default => 'unchanged',
             };
             $shown = in_array($key, self::SECRET_KEYS, true) ? self::mask($value) : $value;
@@ -314,7 +332,7 @@ final class Installer
             $key === 'REPO_PATH' && !is_dir($value.'/.git') => "REPO_PATH={$value} does not look like a git repository.",
             $key === 'ALLOWED_USER_IDS' && preg_match('/^\d+(,\d+)*$/', $value) !== 1 => 'ALLOWED_USER_IDS: must contain only digits separated by commas (e.g. 1001,1002).',
             $key === 'FORGE' && $value !== '' && !isset(Config::DEFAULT_HOSTS[$value]) => "FORGE={$value} is not supported (expected ".implode(' or ', array_keys(Config::DEFAULT_HOSTS)).').',
-            $key === 'ENGINE' && trim($value) !== '' && !in_array(trim($value), [Config::DEFAULT_ENGINE_FINGERPRINT, Config::ENGINE_OPENCODE], true) => "ENGINE={$value} is not supported (expected ".Config::DEFAULT_ENGINE_FINGERPRINT.' or '.Config::ENGINE_OPENCODE.').',
+            $key === 'ENGINE' && trim($value) !== '' && !in_array(trim($value), Config::ENGINES, true) => "ENGINE={$value} is not supported (expected ".Config::engineListText().').',
             $key === 'TIMEZONE' && $value !== '' && !Timezone::isValid($value) => "Invalid TIMEZONE={$value}.",
             $key === 'BOT_LOCALE' && $value !== '' && !in_array($value, (new Locale())->codes(), true) => "BOT_LOCALE={$value} is not in the locale catalog (available: ".implode(', ', (new Locale())->codes()).').',
             default => null,
@@ -333,9 +351,10 @@ final class Installer
     private function ask(string $key, ?string $default, array $placeholders, InstallerServices $services, $out, $err, array $values = []): ?string
     {
         $secret = in_array($key, self::SECRET_KEYS, true);
-        // The Claude warning says nothing about an OpenCode instance, which runs with --auto regardless;
-        // there the warning of the engine is printed once, with the other warnings, after the write.
-        if ($key === 'CLAUDE_EXTRA_ARGS' && self::engineOf($values) !== Config::ENGINE_OPENCODE) {
+        // The Claude warning says nothing about an OpenCode or Kimi instance, whose runs are approved
+        // regardless of the key; there the warning of the engine is printed once, with the other
+        // warnings, after the write.
+        if ($key === 'CLAUDE_EXTRA_ARGS' && self::engineOf($values) === Config::DEFAULT_ENGINE_FINGERPRINT) {
             fwrite($out, self::EXTRA_ARGS_WARNING."\n");
         }
         $shown = $default !== null && $default !== '' && $secret ? self::mask($default) : $default;
@@ -393,16 +412,19 @@ final class Installer
     }
 
     /**
-     * Whether the interactive mode asks for this key. The OpenCode keys are asked only once the
-     * answers select the OpenCode engine (`ENGINE` is asked before them), so a Claude instance is
-     * not interrogated about a binary and a model it will never use.
+     * Whether the interactive mode asks for this key. The OpenCode and Kimi keys are asked only once the
+     * answers select that engine (`ENGINE` is asked before them), so an instance is not interrogated
+     * about a binary, a home and a model of an engine it will never run.
      *
      * @param array<string, string> $values answers already given
      */
     private static function askedFor(string $key, array $values): bool
     {
-        return !in_array($key, ['OPENCODE_BIN', 'OPENCODE_MODEL', 'OPENCODE_EXTRA_ARGS'], true)
-            || self::engineOf($values) === Config::ENGINE_OPENCODE;
+        return match ($key) {
+            'OPENCODE_BIN', 'OPENCODE_MODEL', 'OPENCODE_EXTRA_ARGS' => self::engineOf($values) === Config::ENGINE_OPENCODE,
+            'KIMI_BIN', 'KIMI_HOME', 'KIMI_MODEL', 'KIMI_EXTRA_ARGS' => self::engineOf($values) === Config::ENGINE_KIMI,
+            default => true,
+        };
     }
 
     /**
@@ -448,9 +470,12 @@ final class Installer
 
         $env = array_filter($this->environment, 'is_string');
         // The engine decides which agent binary the instance starts, so the same key is probed.
-        $opencode = self::engineOf($values) === Config::ENGINE_OPENCODE;
-        $binKey = $opencode ? 'OPENCODE_BIN' : 'CLAUDE_BIN';
-        $agentBin = ($values[$binKey] ?? '') !== '' ? $values[$binKey] : ($opencode ? 'opencode' : 'claude');
+        [$binKey, $binDefault] = match (self::engineOf($values)) {
+            Config::ENGINE_OPENCODE => ['OPENCODE_BIN', 'opencode'],
+            Config::ENGINE_KIMI => ['KIMI_BIN', 'kimi'],
+            default => ['CLAUDE_BIN', 'claude'],
+        };
+        $agentBin = ($values[$binKey] ?? '') !== '' ? $values[$binKey] : $binDefault;
         $forge = ($values['FORGE'] ?? '') !== '' ? $values['FORGE'] : Config::FORGE_GITHUB;
         $forgeHost = ($values['FORGE_HOST'] ?? '') !== '' ? $values['FORGE_HOST'] : (Config::DEFAULT_HOSTS[$forge] ?? 'github.com');
         $cli = $forge === Config::FORGE_GITLAB ? 'glab' : 'gh';

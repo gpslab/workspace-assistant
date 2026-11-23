@@ -245,6 +245,53 @@ a change of the model (or of the engine) resets the session and adds the usual n
 
 ---
 
+## `KimiRunner` — asynchronous kimi
+
+The third engine (`ENGINE=kimi`): the same `AgentRunner` contract again, so `JobRunner` and `QueueScheduler`
+stay engine-neutral. `RunnerFactory` builds it from `KIMI_BIN` / `KIMI_MODEL` / `KIMI_HOME` /
+`KIMI_EXTRA_ARGS`; the `$model` of a job is a Claude Code alias and is deliberately dropped, as on OpenCode.
+`Config::engineFingerprint()` is `kimi:<KIMI_MODEL>` or `kimi:default`, so a change of the model (or of the
+engine) resets the session with the usual notice; a set `CLAUDE_MODELS` or `MODEL_EPIC_*` is named in one
+startup log line, since neither applies here.
+
+- argv: `[KIMI_BIN, -p, <prompt>, --output-format, stream-json, (-S <id> | --agent-file <run home>/agent.md),
+  (-m <model>), ...KIMI_EXTRA_ARGS]`. `--agent-file` is never combined with `-S`: Kimi rejects the pair and a
+  resumed session keeps the prompt it was created with, so a changed prompt reaches it as the
+  instructions-update block of the message — which is why `updateOnResume` is wired here and not on OpenCode.
+- Run home: `<STATE_DIR>/kimi-<runId>/` (0700) passed as `KIMI_CODE_HOME`, holding the rendered `config.toml`
+  (`KimiConfigRenderer`: the user's `[[hooks]]` and `extra_agent_dirs` / `extra_skill_dirs` are dropped, the
+  `[[permission.rules]]` and the model tables are kept, the bot's own hook tables and its agents directory
+  are added, and the cron and question tools are disabled), `agent.md` (the assembled prompt, the file
+  `--agent-file` names), `agents/` (`KimiAgentsRenderer`) and `hook-records.jsonl` (the gate shim's record of
+  every hook call). The `credentials/`, `sessions/` and `oauth/` entries are **symlinks** into the source home
+  (`KIMI_HOME`, default `~/.kimi-code`), and `region` / `device_id` are copied: the credentials themselves are
+  never copied, because the server rotates the refresh token and a copy would be invalidated by the next
+  refresh. `KIMI_CODE_NO_AUTO_UPDATE=1` keeps the engine from replacing itself inside a run. The home is not
+  removed when the process ends — `JobRunner` calls `purgeRunHome()` after its post-run checks, because the
+  gate records live there — and `Bot::run()` sweeps the homes of dead PIDs next to
+  `OpencodeRunner::purgeRunDirs()`.
+- stdout carries no usage, no model and no error: `KimiStreamParser` turns it into progress lines, the
+  session id (`session.resume_hint`, printed only on success) and the `RunAnswer`. After the run the runner
+  reads the window of the session's `wire.jsonl` starting at the size taken at launch and classifies a
+  failure with `KimiErrorClassifier`, and `KimiWire` gives the run its `usage.record` totals. The stall
+  heartbeat counts stdout bytes **or** the growth of that wire file: stdout is quiet while a background
+  sub-agent works.
+- Gates: the shim is rendered into the run home, and Kimi lets a call pass when a hook is killed, times out
+  or is missing (only exit code 2 blocks), so a gated run is verified **after the fact**. `JobRunner` runs
+  the shim's self-test before a gated run and afterwards compares `hook-records.jsonl` with the run window of
+  `wire.jsonl` (`KimiRunAudit`); a mismatch is reported in the chat. `Config::gatesUnavailable()` is a
+  constant on Kimi, so the gated modes (`pm`, `review`) and the epics are refused outright: an audit taken
+  after the run, not a hook that blocks a call, would be the only protection they could have.
+- Review status: Kimi's `Stop` hook cannot continue a `-p` turn, so `JobRunner::repeatReviewRun()` takes the
+  decision after the run, exactly as on OpenCode.
+- `$HOME/.agents` (agents, skills and `AGENTS.md`) is read by every run, whatever `KIMI_CODE_HOME` says.
+  `KimiGatedPreconditions::homeAgentsPresent()` is the one check behind it: the gate preconditions use it for
+  a gated run and `Config::startupWarnings()` logs it once at bot start, so an operator learns about it even
+  while every gated mode is refused.
+- The memory of the instance is injected here, because this engine reads no user scope (see [Memory](#memory)).
+
+---
+
 ## Memory
 
 `MEMORY_3LAYER_BIN` — the absolute path of the `memory-3layer` client — is opt-in and off by default
@@ -376,11 +423,15 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `FORGE_HOST`            | Forge host | `github.com` / `gitlab.com` |
 | `FORGE_OWNERS`          | Owners (alias `GITHUB_OWNERS`; the new key wins, a warning is logged when both are set); the first is the default for `repo#N`; namespace paths allowed with `FORGE=gitlab`; epics and PR links in `review` need it | empty |
 | `OPENRONIN_LOGINS`      | logins allowed to author the `<!-- openronin:bot -->` marker   | empty (any author + warning)     |
-| `ENGINE`                | agent engine that runs the jobs: `claude` or `opencode` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner` and `/model` is read-only | `claude` |
+| `ENGINE`                | agent engine that runs the jobs: `claude`, `opencode` or `kimi` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner`, on `kimi` a `KimiRunner`, and on both `/model` is read-only | `claude` |
 | `CLAUDE_BIN`            | path to the claude binary                                      | `claude`                         |
 | `OPENCODE_BIN`          | path to the opencode binary (`ENGINE=opencode`; the installer checks this one instead of `CLAUDE_BIN`) | `opencode` |
 | `OPENCODE_MODEL`        | model of every run, `provider/model`; empty = the OpenCode default; changing it starts a new session | empty      |
 | `OPENCODE_EXTRA_ARGS`   | extra opencode arguments, comma-separated, after the bot's own flags | empty                        |
+| `KIMI_BIN`              | path to the kimi binary (`ENGINE=kimi`; the installer checks this one instead of `CLAUDE_BIN`); must be absolute, since the engine installs into `~/.kimi-code/bin`, which a service `PATH` lacks | `kimi` |
+| `KIMI_HOME`             | home of the logged-in Kimi CLI; its `credentials/`, `sessions/` and `oauth/` are linked into every run home, never copied; empty = the engine's default home | empty |
+| `KIMI_MODEL`            | model alias of every run, as the Kimi `config.toml` defines it; empty = the `default_model` of that file; changing it starts a new session | empty |
+| `KIMI_EXTRA_ARGS`       | extra kimi arguments, comma-separated, after the bot's own flags | empty                        |
 | `MEMORY_3LAYER_BIN`     | absolute path of the `memory-3layer` client; off unless set, handed to `ENGINE=opencode` and `ENGINE=kimi` only, and ignored on `ENGINE=claude` (that engine reads the user scope) — see [Memory](#memory) | empty |
 | `MEMORY_3LAYER_CONTEXT_MAX_BYTES` | ceiling of the injected part of one memory file, newest bytes first; 0 = no injection | `32768` |
 | `CLAUDE_TIMEOUT`        | overall call timeout, seconds (`0` = off)                      | `0`                              |
@@ -480,8 +531,9 @@ its parser and its environment rely on.
 ## Kimi (verified facts)
 
 Verified on Kimi Code CLI **2.7.2** (`kimi`), `metadata.protocol_version` `1.5` of `wire.jsonl`; the fixtures are in
-`tests/fixtures/kimi/` (README: scenarios, exit codes). No Kimi code is wired yet; these facts are the contract the planned
-renderer, parser, runner and gate shim rely on. `wire.jsonl` is private and undocumented: any of this can change with a Kimi update.
+`tests/fixtures/kimi/` (README: scenarios, exit codes). The engine is wired (`KimiRunner`, selected by
+`RunnerFactory` when `ENGINE=kimi`); these facts are the contract its renderer, parser, runner and gate shim
+rely on. `wire.jsonl` is private and undocumented: any of this can change with a Kimi update.
 
 - **Run:** `kimi -p <prompt> --output-format stream-json [-S <id>] [--agent-file <file>] [-m <alias>]`. `-p` runs under `auto`
   permission. `KIMI_CODE_HOME` relocates config, credentials, sessions, logs; `KIMI_CODE_NO_AUTO_UPDATE=1` stops the self-update.
@@ -552,4 +604,4 @@ renderer, parser, runner and gate shim rely on. `wire.jsonl` is private and undo
 `composer validate --strict` and a QA matrix of those three on PHP 8.4 and 8.5 for pushes to `master` and PRs; the 8.5 job runs
 `composer test:coverage` (pcov), writes the coverage summary to the job summary and uploads
 `coverage.xml` as the `coverage` artifact.
-The flow tests (`QueueFlowTest`, `Epic\FlowTest`) drive `Bot` with fake `claude` and `opencode` shell scripts.
+The flow tests (`QueueFlowTest`, `Epic\FlowTest`) drive `Bot` with fake `claude`, `opencode` and `kimi` shell scripts.

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Kimi\KimiGatedPreconditions;
+
 /**
  * Typed bot configuration loaded from .env.
  */
@@ -24,11 +26,16 @@ final class Config
     /** Engine name of an instance that runs OpenCode instead of Claude Code. */
     public const string ENGINE_OPENCODE = 'opencode';
 
-    /**
-     * Engine name of a Kimi Code run. Not selectable yet: the runner does not exist, so `ENGINE`
-     * still accepts only {@see DEFAULT_ENGINE_FINGERPRINT} and {@see ENGINE_OPENCODE}.
-     */
+    /** Engine name of an instance that runs Kimi Code instead of Claude Code. */
     public const string ENGINE_KIMI = 'kimi';
+
+    /**
+     * Every value `ENGINE` accepts. The order is the one the startup error and the installer name them
+     * in; anything else fails the start ({@see self::fromEnv()}).
+     *
+     * @var list<string>
+     */
+    public const array ENGINES = [self::DEFAULT_ENGINE_FINGERPRINT, self::ENGINE_OPENCODE, self::ENGINE_KIMI];
 
     /**
      * Ceiling of the memory context injected into one system prompt, per file (`MEMORY_3LAYER_CONTEXT_MAX_BYTES`).
@@ -79,7 +86,7 @@ final class Config
         public readonly bool $autoCommit = true,
         public readonly string $forge = self::FORGE_GITHUB,
         public readonly string $forgeHost = 'github.com',
-        /** Agent engine the bot runs: `claude` or `opencode`; anything else is rejected at startup. */
+        /** Agent engine the bot runs: one of {@see self::ENGINES}; anything else is rejected at startup. */
         public readonly string $engine = self::DEFAULT_ENGINE_FINGERPRINT,
         /** Path to the `opencode` binary (`OPENCODE_BIN`). */
         public readonly string $opencodeBin = 'opencode',
@@ -87,13 +94,13 @@ final class Config
         public readonly string $opencodeModel = '',
         /** @var list<string> extra argv for the OpenCode runner (`OPENCODE_EXTRA_ARGS`) */
         public readonly array $opencodeExtraArgs = [],
-        /** Path to the `kimi` binary (`KIMI_BIN`). Not parsed from `.env` yet: it comes with the ENGINE=kimi task. */
+        /** Path to the `kimi` binary (`KIMI_BIN`); an absolute path is the only form that works from a service manager. */
         public readonly string $kimiBin = 'kimi',
-        /** Home of the Kimi CLI (`KIMI_HOME`; `KIMI_CODE_HOME` for the engine itself); '' = the default home. Not parsed from `.env` yet. */
+        /** Home of the Kimi CLI (`KIMI_HOME`; `KIMI_CODE_HOME` for the engine itself); '' = the default home. */
         public readonly string $kimiHome = '',
-        /** Model alias of a Kimi instance (`KIMI_MODEL`, passed as `-m`), as its own config defines it; '' = the model the engine picks. Not parsed from `.env` yet. */
+        /** Model alias of a Kimi instance (`KIMI_MODEL`, passed as `-m`), as its own config defines it; '' = the model the engine picks. */
         public readonly string $kimiModel = '',
-        /** @var list<string> extra argv for the Kimi runner (`KIMI_EXTRA_ARGS`). Not parsed from `.env` yet. */
+        /** @var list<string> extra argv for the Kimi runner (`KIMI_EXTRA_ARGS`) */
         public readonly array $kimiExtraArgs = [],
         public readonly array $configWarnings = [],
         /** @var list<string> models selectable with /model, passed to `claude --model` as they are */
@@ -207,8 +214,8 @@ final class Config
         $engine = trim((string) $env->get('ENGINE', ''));
         if ($engine === '') {
             $engine = self::DEFAULT_ENGINE_FINGERPRINT;
-        } elseif ($engine !== self::DEFAULT_ENGINE_FINGERPRINT && $engine !== self::ENGINE_OPENCODE) {
-            throw new \RuntimeException("Invalid ENGINE={$engine} in .env: expected ".self::DEFAULT_ENGINE_FINGERPRINT.' or '.self::ENGINE_OPENCODE.'.');
+        } elseif (!in_array($engine, self::ENGINES, true)) {
+            throw new \RuntimeException("Invalid ENGINE={$engine} in .env: expected ".self::engineListText().'.');
         }
 
         $configWarnings = [];
@@ -225,8 +232,18 @@ final class Config
             $configWarnings[] = "MEMORY_3LAYER_BIN={$memory3LayerBin} is not an absolute path: a non-interactive shell resolves it against PATH, where `~/.local/bin` usually is not.";
         }
 
+        // Path of the Kimi CLI. The engine installs itself per user into `~/.kimi-code/bin`, which the
+        // PATH of a non-interactive shell does not carry, so a value set here must be absolute; the bare
+        // default `kimi` is left to PATH, exactly like `CLAUDE_BIN`.
+        $kimiBin = trim((string) $env->get('KIMI_BIN', ''));
+        if ($engine === self::ENGINE_KIMI && $kimiBin !== '' && !str_starts_with($kimiBin, '/')) {
+            $configWarnings[] = "KIMI_BIN={$kimiBin} is not an absolute path: a non-interactive shell resolves it against PATH, where `~/.kimi-code/bin` usually is not.";
+        }
+        $kimiBin = $kimiBin !== '' ? $kimiBin : 'kimi';
+
         $claudeExtraArgs = $env->list('CLAUDE_EXTRA_ARGS', '--dangerously-skip-permissions');
         $claudeModels = array_values(array_unique($env->list('CLAUDE_MODELS', implode(',', self::DEFAULT_CLAUDE_MODELS))));
+        $claudeModelsSet = trim((string) $env->get('CLAUDE_MODELS', '')) !== '';
         $modelEpicTick = trim((string) $env->get('MODEL_EPIC_TICK', ''));
         $modelEpicFinal = trim((string) $env->get('MODEL_EPIC_FINAL', ''));
         $modelEpicReview = trim((string) $env->get('MODEL_EPIC_REVIEW', ''));
@@ -236,9 +253,10 @@ final class Config
             'MODEL_EPIC_REVIEW' => $modelEpicReview,
         ];
         // CLAUDE_MODELS is a Claude Code list: an epic model key can legitimately hold a provider/model
-        // value on an OpenCode instance, so the membership check is skipped there — the key is reported
-        // as not applied below instead of failing the start.
-        if ($engine !== self::ENGINE_OPENCODE) {
+        // value on an OpenCode instance, and on a Kimi one an alias of the engine's own `config.toml`,
+        // so the membership check is skipped there — the keys are reported as not applied below instead
+        // of failing the start.
+        if ($engine === self::DEFAULT_ENGINE_FINGERPRINT) {
             foreach ($epicModelKeys as $key => $model) {
                 if ($model !== '' && !in_array($model, $claudeModels, true)) {
                     throw new \RuntimeException("{$key}={$model} in .env is not in CLAUDE_MODELS.");
@@ -246,17 +264,27 @@ final class Config
             }
         }
         $setEpicModelKeys = array_keys(array_filter($epicModelKeys, static fn (string $model): bool => $model !== ''));
-        // The model of an OpenCode run is OPENCODE_MODEL, whatever the run kind: the epic keys are
-        // Claude-only, and an operator who set them has to be told they are not applied here. One line,
-        // naming the keys that are actually set.
-        if ($setEpicModelKeys !== []) {
-            if ($engine === self::ENGINE_OPENCODE) {
+        // The model of an OpenCode run is OPENCODE_MODEL and of a Kimi run KIMI_MODEL, whatever the run
+        // kind: the epic keys and the `/model` list are Claude-only, and an operator who set them has to
+        // be told they are not applied here. One line, naming the keys that are actually set.
+        if ($engine === self::ENGINE_OPENCODE) {
+            if ($setEpicModelKeys !== []) {
                 $configWarnings[] = self::joinKeys($setEpicModelKeys)
                     .(count($setEpicModelKeys) === 1 ? ' is not applied on OpenCode' : ' are not applied on OpenCode')
                     .': the model of every run comes from OPENCODE_MODEL.';
-            } elseif (ClaudeRunner::modelFromArgs($claudeExtraArgs) !== null) {
-                $configWarnings[] = 'MODEL_EPIC_TICK, MODEL_EPIC_FINAL and MODEL_EPIC_REVIEW are ignored: a --model in CLAUDE_EXTRA_ARGS pins the model for every run.';
             }
+        } elseif ($engine === self::ENGINE_KIMI) {
+            $ignoredKeys = $setEpicModelKeys;
+            if ($claudeModelsSet) {
+                $ignoredKeys[] = 'CLAUDE_MODELS';
+            }
+            if ($ignoredKeys !== []) {
+                $configWarnings[] = self::joinKeys($ignoredKeys)
+                    .(count($ignoredKeys) === 1 ? ' is not applied on Kimi' : ' are not applied on Kimi')
+                    .': /model is read-only and the model of every run comes from KIMI_MODEL.';
+            }
+        } elseif ($setEpicModelKeys !== [] && ClaudeRunner::modelFromArgs($claudeExtraArgs) !== null) {
+            $configWarnings[] = 'MODEL_EPIC_TICK, MODEL_EPIC_FINAL and MODEL_EPIC_REVIEW are ignored: a --model in CLAUDE_EXTRA_ARGS pins the model for every run.';
         }
 
         return new self(
@@ -295,6 +323,10 @@ final class Config
             opencodeBin: trim((string) $env->get('OPENCODE_BIN', 'opencode')) ?: 'opencode',
             opencodeModel: trim((string) $env->get('OPENCODE_MODEL', '')),
             opencodeExtraArgs: array_values($env->list('OPENCODE_EXTRA_ARGS')),
+            kimiBin: $kimiBin,
+            kimiHome: trim((string) $env->get('KIMI_HOME', '')),
+            kimiModel: trim((string) $env->get('KIMI_MODEL', '')),
+            kimiExtraArgs: array_values($env->list('KIMI_EXTRA_ARGS')),
             configWarnings: $configWarnings,
             claudeModels: $claudeModels,
             modelEpicTick: $modelEpicTick,
@@ -309,6 +341,18 @@ final class Config
             memory3LayerBin: $memory3LayerBin,
             memory3LayerContextMaxBytes: max(0, (int) $env->get('MEMORY_3LAYER_CONTEXT_MAX_BYTES', (string) self::DEFAULT_MEMORY_CONTEXT_MAX_BYTES)),
         );
+    }
+
+    /**
+     * The accepted `ENGINE` values as one phrase — `claude, opencode or kimi`. The startup error and the
+     * installer name the same list from here, so it cannot drift from {@see self::ENGINES}.
+     */
+    public static function engineListText(): string
+    {
+        $values = self::ENGINES;
+        $last = (string) array_pop($values);
+
+        return implode(', ', $values).' or '.$last;
     }
 
     /**
@@ -361,6 +405,11 @@ final class Config
      * when the key is empty. Changing `OPENCODE_MODEL` therefore starts a new session with the
      * {@see Locale} notice, like changing the engine. `$model` is a Claude Code alias and is ignored
      * here — the model of an OpenCode run comes from the instance, not from the topic.
+     *
+     * A Kimi instance is the same: the model is pinned by `KIMI_MODEL`, so the fingerprint is
+     * `kimi:<KIMI_MODEL>`, or `kimi:default` when the key is empty (the model the engine picks itself).
+     * Changing `KIMI_MODEL` therefore starts a new session with the {@see Locale} notice, like
+     * changing the engine.
      */
     public function engineFingerprint(?string $model = null): string
     {
@@ -368,6 +417,11 @@ final class Config
             return $this->opencodeModel !== ''
                 ? self::ENGINE_OPENCODE.':'.$this->opencodeModel
                 : self::ENGINE_OPENCODE.':default';
+        }
+        if ($this->isKimi()) {
+            return $this->kimiModel !== ''
+                ? self::ENGINE_KIMI.':'.$this->kimiModel
+                : self::ENGINE_KIMI.':default';
         }
 
         $host = $this->anthropicBaseHost();
@@ -435,8 +489,8 @@ final class Config
 
     /**
      * Whether the instance runs Kimi Code ({@see self::ENGINE_KIMI}): `/model` is read-only, the model of
-     * every run comes from `KIMI_MODEL`, and the bot's gates have no place to run yet. `ENGINE=kimi` is
-     * still rejected by {@see self::fromEnv()}, so this is read by the gates and by tests only.
+     * every run comes from `KIMI_MODEL`, and the bot's gates have no place to run yet — so the gated modes
+     * and the epics are refused; lifting that refusal is a task of its own.
      */
     public function isKimi(): bool
     {
@@ -505,13 +559,21 @@ final class Config
     /**
      * Warnings to log once at startup.
      *
+     * @param string|null $homeDir home of the user the bot runs as; null = the real `$HOME`. A Kimi run
+     *                             reads `$HOME/.agents` whatever run home it is given, so a present
+     *                             directory is reported at start, not only when a gated run is refused
+     *                             (the same check as the gate's, {@see KimiGatedPreconditions::homeAgentsPresent()}).
+     *
      * @return list<string>
      */
-    public function startupWarnings(): array
+    public function startupWarnings(?string $homeDir = null): array
     {
         $warnings = array_values($this->configWarnings);
         if ($this->openroninLogins === []) {
             $warnings[] = 'OPENRONIN_LOGINS is not set: the openronin marker is accepted from any author';
+        }
+        if ($this->isKimi() && KimiGatedPreconditions::homeAgentsPresent($homeDir ?? (string) getenv('HOME'))) {
+            $warnings[] = KimiGatedPreconditions::HOME_AGENTS_REASON;
         }
 
         return $warnings;

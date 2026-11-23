@@ -22,12 +22,19 @@ namespace GpsLab\WorkspaceAssistant\Kimi;
  */
 final class KimiGatedPreconditions
 {
+    /**
+     * Why a present `$HOME/.agents` is a problem, shared by {@see self::check()} and the startup warning
+     * of the bot: one sentence, so the operator reads the same thing in the log and in the refusal of a
+     * gated run.
+     */
+    public const string HOME_AGENTS_REASON = 'the home directory has .agents: Kimi reads agents, skills and AGENTS.md from it even with a relocated home';
+
     public static function check(string $homeDir, ?string $protocolVersion, ?string $selfTestFailure): KimiGatedPreconditionResult
     {
         $reasons = [];
 
         if (self::homeAgentsPresent($homeDir)) {
-            $reasons[] = 'the home directory has .agents: Kimi reads agents, skills and AGENTS.md from it even with a relocated home';
+            $reasons[] = self::HOME_AGENTS_REASON;
         }
         if (KimiVersionGuard::check(null, $protocolVersion)->protocol === KimiFormatStatus::Unknown) {
             $reasons[] = 'the wire protocol version '.(string) $protocolVersion.' is unknown to the bot';

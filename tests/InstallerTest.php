@@ -456,6 +456,43 @@ final class InstallerTest extends TestCase
         self::assertStringNotContainsString('is in CLAUDE_EXTRA_ARGS', $out.$err);
     }
 
+    public function testKimiEngineIsAcceptedAndWritesTheKeys(): void
+    {
+        [$code, , $err] = $this->install([...$this->required(), '--engine=kimi', '--kimi-bin=/usr/local/bin/kimi', '--kimi-model=kimi-k2']);
+
+        self::assertSame(0, $code, $err);
+        $env = Env::load($this->root.'/.env', true);
+        self::assertSame('kimi', $env->get('ENGINE'));
+        self::assertSame('/usr/local/bin/kimi', $env->get('KIMI_BIN'));
+        self::assertSame('kimi-k2', $env->get('KIMI_MODEL'));
+    }
+
+    public function testKimiInstanceIsWarnedAboutAutomaticApprovalInstead(): void
+    {
+        [$code, $out, $err] = $this->install([...$this->required(), '--engine=kimi']);
+
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString('Kimi runs -p under auto permission', $out);
+        self::assertStringContainsString('Kimi runs -p under auto permission', $err);
+        // The CLAUDE_EXTRA_ARGS warning is Claude-specific: on Kimi it would contradict the engine.
+        self::assertStringNotContainsString('is in CLAUDE_EXTRA_ARGS', $out.$err);
+    }
+
+    public function testInteractiveKimiAnswersAddTheKimiQuestions(): void
+    {
+        // 3 required keys + 10 keys every engine asks for + the 4 KIMI_* keys: one line per question.
+        [$code, $out, $err] = $this->install([...$this->required(), '--engine=kimi'], [], 1000, 'tester', $this->services(tty: true, input: str_repeat("\n", 17)));
+
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString('KIMI_BIN: ', $out);
+        self::assertStringContainsString('KIMI_HOME: ', $out);
+        self::assertStringContainsString('KIMI_MODEL: ', $out);
+        self::assertStringContainsString('Kimi runs -p under auto permission', $out);
+        // The OpenCode questions belong to the other instance type and must not appear here.
+        self::assertStringNotContainsString('OPENCODE_BIN: ', $out);
+        self::assertSame('kimi', Env::load($this->root.'/.env', true)->get('ENGINE'));
+    }
+
     public function testInteractiveOpencodeAnswersAddTheOpencodeQuestions(): void
     {
         // 3 required keys + 13 optional ones: the engine is opencode, so the OPENCODE_* questions are asked too.
@@ -704,7 +741,7 @@ final class InstallerTest extends TestCase
         [$code, , $err] = $this->install([...$this->required(), '--engine=opencod']);
 
         self::assertNotSame(0, $code);
-        self::assertStringContainsString('ENGINE=opencod is not supported (expected claude or opencode)', $err);
+        self::assertStringContainsString('ENGINE=opencod is not supported (expected claude, opencode or kimi)', $err);
         self::assertFileDoesNotExist($this->root.'/.env');
     }
 
@@ -878,6 +915,32 @@ final class InstallerTest extends TestCase
 
         self::assertSame(1, $code);
         self::assertStringContainsString('OPENCODE_BIN=opencode was not found', $err);
+        self::assertStringNotContainsString('CLAUDE_BIN', $err);
+        self::assertFileDoesNotExist($this->root.'/.env');
+    }
+
+    public function testKimiInstanceProbesTheKimiBinaryTheKeyNames(): void
+    {
+        $probed = [];
+        $run = static function (array $c) use (&$probed): array {
+            $probed[] = $c[0];
+
+            return [0, '', ''];
+        };
+        $this->install([...$this->required(), '--engine=kimi', '--kimi-bin=/opt/kimi/bin/kimi'], [], 1000, 'tester', $this->services(run: $run));
+
+        self::assertContains('/opt/kimi/bin/kimi', $probed);
+        self::assertNotContains('claude', $probed);
+        self::assertNotContains('opencode', $probed);
+    }
+
+    public function testMissingKimiBinIsReportedUnderItsOwnKey(): void
+    {
+        $run = static fn (array $c): array => $c[0] === 'kimi' ? [1, '', 'boom'] : [0, '', ''];
+        [$code, , $err] = $this->install([...$this->required(), '--engine=kimi'], [], 1000, 'tester', $this->services(run: $run));
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('KIMI_BIN=kimi was not found', $err);
         self::assertStringNotContainsString('CLAUDE_BIN', $err);
         self::assertFileDoesNotExist($this->root.'/.env');
     }
