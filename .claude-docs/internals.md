@@ -285,9 +285,10 @@ startup log line, since neither applies here.
 - Review status: Kimi's `Stop` hook cannot continue a `-p` turn, so `JobRunner::repeatReviewRun()` takes the
   decision after the run, exactly as on OpenCode.
 - `$HOME/.agents` (agents, skills and `AGENTS.md`) is read by every run, whatever `KIMI_CODE_HOME` says.
-  `KimiGatedPreconditions::homeAgentsPresent()` is the one check behind it: the gate preconditions use it for
-  a gated run and `Config::startupWarnings()` logs it once at bot start, so an operator learns about it even
-  while every gated mode is refused.
+  `KimiGatedPreconditions::homeAgentsPresent()` is the one check behind it, and `Config::startupWarnings()`
+  is its only production caller today: it logs the reason once at bot start, so an operator learns about it.
+  Gated modes are refused by `Config::gatesUnavailable()`, not by `KimiGatedPreconditions::check()`, which
+  nothing in `src/` calls yet.
 - The memory of the instance is injected here, because this engine reads no user scope (see [Memory](#memory)).
 
 ---
