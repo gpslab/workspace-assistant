@@ -233,9 +233,10 @@ What differs from a Claude instance:
 - A Kimi hook that is killed, times out or is missing does **not** block the call (only exit code 2 does), so
   the gate of a Kimi run is verified **after the fact** only: the shim records every hook call in the run
   home, and the bot compares those records with the run window of `wire.jsonl` at the end of the run. The
-  audit runs after a run that did not end in an error only: a run that ended in an error, was killed by a
-  timeout, was cancelled, or was still in progress when the bot stopped leaves a `kimi gate audit skipped: …`
-  line in `state/bot.log` and no audit at all. On a chat run a mismatch is a `kimi gate audit: …` line in
+  audit runs after a run that did not end in an error only: a run that ended in an error is not audited and
+  leaves no line. A `kimi gate audit skipped: …` line in `state/bot.log` (and no audit) is left by a run that
+  was killed by a timeout, was cancelled, was still in progress when the bot stopped, or ended but whose audit
+  could not be taken. On a chat run a mismatch is a `kimi gate audit: …` line in
   `state/bot.log` and nowhere else; it reaches the chat only on a gated run, and those runs are refused on
   this engine (`Config::gatesUnavailable()`). That is a detection, never a hard stop — the reason the
   gated modes (`pm`, `review`) and the epics are refused on this engine: the refusal, not an audit, is what
