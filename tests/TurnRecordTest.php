@@ -44,10 +44,11 @@ final class TurnRecordTest extends TestCase
         );
     }
 
-    public function testACallTheStreamGivesNoStatusForDidNotFail(): void
+    public function testACallTheStreamGivesNoStatusForIsNotSuccessful(): void
     {
         $turn = TurnRecord::fromToolCalls([['tool' => 'shell', 'command' => 'ls', 'status' => null]], '');
 
-        self::assertSame(['ls'], $turn->successfulCommands(), 'only an explicit error is a failure');
+        self::assertSame(['ls'], $turn->commands());
+        self::assertSame([], $turn->successfulCommands(), 'an unknown status produced nothing, so it is not a published status');
     }
 }

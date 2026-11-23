@@ -108,11 +108,18 @@ final class KimiRunnerTest extends TestCase
 
     /**
      * The finished turn is exposed as the neutral record for the Bot's post-run review status check:
-     * its shell calls (a Kimi `Bash` call is the neutral `shell` call) and its final answer.
+     * its shell calls (a Kimi `Bash` call is the neutral `shell` call) and its final answer. The calls
+     * are joined to the wire results: the hook-exit1 run's call ended without an error, so both prints
+     * of it are successful calls.
      */
     public function testTheFinishedTurnIsExposedForThePostRunReviewCheck(): void
     {
-        $bin = $this->fakeKimi($this->fixtureContent('run/08-hook-exit1.stdout.jsonl'));
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/08-hook-exit1.stdout.jsonl'),
+            wire: 'wire/08-hook-exit1/main.jsonl',
+            sessionDir: $sessionDir,
+        );
         $runner = $this->runner($bin);
         $runner->start('hello', null);
         $beforeRun = $runner->turnRecord();
@@ -123,8 +130,53 @@ final class KimiRunnerTest extends TestCase
         self::assertNotNull($turn);
         self::assertSame(['echo MARK-hook-exit1', 'echo MARK-hook-exit1'], $turn->commands());
         self::assertSame('MARK-hook-exit1', $turn->finalText);
-        // The stream carries no per-call status: a call counts as completed.
+        // The wire result is not an error, so both prints of the call are successful calls.
         self::assertSame($turn->commands(), $turn->successfulCommands());
+
+        $runner->purgeRunHome();
+    }
+
+    /**
+     * A shell call the engine flagged as an error in the wire (a permission deny, a rejected
+     * `gh pr review --approve`, …) is not a successful call of the turn: the review status check must
+     * not count it as a published status.
+     */
+    public function testADeniedShellCallIsNotASuccessfulCallOfTheTurn(): void
+    {
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/21-static-deny.stdout.jsonl'),
+            wire: 'wire/21-static-deny/main.jsonl',
+            sessionDir: $sessionDir,
+        );
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $turn = $runner->turnRecord();
+        self::assertNotNull($turn);
+        self::assertSame(['echo STATICDENY-1'], $turn->commands());
+        self::assertSame([], $turn->successfulCommands(), 'a call the wire flags as an error is not a published status');
+
+        $runner->purgeRunHome();
+    }
+
+    /**
+     * A shell call the stream printed without a wire result (no session wire at all) has an unknown
+     * outcome, so it is not a successful call of the turn either: the check never treats a call it
+     * cannot prove published a status as one.
+     */
+    public function testACallWithoutAWireResultIsNotASuccessfulCallOfTheTurn(): void
+    {
+        $bin = $this->fakeKimi($this->fixtureContent('run/08-hook-exit1.stdout.jsonl'));
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $turn = $runner->turnRecord();
+        self::assertNotNull($turn);
+        self::assertSame(['echo MARK-hook-exit1', 'echo MARK-hook-exit1'], $turn->commands());
+        self::assertSame([], $turn->successfulCommands(), 'no wire result means the call published nothing');
 
         $runner->purgeRunHome();
     }

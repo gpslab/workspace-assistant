@@ -915,10 +915,11 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
     private function buildResult(int $exit): RunAnswer
     {
         $stream = KimiStreamParser::parse($this->lines);
-        // The neutral record of the turn for the Bot's post-run review status check: the shell calls
-        // and the answer, from the same parser as the result.
-        $this->turnRecord = TurnRecord::fromToolCalls($stream->toolCalls, $stream->finalText);
         $wire = $this->readWire();
+        // The neutral record of the turn for the Bot's post-run review status check: the shell calls
+        // and the answer, from the same parser as the result. The stream carries no per-call status,
+        // so the calls are joined to the tool.result events of the session's wire (see wireToolCalls).
+        $this->turnRecord = TurnRecord::fromToolCalls($this->wireToolCalls($stream->toolCalls), $stream->finalText);
         if ($wire !== null && $wire->model !== null) {
             $this->actualModel = $wire->model;
         }
@@ -1021,6 +1022,59 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
             $wire->protocolVersion ?? $head->protocolVersion,
             $wire->error,
         );
+    }
+
+    /**
+     * The neutral tool calls of the finished run with a per-call status: the stream carries none, so
+     * each shell call is joined to the `tool.result` of the session's `wire.jsonl` by its id. A result
+     * the engine flagged as an error is {@see TurnRecord::STATUS_ERROR}, a result without an error is
+     * {@see TurnRecord::STATUS_COMPLETED}, and a call with no result at all is
+     * {@see TurnRecord::STATUS_UNKNOWN}: it published nothing and must not count as a status.
+     *
+     * @param list<array{tool: string, command: string|null, status: string|null, id: string|null}> $toolCalls
+     *
+     * @return list<array{tool: string, command: string|null, status: string|null, id: string|null}>
+     */
+    private function wireToolCalls(array $toolCalls): array
+    {
+        $results = $this->toolResults();
+        $joined = [];
+        foreach ($toolCalls as $call) {
+            $id = $call['id'] ?? null;
+            if (is_string($id) && $id !== '' && isset($results[$id])) {
+                $call['status'] = $results[$id] ? TurnRecord::STATUS_ERROR : TurnRecord::STATUS_COMPLETED;
+            } else {
+                $call['status'] = TurnRecord::STATUS_UNKNOWN;
+            }
+            $joined[] = $call;
+        }
+
+        return $joined;
+    }
+
+    /**
+     * The outcome of every `tool.result` record of the run's wire window, keyed by its `toolCallId`:
+     * `true` when the engine flagged the result as an error, `false` otherwise. A call with no entry
+     * here has no result in the run's window, so it published nothing.
+     *
+     * @return array<string, bool>
+     */
+    private function toolResults(): array
+    {
+        $path = $this->currentWirePath();
+        if ($path === null || !is_file($path)) {
+            return [];
+        }
+        $results = [];
+        foreach (KimiWireReader::records($this->readLines($path, $this->wireOffset)) as $record) {
+            if ($record->type !== 'tool.result' || $record->toolCallId === null) {
+                continue;
+            }
+            $result = is_array($record->data['result'] ?? null) ? $record->data['result'] : [];
+            $results[$record->toolCallId] = ($result['isError'] ?? false) === true;
+        }
+
+        return $results;
     }
 
     /**

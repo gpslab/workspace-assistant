@@ -18,16 +18,16 @@ namespace GpsLab\WorkspaceAssistant\Kimi;
 final class KimiStream
 {
     /**
-     * @param string|null                                                          $version       `version` of the `system.version` event (the first line of the stream)
-     * @param list<string>                                                         $progressLines one line per tool call of an `assistant` message with `tool_calls`, in event order
-     * @param string                                                               $finalText     the text of the last `assistant` message without `tool_calls` (empty when the run produced none)
-     * @param string|null                                                          $sessionId     `session_id` of the `session.resume_hint` event (`session_<uuid>`); printed only on success
-     * @param array{code: string, message: string}|null                            $error         the `error` event of the run; null when the stream carried none
-     * @param int                                                                  $retrying      how many `turn.step.retrying` events the provider retry printed
-     * @param list<array{tool: string, command: string|null, status: string|null}> $toolCalls
-     *                                                                                            the neutral tool calls of the run, in event order: a `Bash` call is the neutral
-     *                                                                                            `shell` call; the stdout stream carries no per-call status, so it is `null`
-     *                                                                                            (a call counts as completed, see {@see \GpsLab\WorkspaceAssistant\TurnRecord})
+     * @param string|null                                                                           $version       `version` of the `system.version` event (the first line of the stream)
+     * @param list<string>                                                                          $progressLines one line per tool call of an `assistant` message with `tool_calls`, in event order
+     * @param string                                                                                $finalText     the text of the last `assistant` message without `tool_calls` (empty when the run produced none)
+     * @param string|null                                                                           $sessionId     `session_id` of the `session.resume_hint` event (`session_<uuid>`); printed only on success
+     * @param array{code: string, message: string}|null                                             $error         the `error` event of the run; null when the stream carried none
+     * @param int                                                                                   $retrying      how many `turn.step.retrying` events the provider retry printed
+     * @param list<array{tool: string, command: string|null, status: string|null, id: string|null}> $toolCalls
+     *                                                                                                             the neutral tool calls of the run, in event order: a `Bash` call is the neutral
+     *                                                                                                             `shell` call; `id` is the call's `tool_calls[].id`, for joining to its wire
+     *                                                                                                             result; the stdout stream carries no per-call status, so it is `null`
      */
     public function __construct(
         public readonly ?string $version,
