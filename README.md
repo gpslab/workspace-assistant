@@ -53,8 +53,9 @@ Telegram <-> bot (long polling) <-> claude -p --resume <session> <-> git push
 - Modes (`arch`, `review`, `pm`) with replaceable personas, interface locales, and *epics*: sets of
   GitHub tasks with dependencies that the bot's `Orchestrator` drives to completion — independent
   tasks run in parallel, dependent ones start once everything they depend on is merged. Epics work on
-  both engines that can run their gates ([OpenCode](#opencode)); on Kimi they are refused for now
-  ([Kimi](#kimi)).
+  every engine whose gates can run their own way: Claude Code and [OpenCode](#opencode) through their
+  command hooks and the plugin, and a Kimi instance through its gate shim while the preconditions of that
+  gate hold ([Kimi](#kimi)).
 
 ## How it works
 
@@ -193,10 +194,13 @@ against Kimi Code **2.7.2** (its `wire.jsonl` protocol version `1.5`).
 - `KIMI_MODEL` is the model of every run, named as the alias your own Kimi `config.toml` defines (empty =
   the `default_model` of that file). `/model` is read-only, and `CLAUDE_MODELS` and `MODEL_EPIC_*` do not
   apply: the bot logs one line at startup naming each of those keys that is set.
-- Chat, `/compact` and the file exchange work. **The gated modes (`pm`, `review`) and the epics are
-  refused** while this engine has nowhere to run their gates: a `pm` message is answered with the same
-  refusal as on an instance whose gate preconditions do not hold, and nothing is queued. `/mode arch` is
-  the mode to chat in.
+- Chat, `/compact` and the file exchange work, and so do the gated modes (`pm`, `review`) and the epics:
+  a Kimi run carries its gate through the gate shim of the bot, which Kimi runs as a hook. A gated run
+  starts only while three preconditions hold — no `$HOME/.agents` directory (every Kimi run reads agents,
+  skills and `AGENTS.md` from it), a `wire.jsonl` protocol version the bot was verified against, and a
+  gate shim that passes its own self-test. While one of them fails, the mode and the epic are refused with
+  the failing condition named, and nothing is queued; `/mode arch` is the mode to chat in until then. See
+  [INSTALL.md](INSTALL.md#kimi) for the gate, the after-the-fact audit and what it can and cannot stop.
 - The bot gives every run its own Kimi home with the assembled prompt and the agents of the instance, and
   links the credentials, sessions and OAuth state of `KIMI_HOME` (default `~/.kimi-code`) into it. It never
   copies the credentials: the server rotates the refresh token, and a copy would be invalidated by the next
@@ -288,7 +292,7 @@ the mode personas and prompt files are in [INSTALL.md](INSTALL.md) and [PROMPTS.
 | `/mode` | Switch the mode: `arch`, `review` or `pm` |
 | `/model` | Choose the Claude model (`--model`) from `CLAUDE_MODELS`: `/model <name>` for this topic, `/model <name> all` for all topics, `default` clears a level; without an argument — buttons. The topic choice is sticky like `/mode`; `/stats` shows the model. A `--model` in `CLAUDE_EXTRA_ARGS` pins it and `/model` becomes read-only. With `ENGINE=opencode` or `ENGINE=kimi` it is read-only too: the model comes from `OPENCODE_MODEL` or `KIMI_MODEL` |
 | `/lang` | Language of Claude's replies in the chat |
-| `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation). Works on both engines that can run the epics; refused on Kimi |
+| `/epic` | Epics: `start <slug>`, `pause`, `resume`, `status`; without an argument — buttons for the actions that apply to the topic's epic now (start goes through a plan list and a confirmation). Works on both engines that can run the epics; on Kimi while the preconditions of its gate hold |
 | `/restart` | Restart the bot to pick up new code |
 | `/help` | Help |
 

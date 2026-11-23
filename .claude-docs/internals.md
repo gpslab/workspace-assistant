@@ -283,17 +283,27 @@ startup log line, since neither applies here.
   ended in an error is not audited and leaves no line. A `kimi gate audit skipped: …` line in bot.log and no
   audit come from a run that was killed by a timeout, was cancelled, was still in progress when the bot
   stopped, or ended but whose audit could not be taken. A mismatch on a chat run is a
-  `kimi gate audit: …` line in bot.log and goes no further; it reaches the chat only on a gated run, and
-  `Config::gatesUnavailable()` — a constant on Kimi — refuses those outright along with the gated modes
-  (`pm`, `review`) and the epics: an audit taken after the run, not a hook that blocks a call, would be the
-  only protection they could have.
+  `kimi gate audit: …` line in bot.log and goes no further; on a gated run it is a `kimi gate violation: …`
+  line in bot.log, the same text in the chat and no success status for the run. An audit taken after the run,
+  not a hook that blocks a call, is the only protection a gated run has — which is why `KimiGateGuard` refuses
+  the gated modes (`pm`, `review`) and the epics unless the gate preconditions hold.
 - Review status: Kimi's `Stop` hook cannot continue a `-p` turn, so `JobRunner::repeatReviewRun()` takes the
   decision after the run, exactly as on OpenCode.
 - `$HOME/.agents` (agents, skills and `AGENTS.md`) is read by every run, whatever `KIMI_CODE_HOME` says.
-  `KimiGatedPreconditions::homeAgentsPresent()` is the one check behind it, and `Config::startupWarnings()`
-  is its only production caller today: it logs the reason once at bot start, so an operator learns about it.
-  Gated modes are refused by `Config::gatesUnavailable()`, not by `KimiGatedPreconditions::check()`, which
-  nothing in `src/` calls yet.
+  `KimiGatedPreconditions::homeAgentsPresent()` is the one check behind it; `Config::startupWarnings()` logs
+  the reason once at bot start, so an operator learns about it, and it is the first precondition a gated run
+  is refused by.
+- `KimiGateGuard` is the refusal predicate of the gated modes and the epics on Kimi, and the one production
+  caller of `KimiGatedPreconditions::check()`: it reads `$HOME/.agents` and the `metadata.protocol_version`
+  of the newest session on the source home on every call (both change while the bot runs), and takes the
+  self-test of the gate shim (`KimiGateSelfTest`, which `JobRunner` shares) — a pass is cached for the
+  process, a failure is retried after a short backoff — and returns the refusal text of each failing
+  condition — in the chat through `KimiGateGuard::refusal()` and in bot.log through `refusalLog()`. The queue
+  (`QueueScheduler`), the `/epic` surface (`Epic\ChatSurface`) and `/compact` (`CompactFlow`) are its callers;
+  `Bot` builds one instance for the whole process. An engine that is not Kimi is never refused by it. With the
+  preconditions holding, the orchestrator of a Kimi instance is connected like on the other engines; an epic
+  run that reaches the queue while a running epic's gate does not hold blocks the epic once with the refusal,
+  so the orchestrator does not keep re-enqueuing a run that is dropped silently.
 - The memory of the instance is injected here, because this engine reads no user scope (see [Memory](#memory)).
 
 ---

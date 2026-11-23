@@ -844,7 +844,6 @@ final class ConfigTest extends TestCase
         self::assertSame('', $config->kimiModel);
         self::assertSame([], $config->kimiExtraArgs);
         self::assertFalse($config->isKimi());
-        self::assertFalse($config->gatesUnavailable());
     }
 
     public function testKimiKeysAreParsedFromEnv(): void
@@ -914,8 +913,6 @@ final class ConfigTest extends TestCase
 
         self::assertTrue($config->isKimi());
         self::assertSame(Config::ENGINE_KIMI, $config->engine);
-        // The gated modes and the epics stay refused: the task that lifts that refusal is separate.
-        self::assertTrue($config->gatesUnavailable());
         self::assertSame('/srv/kimi', $config->kimiHome);
         self::assertSame('kimi-k2', $config->kimiModel);
     }
@@ -1039,23 +1036,13 @@ final class ConfigTest extends TestCase
         }
     }
 
-    public function testKimiEngineKeepsTheConfiguredFieldsAndRefusesTheGatedModes(): void
+    public function testKimiEngineKeepsTheConfiguredFields(): void
     {
         $config = $this->engineConfig(Config::ENGINE_KIMI, kimiModel: 'kimi-k2', kimiHome: '/srv/kimi');
 
         self::assertTrue($config->isKimi());
-        self::assertTrue($config->gatesUnavailable());
         self::assertSame('kimi-k2', $config->kimiModel);
         self::assertSame('/srv/kimi', $config->kimiHome);
-    }
-
-    public function testTheGatesHaveTheirPreconditionsOnEveryEngineButKimi(): void
-    {
-        // The one predicate the refusals go through: Kimi alone fails it, so a test that flips it
-        // (by building another engine) reaches the same code path with the runs starting.
-        self::assertFalse($this->engineConfig(Config::DEFAULT_ENGINE_FINGERPRINT)->gatesUnavailable());
-        self::assertFalse($this->engineConfig(Config::ENGINE_OPENCODE)->gatesUnavailable());
-        self::assertTrue($this->engineConfig(Config::ENGINE_KIMI)->gatesUnavailable());
     }
 
     public function testOnlyClaudeHasAStopHookThatCanContinueATurn(): void

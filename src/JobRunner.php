@@ -11,6 +11,7 @@ use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Run;
 use GpsLab\WorkspaceAssistant\Kimi\DeferredRunHome;
 use GpsLab\WorkspaceAssistant\Kimi\KimiErrorClass;
+use GpsLab\WorkspaceAssistant\Kimi\KimiGateSelfTest;
 use GpsLab\WorkspaceAssistant\Kimi\KimiRunAudit;
 use GpsLab\WorkspaceAssistant\Memory\MemorySync;
 use GpsLab\WorkspaceAssistant\Queue\QueueTexts;
@@ -30,13 +31,6 @@ final class JobRunner implements JobLauncher, RunControl
 
     /** Pause on a Claude limit when the reset time could not be parsed from the error text. */
     private const int LIMIT_PAUSE_FALLBACK_SEC = 3600;
-
-    /**
-     * Deadline for the Kimi gate self-test (a local bootstrap and writability check, normally < 1 s).
-     * Without it a stuck shim would freeze the single-threaded bot forever because `launchJob()` runs
-     * inside the polling loop.
-     */
-    private const int KIMI_SELF_TEST_TIMEOUT = 5;
 
     private readonly ClaudeErrorText $claudeErrorText;
 
@@ -318,88 +312,14 @@ final class JobRunner implements JobLauncher, RunControl
     }
 
     /**
-     * Runs `bin/kimi-hook.php --self-test` against the state directory, which a run home will be
-     * created under, and returns the failure text or null when it passes. The shim checks that it
-     * can write what the gate needs; a parse error or a missing bootstrap makes it exit non-zero.
-     *
-     * Arguments are passed as an array to proc_open: no shell, no injection. The pipes are read
-     * non-blocking with a `stream_select` deadline so that a stuck shim (a blocking bootstrap
-     * `include`, a hung filesystem, a PHP binary waiting on stdin) cannot freeze the polling loop,
-     * and both pipes are drained on every pass so a full buffer can never stall the other.
+     * Runs the self-test of the gate shim ({@see KimiGateSelfTest}) against the state directory, which
+     * a run home will be created under, and returns the failure text or null when it passes. The
+     * deadline of the self-test is what keeps a stuck shim from freezing the single-threaded bot:
+     * `launchJob()` runs inside the polling loop.
      */
     private function runKimiSelfTest(): ?string
     {
-        $shim = $this->kimiHookShim ?? dirname(__DIR__).'/bin/kimi-hook.php';
-        if (!is_file($shim)) {
-            return 'The Kimi gate shim is not installed: '.$shim;
-        }
-        $home = $this->config->stateDir !== '' ? $this->config->stateDir : sys_get_temp_dir();
-        $proc = @proc_open(
-            [PHP_BINARY, $shim, '--self-test'],
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            null,
-            array_merge(getenv(), ['KIMI_CODE_HOME' => $home]),
-        );
-        if (!is_resource($proc)) {
-            return 'The Kimi gate self-test could not be started.';
-        }
-        fclose($pipes[0]);
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-
-        $stdout = '';
-        $stderr = '';
-        $deadline = microtime(true) + self::KIMI_SELF_TEST_TIMEOUT;
-        $timedOut = false;
-
-        while (true) {
-            // Drain both pipes each pass: never wait for EOF on one while the other fills its buffer.
-            $stdout .= stream_get_contents($pipes[1]) ?: '';
-            $stderr .= stream_get_contents($pipes[2]) ?: '';
-
-            $running = proc_get_status($proc)['running'];
-            if (!$running) {
-                break;
-            }
-            if (microtime(true) >= $deadline) {
-                $timedOut = true;
-                break;
-            }
-
-            $read = [$pipes[1], $pipes[2]];
-            $write = null;
-            $except = null;
-            $remaining = $deadline - microtime(true);
-            $sec = (int) floor($remaining);
-            $usec = (int) (($remaining - $sec) * 1_000_000);
-            @stream_select($read, $write, $except, $sec, $usec);
-        }
-
-        if ($timedOut) {
-            proc_terminate($proc, 15); // SIGTERM
-            usleep(300_000);
-            $status = proc_get_status($proc);
-            if ($status['running'] === true) {
-                proc_terminate($proc, 9); // SIGKILL
-            }
-        }
-
-        $stdout .= stream_get_contents($pipes[1]) ?: '';
-        $stderr .= stream_get_contents($pipes[2]) ?: '';
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $code = proc_close($proc);
-
-        if ($timedOut) {
-            return 'Kimi gate self-test timed out';
-        }
-        if ($code === 0) {
-            return null;
-        }
-        $reason = trim($stderr) !== '' ? trim($stderr) : trim($stdout);
-
-        return 'Kimi gate self-test failed'.($reason !== '' ? ': '.$reason : ' (exit '.$code.')');
+        return (new KimiGateSelfTest($this->kimiHookShim))->run($this->config->stateDir);
     }
 
     /**

@@ -88,9 +88,8 @@
     <p>Besides chatting with a repository, the bot can carry a set of tasks to completion. Claude handles
       the steps that need judgement, the bot's <code>Orchestrator</code> handles the deterministic ones, an
       external executor writes the code, and the author keeps the decisions that must stay human. Epics run
-      on either engine that can run their gates: Claude Code, or OpenCode with
-      <code>ENGINE=opencode</code>. (The Kimi Code engine, <code>ENGINE=kimi</code>, runs chat and
-      <code>/compact</code> only for now.)</p>
+      on any of the three engines: Claude Code, OpenCode with <code>ENGINE=opencode</code>, or the Kimi Code
+      CLI with <code>ENGINE=kimi</code>, each of them through the gate its runs carry there.</p>
     <ol class="pipeline">
       <li><strong>Architect</strong><span>Claude in the <code>pm</code> mode designs the change, runs it
         through cold critique, verification, editing and a scope check, and opens the issues.</span></li>
