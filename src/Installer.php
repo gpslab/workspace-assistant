@@ -179,7 +179,7 @@ final class Installer
             if ($interactive && self::askedFor($key, $values)) {
                 $value = $this->ask($key, $value, $placeholders, $services, $out, $err, $values);
             }
-            $problem = $this->validate($key, $value, $placeholders);
+            $problem = $this->validate($key, $value, $placeholders, self::engineOf($values));
             if ($problem !== null) {
                 $errors[] = $problem;
                 continue;
@@ -309,7 +309,7 @@ final class Installer
      *
      * @param array<string, string|null> $placeholders
      */
-    private function validate(string $key, ?string $value, array $placeholders): ?string
+    private function validate(string $key, ?string $value, array $placeholders, string $engine): ?string
     {
         if (in_array($key, self::REQUIRED_KEYS, true)) {
             if ($value === null || $value === '') {
@@ -330,7 +330,7 @@ final class Installer
         return match (true) {
             $key === 'REPO_PATH' && !str_starts_with($value, '/') => 'REPO_PATH: must be an absolute path (the bot resolves it relative to its own working directory).',
             $key === 'REPO_PATH' && !is_dir($value.'/.git') => "REPO_PATH={$value} does not look like a git repository.",
-            $key === 'KIMI_HOME' && $value !== '' && !str_starts_with($value, '/') => 'KIMI_HOME: must be an absolute path (the run links its credentials, sessions and oauth to it: a relative home never works).',
+            $key === 'KIMI_HOME' && $engine === Config::ENGINE_KIMI && $value !== '' && !str_starts_with($value, '/') => 'KIMI_HOME: must be an absolute path (the run links its credentials, sessions and oauth to it: a relative home never works).',
             $key === 'ALLOWED_USER_IDS' && preg_match('/^\d+(,\d+)*$/', $value) !== 1 => 'ALLOWED_USER_IDS: must contain only digits separated by commas (e.g. 1001,1002).',
             $key === 'FORGE' && $value !== '' && !isset(Config::DEFAULT_HOSTS[$value]) => "FORGE={$value} is not supported (expected ".implode(' or ', array_keys(Config::DEFAULT_HOSTS)).').',
             $key === 'ENGINE' && trim($value) !== '' && !in_array(trim($value), Config::ENGINES, true) => "ENGINE={$value} is not supported (expected ".Config::engineListText().').',
@@ -365,7 +365,7 @@ final class Installer
             fwrite($out, $prompt);
             $answer = $secret ? $this->readSecret($services, $out) : $this->readLine($services);
             $answer = $answer === '' ? $default : $answer;
-            $problem = $this->validate($key, $answer, $placeholders);
+            $problem = $this->validate($key, $answer, $placeholders, self::engineOf($values));
             if ($problem === null) {
                 return $answer;
             }

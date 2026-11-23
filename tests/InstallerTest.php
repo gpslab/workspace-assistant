@@ -465,6 +465,16 @@ final class InstallerTest extends TestCase
         self::assertFileDoesNotExist($this->root.'/.env');
     }
 
+    public function testRelativeKimiHomeIsNotRejectedOnAnotherEngine(): void
+    {
+        // KIMI_HOME is only read by a Kimi run: a relative value is harmless on Claude/OpenCode, and
+        // Config accepts it there, so the installer must not reject it against Kimi's own rule.
+        [$code, , $err] = $this->install([...$this->required(), '--kimi-home=relative/kimi']);
+
+        self::assertSame(0, $code, $err);
+        self::assertSame('relative/kimi', Env::load($this->root.'/.env', true)->get('KIMI_HOME'));
+    }
+
     public function testKimiEngineIsAcceptedAndWritesTheKeys(): void
     {
         [$code, , $err] = $this->install([...$this->required(), '--engine=kimi', '--kimi-bin=/usr/local/bin/kimi', '--kimi-model=kimi-k2']);
