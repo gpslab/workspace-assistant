@@ -31,7 +31,7 @@ namespace GpsLab\WorkspaceAssistant;
  * ({@see engineTokens()}), which fills the tokens of the engine the instance runs (`ENGINE`).
  * `common` and `contract_review` are `load`-ed, not rendered, so no other step would fill a
  * placeholder in them. On Claude Code the values are the text as it was before the tokens, byte
- * for byte; on OpenCode they name the mechanics of that engine (see PROMPTS.md).
+ * for byte; on OpenCode and Kimi they name the mechanics of that engine (see PROMPTS.md).
  */
 final class SystemPrompt
 {
@@ -113,24 +113,35 @@ final class SystemPrompt
      * The values of the engine tokens of the system prompt, per engine ({@see build()}).
      *
      * `{engine_session}` identifies the session to the model; `{engine_review_check}` is what enforces
-     * that the ids of the cold findings are in the published review body. Both are replaced in one
-     * substitution step over the assembled text, so a persona file may use them as well. The Claude
-     * Code values are the text as it was before the tokens, byte for byte.
+     * that the ids of the cold findings are in the published review body; `{engine_subagent}` names
+     * how a sub-agent is called on that engine (empty where the shipped text needs no wording, so the
+     * Claude and OpenCode prompts stay as they were). All are replaced in one substitution step over
+     * the assembled text, so a persona file may use them as well. The Claude Code values are the text
+     * as it was before the tokens, byte for byte.
      *
      * @return array<string, string> token (braces included) => text
      */
     public static function engineTokens(string $engine): array
     {
+        if ($engine === Config::ENGINE_KIMI) {
+            return [
+                '{engine_session}' => 'a Kimi Code session',
+                '{engine_review_check}' => 'the bot reads the published review after the run and does not see a body from a file (`-F body=@file`, `--input`): it repeats the turn once when an id is missing from the body',
+                '{engine_subagent}' => ' A sub-agent is called with the `Agent` tool, naming the agent in `subagent_type`; wait for its result before the next step.',
+            ];
+        }
         if ($engine === Config::ENGINE_OPENCODE) {
             return [
                 '{engine_session}' => 'an OpenCode session',
                 '{engine_review_check}' => 'the bot reads the published review after the run and does not see a body from a file (`-F body=@file`, `--input`): it repeats the turn once when an id is missing from the body',
+                '{engine_subagent}' => '',
             ];
         }
 
         return [
             '{engine_session}' => 'a Claude Code session',
             '{engine_review_check}' => 'the Stop hook does not read a body from a file (`-F body=@file`, `--input`) and blocks the turn until every id is in the body',
+            '{engine_subagent}' => '',
         ];
     }
 

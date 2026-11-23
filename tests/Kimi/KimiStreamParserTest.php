@@ -235,6 +235,24 @@ final class KimiStreamParserTest extends TestCase
         self::assertSame('Bash cd /work make test', $stream->progressLines[0]);
     }
 
+    /**
+     * The neutral record of the turn ({@see \GpsLab\WorkspaceAssistant\TurnRecord}): a `Bash` call is
+     * the neutral `shell` call with its command and the call id; the stream carries no per-call status,
+     * so it is null. Non-shell calls are kept by name and have no command.
+     */
+    public function testToolCallsAreTheNeutralRecordOfTheTurn(): void
+    {
+        $stream = $this->parseRun('08-hook-exit1');
+        self::assertSame([
+            ['tool' => 'shell', 'command' => 'echo MARK-hook-exit1', 'status' => null, 'id' => 'tool_F5C0YuABGapZOMYiwahcL7gh'],
+            // The call is printed again after the hook failure notice.
+            ['tool' => 'shell', 'command' => 'echo MARK-hook-exit1', 'status' => null, 'id' => 'tool_F5C0YuABGapZOMYiwahcL7gh'],
+        ], $stream->toolCalls);
+
+        $stream = $this->parseRun('02-tool');
+        self::assertSame([['tool' => 'Read', 'command' => null, 'status' => null, 'id' => 'tool_UfxYxalG3CtqFfJUh3dM0u5a']], $stream->toolCalls);
+    }
+
     public function testOnlyTheFirstVersionAndTheFirstSessionIdAreKept(): void
     {
         $stream = KimiStreamParser::parse([

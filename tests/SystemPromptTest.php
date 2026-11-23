@@ -183,6 +183,27 @@ final class SystemPromptTest extends TestCase
         }
     }
 
+    public function testKimiWordingReplacesEveryEngineToken(): void
+    {
+        $tokens = SystemPrompt::engineTokens(Config::ENGINE_KIMI);
+        self::assertSame(
+            ['{engine_session}', '{engine_review_check}', '{engine_subagent}'],
+            array_keys($tokens),
+        );
+        self::assertStringNotContainsString('Claude Code', implode("\n", $tokens));
+        self::assertSame('a Kimi Code session', $tokens['{engine_session}']);
+        self::assertStringContainsString('repeats the turn once', $tokens['{engine_review_check}']);
+        self::assertStringContainsString('`Agent`', $tokens['{engine_subagent}']);
+        self::assertStringContainsString('subagent_type', $tokens['{engine_subagent}']);
+
+        foreach (SystemPrompt::MODES as $mode) {
+            $text = SystemPrompt::forMode($mode, null, Config::FORGE_GITHUB, Config::ENGINE_KIMI);
+            self::assertStringContainsString($tokens['{engine_subagent}'], $text, $mode);
+            self::assertStringNotContainsString('Claude Code', $text, $mode);
+            self::assertStringNotContainsString('{engine_', $text, $mode);
+        }
+    }
+
     /**
      * The engines differ only in the token values: replacing the OpenCode values with the Claude ones
      * in the OpenCode text gives the Claude text back, for every mode.
@@ -193,6 +214,11 @@ final class SystemPromptTest extends TestCase
         $claude = SystemPrompt::engineTokens(Config::DEFAULT_ENGINE_FINGERPRINT);
         $back = [];
         foreach ($opencode as $token => $value) {
+            // An optional token (no wording on this engine) is absent from the text, so it has no
+            // value to map back; an empty search string would make strtr() warn.
+            if ($value === '') {
+                continue;
+            }
             $back[$value] = $claude[$token];
         }
 

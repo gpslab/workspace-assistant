@@ -16,8 +16,10 @@ use GpsLab\WorkspaceAssistant\Opencode\OpencodeNdjsonParser;
  * tool and OpenCode's `shell` tool are the same thing here.
  *
  * The status is the wording of the engine: `completed` for a call that ended without an error (Claude
- * Code's tool result without `is_error`), {@see STATUS_ERROR} for one that failed. A call the forge
- * rejected published nothing, so it is neither the status of the turn nor part of a review body.
+ * Code's tool result without `is_error`), {@see STATUS_ERROR} for one that failed, and
+ * {@see STATUS_UNKNOWN} for one whose outcome the stream did not carry (it published nothing, so it
+ * must not count as a status). A call the forge rejected published nothing, so it is neither the status
+ * of the turn nor part of a review body.
  */
 final class TurnRecord
 {
@@ -26,6 +28,9 @@ final class TurnRecord
 
     /** The call ended without an error. */
     public const string STATUS_COMPLETED = 'completed';
+
+    /** The outcome of the call is not known (no result was seen): it published nothing. */
+    public const string STATUS_UNKNOWN = 'unknown';
 
     /** Tool name of a shell call in the OpenCode stream (`Bash` in a Claude Code transcript). */
     private const string SHELL_TOOL = 'shell';
@@ -44,8 +49,8 @@ final class TurnRecord
      * The record of an OpenCode run from the neutral tool calls of its parser: only the shell calls
      * that carried a command are part of it — the other tools of a run publish nothing.
      *
-     * A call whose status the stream does not carry counts as {@see STATUS_COMPLETED}: only an
-     * explicit {@see STATUS_ERROR} is a failure, exactly as an absent `is_error` on Claude Code.
+     * A call whose status the stream does not carry is {@see STATUS_UNKNOWN}: it published nothing,
+     * so it must not count as a status. Only an explicit {@see STATUS_COMPLETED} is a success.
      *
      * @param list<array{tool: string, command: string|null, status: string|null}> $toolCalls
      */
@@ -58,7 +63,7 @@ final class TurnRecord
             }
             $shellCalls[] = [
                 'command' => $call['command'],
-                'status' => $call['status'] ?? self::STATUS_COMPLETED,
+                'status' => $call['status'] ?? self::STATUS_UNKNOWN,
             ];
         }
 
@@ -76,8 +81,9 @@ final class TurnRecord
     }
 
     /**
-     * The commands of the shell calls that did not fail, in call order: only these can have set a
-     * status or published a review body.
+     * The commands of the shell calls that ended without an error ({@see STATUS_COMPLETED}), in call
+     * order: only these can have set a status or published a review body. A call whose outcome is
+     * unknown ({@see STATUS_UNKNOWN}) published nothing, exactly as a failed call.
      *
      * @return list<string>
      */
@@ -85,7 +91,7 @@ final class TurnRecord
     {
         $commands = [];
         foreach ($this->shellCalls as $call) {
-            if ($call['status'] !== self::STATUS_ERROR) {
+            if ($call['status'] === self::STATUS_COMPLETED) {
                 $commands[] = $call['command'];
             }
         }

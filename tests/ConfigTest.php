@@ -869,6 +869,15 @@ final class ConfigTest extends TestCase
         self::assertTrue($this->engineConfig(Config::ENGINE_KIMI)->gatesUnavailable());
     }
 
+    public function testOnlyClaudeHasAStopHookThatCanContinueATurn(): void
+    {
+        // The post-run review check is for the engines whose Stop hook cannot continue a turn: the
+        // Bot takes the decision after the run there, while Claude Code's Stop hook continues it.
+        self::assertTrue($this->engineConfig(Config::DEFAULT_ENGINE_FINGERPRINT)->hasContinuableStopHook());
+        self::assertFalse($this->engineConfig(Config::ENGINE_OPENCODE)->hasContinuableStopHook());
+        self::assertFalse($this->engineConfig(Config::ENGINE_KIMI)->hasContinuableStopHook());
+    }
+
     /** A Config of one engine, built directly because `fromEnv()` does not accept every engine name yet. */
     private function engineConfig(string $engine, string $kimiModel = '', string $kimiHome = '', string $memory3LayerBin = ''): Config
     {

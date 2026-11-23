@@ -53,6 +53,8 @@ final class QueueFlowTest extends TestCase
     private Bot $bot;
     /** A runner every job of this test gets instead of a real one. */
     private ?FixedRunner $fixedRunner = null;
+    /** Build a real {@see \GpsLab\WorkspaceAssistant\KimiRunner} for `ENGINE=kimi` instead of the Claude fallback. */
+    private bool $realKimiRunner = false;
 
     protected function setUp(): void
     {
@@ -134,6 +136,7 @@ final class QueueFlowTest extends TestCase
             'opencodeModel' => $opencodeModel,
             'kimiModel' => $kimiModel,
             'kimiHome' => $kimiHome,
+            'kimiBin' => $this->root.'/kimi',
             'claudeTimeout' => 0,
             'claudeStallTimeout' => 900,
             'claudeExtraArgs' => [],
@@ -194,6 +197,17 @@ final class QueueFlowTest extends TestCase
 
         if (in_array($config->engine, [Config::DEFAULT_ENGINE_FINGERPRINT, Config::ENGINE_OPENCODE], true)) {
             return new RunnerFactory($config, Locale::fromConfig($config));
+        }
+
+        // The Kimi engine is not selectable through create() yet, but a test can still drive its real
+        // runner: the post-run review check is what these tests are about.
+        if ($config->engine === Config::ENGINE_KIMI && $this->realKimiRunner) {
+            return new class($config, Locale::fromConfig($config)) extends RunnerFactory {
+                public function create(string $mode, string $settingsJson, array $extraEnv, string $localeCode, bool $withAgents, bool $updateOnResume, ?string $savedPromptHash, ?string $model): AgentRunner
+                {
+                    return $this->createKimiRunner($mode, $extraEnv, $localeCode, $updateOnResume, $savedPromptHash);
+                }
+            };
         }
 
         return new class($config, Locale::fromConfig($config)) extends RunnerFactory {
@@ -2830,6 +2844,167 @@ final class QueueFlowTest extends TestCase
     private function textsOfTopic(): string
     {
         return implode("\n", $this->tg->textsTo(100, 1))."\n".implode("\n", array_column($this->tg->edits, 'text'));
+    }
+
+    /** The id of a Kimi Bash call: the same id the stream and the session wire share. */
+    private static function kimiCallId(string $command): string
+    {
+        return 'tool_'.substr(md5($command), 0, 12);
+    }
+
+    /** The events of one Kimi turn: the Bash calls it made and its answer. */
+    private static function kimiTurn(string ...$commands): string
+    {
+        $lines = [];
+        foreach ($commands as $command) {
+            $lines[] = (string) json_encode(['role' => 'assistant', 'tool_calls' => [[
+                'type' => 'function',
+                'id' => self::kimiCallId($command),
+                'function' => ['name' => 'Bash', 'arguments' => json_encode(['command' => $command], JSON_UNESCAPED_UNICODE)],
+            ]]], JSON_UNESCAPED_UNICODE);
+        }
+        $lines[] = (string) json_encode(['role' => 'assistant', 'content' => '🟢 Merge — a#1'], JSON_UNESCAPED_UNICODE);
+        $lines[] = (string) json_encode(['role' => 'meta', 'type' => 'session.resume_hint', 'session_id' => 'session_11111111-1111-1111-1111-111111111111'], JSON_UNESCAPED_UNICODE);
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * The `wire.jsonl` `tool.result` lines of one turn: an errored command has a failed result (its
+     * `gh pr review --approve` was rejected or denied), any other command completed.
+     *
+     * @param list<string> $commands
+     * @param list<string> $errored
+     */
+    private static function kimiWireResults(array $commands, array $errored): string
+    {
+        $lines = [];
+        foreach ($commands as $command) {
+            $lines[] = (string) json_encode([
+                'type' => 'tool.result',
+                'toolCallId' => self::kimiCallId($command),
+                'result' => ['output' => in_array($command, $errored, true) ? 'rejected' : 'ok', 'isError' => in_array($command, $errored, true)],
+            ], JSON_UNESCAPED_UNICODE);
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Sets up a real {@see \GpsLab\WorkspaceAssistant\KimiRunner} against a fake `kimi` that records
+     * the argv of every launch, replays the n-th turn's stream and writes the session `wire.jsonl`
+     * whose `tool.result` marks the errored commands (the rest completed). One entry per launch.
+     *
+     * @param list<array{commands: list<string>, errored: list<string>}> $turns
+     */
+    private function kimiTurns(array $turns): void
+    {
+        foreach ($turns as $i => $turn) {
+            file_put_contents($this->root.'/kimi-out.'.$i.'.jsonl', self::kimiTurn(...$turn['commands'])."\n");
+            file_put_contents($this->root.'/kimi-results.'.$i.'.jsonl', self::kimiWireResults($turn['commands'], $turn['errored']));
+        }
+        $root = $this->root;
+        $home = $this->root.'/kimi-home';
+        $session = 'session_11111111-1111-1111-1111-111111111111';
+        $script = '#!'.PHP_BINARY."\n<?php\n"
+            .'$d = '.var_export($root, true).";\n"
+            .'$home = '.var_export($home, true).";\n"
+            .'file_put_contents($d.\'/calls.log\', "x\n", FILE_APPEND);'."\n"
+            .'$n = count(glob($d.\'/kimi-argv.*\') ?: []);'."\n"
+            .'file_put_contents($d.\'/kimi-argv.\'.$n, implode("\0", array_slice($argv, 1)));'."\n"
+            .'$wire = $home.\'/sessions/wd_test/'.$session.'/agents/main/wire.jsonl\';'."\n"
+            .'@mkdir(dirname($wire), 0700, true);'."\n"
+            .'$results = (string) @file_get_contents($d.\'/kimi-results.\'.$n.\'.jsonl\');'."\n"
+            .'if (in_array(\'-S\', $argv, true)) {'."\n"
+            .'    if ($results !== \'\') { file_put_contents($wire, $results."\n", FILE_APPEND); }'."\n"
+            .'} else {'."\n"
+            .'    $head = json_encode([\'type\' => \'metadata\', \'protocol_version\' => \'1.5\', \'created_at\' => time() * 1000])."\n";'."\n"
+            .'    file_put_contents($wire, $head.($results !== \'\' ? $results."\n" : \'\'));'."\n"
+            .'}'."\n"
+            // The run home's hook-records file must exist for the gate audit to read an empty set:
+            // the wire carries no tool.call here, so an empty record set matches it cleanly.
+            .'file_put_contents(getenv(\'KIMI_CODE_HOME\').\'/hook-records.jsonl\', \'\');'."\n"
+            .'fwrite(STDOUT, (string) file_get_contents($d.\'/kimi-out.\'.$n.\'.jsonl\'));'."\n"
+            .'exit(0);'."\n";
+        file_put_contents($this->root.'/kimi', $script);
+        chmod($this->root.'/kimi', 0755);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function kimiArgvOfLaunch(int $launch): array
+    {
+        return array_values(array_filter(
+            explode("\0", (string) file_get_contents($this->root.'/kimi-argv.'.$launch)),
+            static fn (string $a): bool => $a !== '',
+        ));
+    }
+
+    /**
+     * A Kimi review run that publishes no status is repeated exactly once, into the same session, and
+     * the repeat is the one that carries the result. Kimi's Stop hook cannot continue a `-p` turn, so
+     * the Bot takes the OpenCode decision after the run, from the neutral record of the Kimi parser.
+     */
+    public function testKimiReviewRunWithoutAStatusIsRepeatedOnceInTheSameSession(): void
+    {
+        $this->realKimiRunner = true;
+        $this->kimiTurns([
+            ['commands' => ['gh pr view 1'], 'errored' => []],
+            ['commands' => ['gh pr view 1', self::opencodePublish()], 'errored' => []],
+        ]);
+        mkdir($this->root.'/kimi-home', 0700, true);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $this->root.'/kimi-home');
+
+        $this->startReviewRun();
+        $this->finishJob();
+
+        self::assertSame(2, $this->launches(), 'the Bot repeats the Kimi review turn exactly once');
+        $argv = $this->kimiArgvOfLaunch(1);
+        $sessionAt = array_search('-S', $argv, true);
+        self::assertIsInt($sessionAt);
+        self::assertSame('session_11111111-1111-1111-1111-111111111111', $argv[$sessionAt + 1]);
+        self::assertStringContainsString('Review-status check: your reply carries a 🟢 PR verdict', implode("\n", $argv));
+        // The repeated turn published the status: no warning, nothing to report.
+        self::assertStringNotContainsString((new Locale('en'))->t('result.review_status_missing'), $this->textsOfTopic());
+    }
+
+    /** A second missing status on Kimi ends like it does on OpenCode: released with the warning, no third run. */
+    public function testKimiReviewRunWithoutAStatusAgainIsReleasedWithAWarning(): void
+    {
+        $this->realKimiRunner = true;
+        $this->kimiTurns([
+            ['commands' => ['gh pr view 1'], 'errored' => []],
+            ['commands' => ['gh pr view 1'], 'errored' => []],
+        ]);
+        mkdir($this->root.'/kimi-home', 0700, true);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $this->root.'/kimi-home');
+
+        $this->startReviewRun();
+        $this->finishJob();
+
+        self::assertSame(2, $this->launches(), 'a missing status again does not start a third run');
+        self::assertStringContainsString((new Locale('en'))->t('result.review_status_missing'), $this->textsOfTopic());
+    }
+
+    /**
+     * A Kimi review run whose publish call is rejected (the wire result is an error) is not treated as
+     * a published status: the turn is repeated once, and the second rejected publish is released with
+     * the missing-status warning — never a silent 🟢 with no status on the PR.
+     */
+    public function testKimiReviewRunWithARejectedPublishIsRepeatedThenReleasedWithAWarning(): void
+    {
+        $this->realKimiRunner = true;
+        $rejected = ['commands' => ['gh pr view 1', self::opencodePublish()], 'errored' => [self::opencodePublish()]];
+        $this->kimiTurns([$rejected, $rejected]);
+        mkdir($this->root.'/kimi-home', 0700, true);
+        $this->bot = $this->makeBot(engine: Config::ENGINE_KIMI, kimiHome: $this->root.'/kimi-home');
+
+        $this->startReviewRun();
+        $this->finishJob();
+
+        self::assertSame(2, $this->launches(), 'a rejected publish does not count as a status, so the turn is repeated once');
+        self::assertStringContainsString((new Locale('en'))->t('result.review_status_missing'), $this->textsOfTopic());
     }
 
     public function testOpencodeReviewRunWithThePublishedStatusIsNotRepeated(): void

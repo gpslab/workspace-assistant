@@ -137,6 +137,9 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
     /** Session directory of a resumed run, resolved at launch; null when the run starts a new session. */
     private ?string $auditSessionDir = null;
 
+    /** The neutral record of the finished turn, for the post-run review status check. */
+    private ?TurnRecord $turnRecord = null;
+
     /**
      * The byte offsets of the session's wire files taken at launch, for {@see wireAudit()}.
      * `[]` is the explicit empty window of a new session, which has no directory at launch.
@@ -222,6 +225,8 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
             $this->promptsDir !== '' ? $this->repoPath.'/'.$this->promptsDir : null,
             $this->promptsDir !== '' ? $this->promptsDir : null,
             $this->forge,
+            // This runner IS the Kimi engine: the engine tokens of the prompt take its wording.
+            Config::ENGINE_KIMI,
         );
         $this->promptWarnings = $built['warnings'];
         $languageLine = SystemPrompt::languageLine($this->locale->languageName(), $this->promptWarnings);
@@ -345,10 +350,14 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         return $this->actualModel;
     }
 
-    /** Kimi has no post-run review record: the check is not available on this engine. */
+    /**
+     * The neutral record of the finished turn ({@see TurnRecord}), for the Bot's post-run review
+     * status check ({@see JobRunner::repeatReviewRun()}): its shell calls and its final answer, read
+     * from the same stream-json parser that produces the result. Null until the run is done.
+     */
     public function turnRecord(): ?TurnRecord
     {
-        return null;
+        return $this->turnRecord;
     }
 
     public function pid(): int
@@ -907,6 +916,10 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
     {
         $stream = KimiStreamParser::parse($this->lines);
         $wire = $this->readWire();
+        // The neutral record of the turn for the Bot's post-run review status check: the shell calls
+        // and the answer, from the same parser as the result. The stream carries no per-call status,
+        // so the calls are joined to the tool.result events of the session's wire (see wireToolCalls).
+        $this->turnRecord = TurnRecord::fromToolCalls($this->wireToolCalls($stream->toolCalls), $stream->finalText);
         if ($wire !== null && $wire->model !== null) {
             $this->actualModel = $wire->model;
         }
@@ -1012,6 +1025,59 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
     }
 
     /**
+     * The neutral tool calls of the finished run with a per-call status: the stream carries none, so
+     * each shell call is joined to the `tool.result` of the session's `wire.jsonl` by its id. A result
+     * the engine flagged as an error is {@see TurnRecord::STATUS_ERROR}, a result without an error is
+     * {@see TurnRecord::STATUS_COMPLETED}, and a call with no result at all is
+     * {@see TurnRecord::STATUS_UNKNOWN}: it published nothing and must not count as a status.
+     *
+     * @param list<array{tool: string, command: string|null, status: string|null, id: string|null}> $toolCalls
+     *
+     * @return list<array{tool: string, command: string|null, status: string|null, id: string|null}>
+     */
+    private function wireToolCalls(array $toolCalls): array
+    {
+        $results = $this->toolResults();
+        $joined = [];
+        foreach ($toolCalls as $call) {
+            $id = $call['id'] ?? null;
+            if (is_string($id) && $id !== '' && isset($results[$id])) {
+                $call['status'] = $results[$id] ? TurnRecord::STATUS_ERROR : TurnRecord::STATUS_COMPLETED;
+            } else {
+                $call['status'] = TurnRecord::STATUS_UNKNOWN;
+            }
+            $joined[] = $call;
+        }
+
+        return $joined;
+    }
+
+    /**
+     * The outcome of every `tool.result` record of the run's wire window, keyed by its `toolCallId`:
+     * `true` when the engine flagged the result as an error, `false` otherwise. A call with no entry
+     * here has no result in the run's window, so it published nothing.
+     *
+     * @return array<string, bool>
+     */
+    private function toolResults(): array
+    {
+        $path = $this->currentWirePath();
+        if ($path === null || !is_file($path)) {
+            return [];
+        }
+        $results = [];
+        foreach (KimiWireReader::records($this->readLines($path, $this->wireOffset)) as $record) {
+            if ($record->type !== 'tool.result' || $record->toolCallId === null) {
+                continue;
+            }
+            $result = is_array($record->data['result'] ?? null) ? $record->data['result'] : [];
+            $results[$record->toolCallId] = ($result['isError'] ?? false) === true;
+        }
+
+        return $results;
+    }
+
+    /**
      * The complete lines of `$path` from `$offset` to its current end.
      *
      * @return list<string>
@@ -1081,6 +1147,7 @@ final class KimiRunner implements AgentRunner, DeferredRunHome
         $this->lastProgressAt = 0;
         $this->pid = 0;
         $this->result = null;
+        $this->turnRecord = null;
         $this->timeoutReason = '';
         $this->sessionId = null;
         $this->resumeSessionId = null;

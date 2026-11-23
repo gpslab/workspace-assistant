@@ -53,6 +53,8 @@ final class KimiStreamParser
         $version = null;
         /** @var list<string> $progressLines */
         $progressLines = [];
+        /** @var list<array{tool: string, command: string|null, status: string|null, id: string|null}> $toolCalls */
+        $toolCalls = [];
         /** @var string|null $pendingText the last text not (yet) known to be a status line */
         $pendingText = null;
         $sessionId = null;
@@ -74,6 +76,7 @@ final class KimiStreamParser
                     foreach ($calls as $call) {
                         if (is_array($call)) {
                             $progressLines[] = self::progressLine($call);
+                            $toolCalls[] = self::toolCall($call);
                         }
                     }
                     // The call is repeated after a hook failure notice, and the answer of the run
@@ -115,7 +118,38 @@ final class KimiStreamParser
             }
         }
 
-        return new KimiStream($version, $progressLines, $pendingText ?? '', $sessionId, $error, $retrying);
+        return new KimiStream($version, $progressLines, $pendingText ?? '', $sessionId, $error, $retrying, $toolCalls);
+    }
+
+    /**
+     * The neutral record of one tool call ({@see \GpsLab\WorkspaceAssistant\TurnRecord}): the tool
+     * name, the command of a call, its id and its status. A `Bash` call is the neutral `shell` call,
+     * as in the OpenCode stream. The stdout stream carries no per-call status (`tool` messages are
+     * not the history of the run, see the class doc), so the status is `null`: the caller joins the
+     * call's `id` to the `tool.result` of the session's `wire.jsonl` to decide it.
+     *
+     * @param array<mixed> $call one item of a `tool_calls` list of an `assistant` message
+     *
+     * @return array{tool: string, command: string|null, status: string|null, id: string|null}
+     */
+    private static function toolCall(array $call): array
+    {
+        $function = is_array($call['function'] ?? null) ? $call['function'] : [];
+        $name = $function['name'] ?? null;
+        $name = is_string($name) && $name !== '' ? $name : '';
+
+        $arguments = $function['arguments'] ?? null;
+        $args = is_string($arguments) ? json_decode($arguments, true) : null;
+        $command = is_array($args) ? ($args['command'] ?? null) : null;
+        $isShell = $name === 'Bash';
+        $id = $call['id'] ?? null;
+
+        return [
+            'tool' => $isShell ? 'shell' : $name,
+            'command' => $isShell && is_string($command) ? $command : null,
+            'status' => null,
+            'id' => is_string($id) && $id !== '' ? $id : null,
+        ];
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests\Kimi;
 
 use GpsLab\WorkspaceAssistant\ClaudeRunner;
+use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Kimi\KimiHook;
 use GpsLab\WorkspaceAssistant\KimiRunner;
 use GpsLab\WorkspaceAssistant\Locale;
@@ -103,6 +104,97 @@ final class KimiRunnerTest extends TestCase
 
         $runner->purgeRunHome();
         self::assertDirectoryDoesNotExist($home);
+    }
+
+    /**
+     * The finished turn is exposed as the neutral record for the Bot's post-run review status check:
+     * its shell calls (a Kimi `Bash` call is the neutral `shell` call) and its final answer. The calls
+     * are joined to the wire results: the hook-exit1 run's call ended without an error, so both prints
+     * of it are successful calls.
+     */
+    public function testTheFinishedTurnIsExposedForThePostRunReviewCheck(): void
+    {
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/08-hook-exit1.stdout.jsonl'),
+            wire: 'wire/08-hook-exit1/main.jsonl',
+            sessionDir: $sessionDir,
+        );
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        $beforeRun = $runner->turnRecord();
+        self::assertNull($beforeRun, 'the record exists only after the run');
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $turn = $runner->turnRecord();
+        self::assertNotNull($turn);
+        self::assertSame(['echo MARK-hook-exit1', 'echo MARK-hook-exit1'], $turn->commands());
+        self::assertSame('MARK-hook-exit1', $turn->finalText);
+        // The wire result is not an error, so both prints of the call are successful calls.
+        self::assertSame($turn->commands(), $turn->successfulCommands());
+
+        $runner->purgeRunHome();
+    }
+
+    /**
+     * A shell call the engine flagged as an error in the wire (a permission deny, a rejected
+     * `gh pr review --approve`, …) is not a successful call of the turn: the review status check must
+     * not count it as a published status.
+     */
+    public function testADeniedShellCallIsNotASuccessfulCallOfTheTurn(): void
+    {
+        $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
+        $bin = $this->fakeKimi(
+            $this->fixtureContent('run/21-static-deny.stdout.jsonl'),
+            wire: 'wire/21-static-deny/main.jsonl',
+            sessionDir: $sessionDir,
+        );
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $turn = $runner->turnRecord();
+        self::assertNotNull($turn);
+        self::assertSame(['echo STATICDENY-1'], $turn->commands());
+        self::assertSame([], $turn->successfulCommands(), 'a call the wire flags as an error is not a published status');
+
+        $runner->purgeRunHome();
+    }
+
+    /**
+     * A shell call the stream printed without a wire result (no session wire at all) has an unknown
+     * outcome, so it is not a successful call of the turn either: the check never treats a call it
+     * cannot prove published a status as one.
+     */
+    public function testACallWithoutAWireResultIsNotASuccessfulCallOfTheTurn(): void
+    {
+        $bin = $this->fakeKimi($this->fixtureContent('run/08-hook-exit1.stdout.jsonl'));
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $turn = $runner->turnRecord();
+        self::assertNotNull($turn);
+        self::assertSame(['echo MARK-hook-exit1', 'echo MARK-hook-exit1'], $turn->commands());
+        self::assertSame([], $turn->successfulCommands(), 'no wire result means the call published nothing');
+
+        $runner->purgeRunHome();
+    }
+
+    /** The run home's agent file takes the wording of the Kimi engine, never Claude Code's. */
+    public function testTheRunHomeGetsTheKimiEngineWording(): void
+    {
+        $bin = $this->fakeKimi($this->fixtureContent('run/01-plain.stdout.jsonl'));
+        $runner = $this->runner($bin);
+        $runner->start('hello', null);
+        self::assertSame(RunnerState::Done, $this->finish($runner));
+
+        $agent = (string) file_get_contents((string) $this->record()['home'].'/agent.md');
+        self::assertStringContainsString('a Kimi Code session', $agent);
+        self::assertStringContainsString('`Agent`', $agent);
+        self::assertStringNotContainsString('Claude Code', $agent);
+
+        $runner->purgeRunHome();
     }
 
     /**
@@ -418,10 +510,15 @@ final class KimiRunnerTest extends TestCase
         $runner->purgeRunHome();
     }
 
-    public function testPromptHashAndWarningsMatchClaudeRunner(): void
+    /**
+     * The same assembly as ClaudeRunner::start(), with the engine tokens of the Kimi engine: the run
+     * home's agent file, without its front matter and `${base_prompt}`, is the Claude prompt with the
+     * Kimi values replaced by the Claude ones. The hash covers that same assembled text.
+     */
+    public function testThePromptIsTheClaudeOneWithTheKimiEngineTokens(): void
     {
         $claudeBin = $this->root.'/fake-claude.php';
-        file_put_contents($claudeBin, '#!'.PHP_BINARY."\n<?php\nexit(0);\n");
+        file_put_contents($claudeBin, '#!'.PHP_BINARY."\n<?php\nfile_put_contents(__DIR__.'/claude.argv', implode(\"\\0\", \$argv));\n");
         chmod($claudeBin, 0o755);
         $claude = new ClaudeRunner(
             $claudeBin,
@@ -434,12 +531,32 @@ final class KimiRunnerTest extends TestCase
             homeDir: $this->home,
         );
         $claude->start('hello', null);
+        for ($i = 0; $i < 500 && !is_file($this->root.'/claude.argv'); ++$i) {
+            usleep(10000);
+        }
+        $args = explode("\0", (string) file_get_contents($this->root.'/claude.argv'));
+        $at = array_search('--append-system-prompt', $args, true);
+        self::assertIsInt($at);
+        $claudePrompt = $args[$at + 1];
 
         $sessionDir = $this->kimiHome.'/sessions/wd_test/'.self::SESSION;
         $kimi = $this->runner($this->fakeKimi($this->fixtureContent('run/01-plain.stdout.jsonl'), wire: 'wire/01-plain/main.jsonl', sessionDir: $sessionDir));
         $kimi->start('hello', null);
+        for ($i = 0; $i < 500 && !is_file($this->recordPath()); ++$i) {
+            usleep(10000);
+        }
 
-        self::assertSame($claude->promptHash(), $kimi->promptHash());
+        $agent = (string) file_get_contents((string) $this->record()['home'].'/agent.md');
+        self::assertSame(1, preg_match('/\n---\n\n\$\{base_prompt\}\n\n(.*)\n$/s', $agent, $m), 'the agent file has its front matter and the base prompt');
+        $kimiPrompt = $m[1];
+
+        $back = [];
+        foreach (SystemPrompt::engineTokens(Config::ENGINE_KIMI) as $token => $value) {
+            $back[$value] = SystemPrompt::engineTokens(Config::DEFAULT_ENGINE_FINGERPRINT)[$token];
+        }
+        self::assertSame($claudePrompt, strtr($kimiPrompt, $back));
+        self::assertSame(hash('sha256', $kimiPrompt), $kimi->promptHash());
+        self::assertNotSame($claude->promptHash(), $kimi->promptHash());
         self::assertSame($claude->promptWarnings(), $kimi->promptWarnings());
 
         $claude->kill();
