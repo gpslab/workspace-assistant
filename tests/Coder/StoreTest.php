@@ -176,6 +176,8 @@ final class StoreTest extends TestCase
         self::assertSame(Store::AWAITING_ACTION, $job['state']);
         self::assertSame(['step' => 'tests', 'attempt' => 1], $job['diagnostics']);
         self::assertSame('Running tests', $job['progress']);
+        self::assertArrayNotHasKey('lease_token', $job);
+        self::assertArrayNotHasKey('lease_token', $this->store->jobs()[0]);
 
         $secondLease = $this->store->assign(22, 60, 40);
         self::assertNotNull($secondLease);
@@ -199,6 +201,31 @@ final class StoreTest extends TestCase
         self::assertSame(105, $this->job($id)['heartbeat_at']);
         self::assertSame(135, $this->job($id)['lease_expires_at']);
         self::assertFalse($this->store->heartbeat($id, 1, $lease['lease_token'], 30, 135));
+    }
+
+    public function testExpiredLeaseRejectsCompletionFailureAndTransitionBeforeReconciliation(): void
+    {
+        $ids = [];
+        foreach (['complete', 'fail', 'transition'] as $index => $operation) {
+            $workerId = $index + 1;
+            $this->store->registerWorker($workerId, 100);
+            $id = $this->store->enqueue('example/repo', 'coder/expired-'.$operation, now: 100);
+            $ids[] = $id;
+            $lease = $this->store->assign($workerId, 10, 100);
+            self::assertNotNull($lease);
+            $before = $this->job($id);
+
+            $updated = match ($operation) {
+                'complete' => $this->store->complete($id, $workerId, $lease['lease_token'], now: 110),
+                'fail' => $this->store->fail($id, $workerId, $lease['lease_token'], 'late failure', now: 110),
+                'transition' => $this->store->transition($id, Store::RUNNING, $workerId, $lease['lease_token'], 110),
+            };
+            self::assertFalse($updated, "An expired lease cannot {$operation} a job before reconciliation.");
+            self::assertSame($before, $this->job($id));
+            self::assertSame($id, $this->worker($workerId)['active_job_id']);
+        }
+
+        self::assertSame($ids, $this->store->reconcileExpiredLeases(110));
     }
 
     public function testExpiredLeaseNeedsReconciliationAndOldTokenCannotTakeOver(): void
@@ -244,13 +271,21 @@ final class StoreTest extends TestCase
         $failedLease = $this->store->assign(1, 30, 111);
         self::assertNotNull($failedLease);
         self::assertSame($failed, $failedLease['job_id']);
-        self::assertTrue($this->store->fail($failed, 1, $failedLease['lease_token'], 'tests failed', ['step' => 'test'], 112));
+        self::assertTrue($this->store->updateContext(
+            $failed,
+            1,
+            $failedLease['lease_token'],
+            diagnostics: ['step' => 'test'],
+            now: 112,
+        ));
+        self::assertTrue($this->store->fail($failed, 1, $failedLease['lease_token'], 'tests failed', now: 113));
         self::assertSame(Store::FAILED, $this->job($failed)['state']);
         self::assertSame('tests failed', $this->job($failed)['last_error']);
-        self::assertFalse($this->store->requeue($done, 113));
-        self::assertFalse($this->store->requeue($failed, 113));
-        self::assertNull($this->store->assign(1, 30, 113));
-        self::assertFalse($this->store->complete($done, 1, $doneLease['lease_token'], [], 114));
+        self::assertSame(['step' => 'test'], $this->job($failed)['diagnostics']);
+        self::assertFalse($this->store->requeue($done, 114));
+        self::assertFalse($this->store->requeue($failed, 114));
+        self::assertNull($this->store->assign(1, 30, 114));
+        self::assertFalse($this->store->complete($done, 1, $doneLease['lease_token'], [], 115));
     }
 
     public function testCancellationIsDurableTerminalAndObservedAfterReload(): void

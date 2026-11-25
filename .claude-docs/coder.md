@@ -12,8 +12,9 @@ Numbered migrations run in ascending order inside an immediate transaction and a
 `coder_schema_migrations`. Opening an up-to-date store is safe. Jobs and workers are collections with
 stable integer ids. Job rows retain repository, issue and pull-request numbers, branch, worktree,
 session id, current head, diagnostics, progress, errors, retry/dispute counters, cancellation and
-lease history. Processed intake keys are unique per repository; retry and dispute records are
-separate rows and never implicitly change job state.
+lease history. The generic `job()`/`jobs()` read model omits the lease token; only `assign()` returns
+a newly issued token to its owner. Processed intake keys are unique per repository; retry and dispute
+records are separate rows and never implicitly change job state.
 
 ## Lifecycle and leases
 

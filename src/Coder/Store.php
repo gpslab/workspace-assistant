@@ -534,14 +534,14 @@ final class Store
         });
     }
 
-    /** @param array<string, mixed> $diagnostics */
-    public function complete(int $jobId, int $workerId, string $leaseToken, array $diagnostics = [], ?int $now = null): bool
+    /** @param array<string, mixed>|null $diagnostics */
+    public function complete(int $jobId, int $workerId, string $leaseToken, ?array $diagnostics = null, ?int $now = null): bool
     {
         return $this->finish($jobId, $workerId, $leaseToken, self::DONE, null, $diagnostics, $now);
     }
 
-    /** @param array<string, mixed> $diagnostics */
-    public function fail(int $jobId, int $workerId, string $leaseToken, string $error, array $diagnostics = [], ?int $now = null): bool
+    /** @param array<string, mixed>|null $diagnostics */
+    public function fail(int $jobId, int $workerId, string $leaseToken, string $error, ?array $diagnostics = null, ?int $now = null): bool
     {
         return $this->finish($jobId, $workerId, $leaseToken, self::FAILED, $error, $diagnostics, $now);
     }
@@ -683,8 +683,8 @@ final class Store
         return $id === false ? null : (int) $id;
     }
 
-    /** @param array<string, mixed> $diagnostics */
-    private function finish(int $jobId, int $workerId, string $leaseToken, string $state, ?string $error, array $diagnostics, ?int $now): bool
+    /** @param array<string, mixed>|null $diagnostics */
+    private function finish(int $jobId, int $workerId, string $leaseToken, string $state, ?string $error, ?array $diagnostics, ?int $now): bool
     {
         $now ??= time();
 
@@ -692,7 +692,7 @@ final class Store
             $stmt = $pdo->prepare(
                 <<<'SQL'
                 UPDATE coder_jobs
-                   SET state = :state, last_error = :error, diagnostics = :diagnostics,
+                   SET state = :state, last_error = :error, diagnostics = COALESCE(:diagnostics, diagnostics),
                        completed_at = :now, updated_at = :now, lease_token = NULL,
                        leased_at = NULL, heartbeat_at = NULL, lease_expires_at = NULL
                  WHERE id = :job AND worker_id = :worker AND lease_token = :token
@@ -703,7 +703,7 @@ final class Store
             $stmt->execute([
                 'state' => $state,
                 'error' => $error,
-                'diagnostics' => json_encode($diagnostics, JSON_THROW_ON_ERROR),
+                'diagnostics' => $diagnostics === null ? null : json_encode($diagnostics, JSON_THROW_ON_ERROR),
                 'now' => $now,
                 'job' => $jobId,
                 'worker' => $workerId,
@@ -791,6 +791,7 @@ final class Store
         $row['cancellation_requested'] = (int) $row['cancellation_requested'] === 1;
         $diagnostics = json_decode((string) $row['diagnostics'], true, 512, JSON_THROW_ON_ERROR);
         $row['diagnostics'] = is_array($diagnostics) ? $diagnostics : [];
+        unset($row['lease_token']);
 
         return $row;
     }
