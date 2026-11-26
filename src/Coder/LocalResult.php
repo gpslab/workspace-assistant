@@ -9,6 +9,7 @@ final readonly class LocalResult
     public const string PUBLICATION_REQUESTED = 'publication_requested';
     public const string CANCELLED = 'cancelled';
     public const string FAILED = 'failed';
+    public const string LEASE_LOST = 'lease_lost';
 
     /** @param array<string, mixed> $details */
     public function __construct(

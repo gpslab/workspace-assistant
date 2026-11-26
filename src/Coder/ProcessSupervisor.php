@@ -41,10 +41,11 @@ final class ProcessSupervisor
             throw new \RuntimeException('Unable to fork the coder engine supervisor.');
         }
         if ($pid === 0) {
-            $this->child($factory, $prompt, $sessionId, $runId, $pid = (int) posix_getpid(), $statusPath);
+            $this->child($factory, $prompt, $sessionId, self::identity((int) posix_getpid(), $runId), $statusPath);
         }
+        $identity = self::identity($pid, $runId);
 
-        $status = ['phase' => 'launching', 'run_id' => $runId, 'supervisor_pid' => $pid, 'engine_pid' => null, 'pgid' => $pid];
+        $status = $identity + ['phase' => 'launching', 'engine_pid' => null, 'engine_start_time' => null];
         $onUpdate($status);
         $deadline = microtime(true) + $timeout;
         try {
@@ -101,13 +102,18 @@ final class ProcessSupervisor
         }
     }
 
-    /** Stop a surviving group only when a live member carries the persisted run identity. */
-    public static function reconcile(?int $pgid, ?string $runId): bool
+    /**
+     * Stop a surviving group only when a live supervisor or engine matches the durable process start
+     * identity. A post-fork putenv() is not visible in /proc/<pid>/environ and is not an identity.
+     *
+     * @param array<string, mixed> $identity
+     */
+    public static function reconcile(?int $pgid, ?string $runId, array $identity = []): bool
     {
         if ($pgid === null || $pgid < 1 || !self::groupAlive($pgid)) {
             return false;
         }
-        if ($runId === null || $runId === '' || !self::groupMatches($pgid, $runId)) {
+        if ($runId === null || $runId === '' || !self::identityMatches($pgid, $runId, $identity)) {
             throw new \RuntimeException('A surviving process group does not match the persisted coder run identity.');
         }
         self::terminateGroup($pgid);
@@ -130,23 +136,26 @@ final class ProcessSupervisor
         }
     }
 
-    /** @param \Closure():AgentRunner $factory */
-    private function child(\Closure $factory, string $prompt, ?string $sessionId, string $runId, int $pid, string $statusPath): void
+    /**
+     * @param \Closure():AgentRunner $factory
+     * @param array<string, mixed>   $identity
+     */
+    private function child(\Closure $factory, string $prompt, ?string $sessionId, array $identity, string $statusPath): void
     {
         try {
             if (posix_setsid() === -1) {
                 throw new \RuntimeException('Unable to create the coder process group.');
             }
-            putenv(self::RUN_ID_ENV.'='.$runId);
+            putenv(self::RUN_ID_ENV.'='.$identity['run_id']);
             ExecutionEnvironment::apply();
             $runner = $factory();
             $runner->start($prompt, $sessionId);
             if ($runner->pid() < 1) {
                 throw new \RuntimeException('The coder engine did not report its PID.');
             }
-            $status = [
-                'phase' => 'running', 'run_id' => $runId, 'supervisor_pid' => $pid,
-                'engine_pid' => $runner->pid(), 'pgid' => $pid, 'session_id' => $runner->sessionId(),
+            $status = $identity + [
+                'phase' => 'running', 'engine_pid' => $runner->pid(),
+                'engine_start_time' => self::processStartTime($runner->pid()), 'session_id' => $runner->sessionId(),
             ];
             self::writeStatus($statusPath, $status);
             while (($state = $runner->poll()) === RunnerState::Running) {
@@ -170,9 +179,10 @@ final class ProcessSupervisor
             }
             self::writeStatus($statusPath, $status);
         } catch (\Throwable $e) {
-            self::writeStatus($statusPath, [
-                'phase' => 'failed', 'run_id' => $runId, 'supervisor_pid' => $pid,
-                'engine_pid' => isset($runner) ? $runner->pid() : null, 'pgid' => $pid,
+            $enginePid = isset($runner) ? $runner->pid() : null;
+            self::writeStatus($statusPath, $identity + [
+                'phase' => 'failed', 'engine_pid' => $enginePid,
+                'engine_start_time' => is_int($enginePid) && $enginePid > 0 ? self::processStartTime($enginePid) : null,
                 'session_id' => isset($runner) ? $runner->sessionId() : $sessionId, 'error' => $e->getMessage(),
             ]);
         }
@@ -218,23 +228,63 @@ final class ProcessSupervisor
         }
     }
 
-    /** @phpstan-impure */
-    private static function groupAlive(int $pgid): bool
+    /** @return array{run_id:string,supervisor_pid:int,pgid:int,supervisor_start_time:?string,boot_id:string} */
+    private static function identity(int $pid, string $runId): array
     {
-        return self::groupMembers($pgid) !== [];
+        return [
+            'run_id' => $runId,
+            'supervisor_pid' => $pid,
+            'pgid' => $pid,
+            'supervisor_start_time' => self::processStartTime($pid),
+            'boot_id' => self::bootId(),
+        ];
     }
 
-    private static function groupMatches(int $pgid, string $runId): bool
+    /** @param array<string, mixed> $identity */
+    private static function identityMatches(int $pgid, string $runId, array $identity): bool
     {
-        $needle = self::RUN_ID_ENV.'='.$runId;
-        foreach (self::groupMembers($pgid) as $pid) {
-            $environment = @file_get_contents('/proc/'.$pid.'/environ');
-            if (is_string($environment) && in_array($needle, explode("\0", $environment), true)) {
+        if (($identity['run_id'] ?? null) !== $runId || ($identity['pgid'] ?? null) !== $pgid) {
+            return false;
+        }
+        $bootId = self::bootId();
+        if ($bootId === '' || ($identity['boot_id'] ?? null) !== $bootId) {
+            return false;
+        }
+        foreach (['supervisor', 'engine'] as $kind) {
+            $pid = $identity[$kind.'_pid'] ?? null;
+            $started = $identity[$kind.'_start_time'] ?? null;
+            if (is_int($pid) && $pid > 0 && is_string($started) && $started !== ''
+                && posix_getpgid($pid) === $pgid && self::processStartTime($pid) === $started) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private static function processStartTime(int $pid): ?string
+    {
+        $stat = @file_get_contents('/proc/'.$pid.'/stat');
+        if (!is_string($stat)) {
+            return null;
+        }
+        $end = strrpos($stat, ')');
+        $fields = $end === false ? [] : (preg_split('/\s+/', trim(substr($stat, $end + 1))) ?: []);
+
+        return isset($fields[19]) && ctype_digit($fields[19]) ? $fields[19] : null;
+    }
+
+    private static function bootId(): string
+    {
+        $id = @file_get_contents('/proc/sys/kernel/random/boot_id');
+
+        return is_string($id) ? trim($id) : '';
+    }
+
+    /** @phpstan-impure */
+    private static function groupAlive(int $pgid): bool
+    {
+        return self::groupMembers($pgid) !== [];
     }
 
     /** @return list<int> live (non-zombie) process ids */

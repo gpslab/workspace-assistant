@@ -27,6 +27,8 @@ final class Worker
         ?ProcessSupervisor $supervisor = null,
         ?CheckRunner $checks = null,
     ) {
+        // Worker is an explicitly invoked process, unlike the long-lived Bot that constructs runners.
+        ExecutionEnvironment::apply();
         $this->runnerFactory = $runnerFactory ?? fn (string $worktree): AgentRunner => $this->claudeRunner($worktree);
         $this->worktrees = new Worktree($config->repository, $config->worktreeDir, $config->authorName, $config->authorEmail);
         $this->supervisor = $supervisor ?? new ProcessSupervisor();
@@ -48,9 +50,10 @@ final class Worker
         $runId = 'job-'.$jobId.'-lease-'.$lease['lease_generation'];
         $lock = $this->lock($jobId);
         if ($lock === null) {
-            $this->store->fail($jobId, $this->workerId, $lease['lease_token'], 'Another worker holds the local run lock.');
+            // A recovery pass may hold the lock briefly. Never turn that healthy race into a terminal failure.
+            $this->store->releaseLease($jobId, $this->workerId, $lease['lease_token']);
 
-            return new LocalResult(LocalResult::FAILED, $jobId, $runId, Worktree::branch($jobId), $this->config->worktreeDir.'/job-'.$jobId, null, null);
+            return null;
         }
 
         try {
@@ -80,7 +83,12 @@ final class Worker
             throw new \RuntimeException('Only an active or queued coder job can be cancelled.');
         }
         $diagnostics = $job['diagnostics'];
-        ProcessSupervisor::reconcile(self::nullableInt($diagnostics['pgid'] ?? null), self::nullableString($diagnostics['run_id'] ?? null));
+        try {
+            $this->reconcileProcesses($diagnostics);
+        } catch (\Throwable $e) {
+            // The terminal state is already durable; cleanup failure must not hide that outcome.
+            $this->store->recordCancellationError($jobId, $e->getMessage());
+        }
 
         return new LocalResult(
             LocalResult::CANCELLED, $jobId, (string) ($diagnostics['run_id'] ?? ''),
@@ -101,12 +109,16 @@ final class Worker
         $branch = Worktree::branch($jobId);
         $sessionId = self::nullableString($job['session_id']);
         $head = self::nullableString($job['current_head']);
+        $nextHeartbeat = 0.0;
+        $tick = function () use ($jobId, $lease, &$nextHeartbeat): void {
+            $this->assertLease($jobId, $lease, $nextHeartbeat);
+        };
 
         try {
-            ProcessSupervisor::reconcile(self::nullableInt($diagnostics['pgid'] ?? null), self::nullableString($diagnostics['run_id'] ?? null));
-            $prepared = $this->worktrees->prepare($jobId, self::nullableString($diagnostics['base_head'] ?? null));
+            $this->reconcileProcesses($diagnostics);
+            $prepared = $this->worktrees->prepare($jobId, self::nullableString($diagnostics['base_head'] ?? null), $tick);
             $path = $prepared['path'];
-            $head = $this->worktrees->reconcile($path, $branch, $prepared['base_head'])['head'];
+            $head = $this->worktrees->reconcile($path, $branch, $prepared['base_head'], $tick)['head'];
             $diagnostics = array_merge($diagnostics, $prepared, [
                 'run_id' => $runId, 'phase' => 'prepared', 'engine_pid' => null, 'pgid' => null,
                 'timeouts' => [
@@ -119,7 +131,6 @@ final class Worker
             if (!$this->store->transition($jobId, Store::RUNNING, $this->workerId, $lease['lease_token'])) {
                 throw new \RuntimeException('The coder lease was lost before execution.');
             }
-            $contract = CheckContract::forRepository($path, $diagnostics);
 
             if (($diagnostics['engine_complete'] ?? false) !== true) {
                 $prompt = $diagnostics['prompt'] ?? null;
@@ -128,7 +139,6 @@ final class Worker
                 }
                 $diagnostics['phase'] = 'engine';
                 $diagnostics['run_id'] = $runId;
-                $nextHeartbeat = 0.0;
                 $status = $this->supervisor->run(
                     fn (): AgentRunner => ($this->runnerFactory)($path),
                     $prompt,
@@ -142,24 +152,13 @@ final class Worker
                         $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Coder engine running');
                     },
                     function () use ($jobId, $lease, &$nextHeartbeat): bool {
-                        $current = $this->store->job($jobId);
-                        if ($current === null || $current['state'] === Store::CANCELLED) {
-                            return true;
-                        }
-                        if (microtime(true) >= $nextHeartbeat) {
-                            $nextHeartbeat = microtime(true) + max(1, intdiv($this->config->leaseSeconds, 3));
-                            if (!$this->store->heartbeat($jobId, $this->workerId, $lease['lease_token'], $this->config->leaseSeconds)) {
-                                return true;
-                            }
-                        }
-
-                        return $current['state'] !== Store::RUNNING;
+                        return $this->shouldStop($jobId, $lease, $nextHeartbeat);
                     },
                 );
                 $diagnostics = array_merge($diagnostics, $status);
                 $sessionId = self::nullableString($status['session_id'] ?? null) ?? $sessionId;
                 if ($status['phase'] === 'cancelled') {
-                    return $this->cancelledResult($jobId, $runId, $branch, $path, $head, $sessionId);
+                    return $this->interruptedResult($jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
                 }
                 if ($status['phase'] !== 'done') {
                     throw new \RuntimeException((string) ($status['error'] ?? 'The coder engine failed.'));
@@ -172,11 +171,12 @@ final class Worker
                 $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Coder engine finished');
             }
 
+            $contract = CheckContract::forRepository($path, $diagnostics, $tick);
             if (!isset($diagnostics['local_commit'])) {
                 if (!isset($diagnostics['checks']['targeted'])) {
                     $diagnostics['phase'] = 'targeted_checks';
                     $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Running targeted checks');
-                    $diagnostics['checks']['targeted'] = $this->checks->run($contract['targeted'], $path);
+                    $diagnostics['checks']['targeted'] = $this->checks->run($contract['targeted'], $path, $tick);
                     $diagnostics['phase'] = 'targeted_done';
                     $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Targeted checks recorded');
                     $this->assertChecksPassed($diagnostics['checks']['targeted']);
@@ -184,16 +184,14 @@ final class Worker
                 if (!isset($diagnostics['checks']['full'])) {
                     $diagnostics['phase'] = 'full_checks';
                     $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Running full final checks');
-                    $diagnostics['checks']['full'] = $this->checks->run($contract['full'], $path);
+                    $diagnostics['checks']['full'] = $this->checks->run($contract['full'], $path, $tick);
                     $diagnostics['phase'] = 'full_done';
                     $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Full final checks recorded');
                     $this->assertChecksPassed($diagnostics['checks']['full']);
                 }
-                if (($this->store->job($jobId)['state'] ?? null) === Store::CANCELLED) {
-                    return $this->cancelledResult($jobId, $runId, $branch, $path, $head, $sessionId);
-                }
+                $tick();
                 $diagnostics['phase'] = 'commit';
-                $commit = $this->worktrees->commit($path, $jobId);
+                $commit = $this->worktrees->commit($path, $jobId, $tick);
                 $head = $commit['head'];
                 $diagnostics['local_commit'] = $commit;
                 $diagnostics['phase'] = 'committed';
@@ -209,7 +207,7 @@ final class Worker
             $diagnostics['local_result'] = $request->toArray();
             $diagnostics['phase'] = 'done';
             if (!$this->store->complete($jobId, $this->workerId, $lease['lease_token'], $diagnostics)) {
-                return $this->cancelledResult($jobId, $runId, $branch, $path, $head, $sessionId);
+                return $this->interruptedResult($jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
             }
 
             return new LocalResult(LocalResult::PUBLICATION_REQUESTED, $jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
@@ -219,9 +217,11 @@ final class Worker
                 return $this->cancelledResult($jobId, $runId, $branch, $path, $head, $sessionId);
             }
             $diagnostics['error'] = $e->getMessage();
-            $this->store->fail($jobId, $this->workerId, $lease['lease_token'], $e->getMessage(), $diagnostics);
+            if ($this->store->fail($jobId, $this->workerId, $lease['lease_token'], $e->getMessage(), $diagnostics)) {
+                return new LocalResult(LocalResult::FAILED, $jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
+            }
 
-            return new LocalResult(LocalResult::FAILED, $jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
+            return $this->interruptedResult($jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
         }
     }
 
@@ -232,24 +232,68 @@ final class Worker
             if ($lock === null) {
                 continue;
             }
+            $requeue = false;
             try {
                 $job = $this->store->job($jobId);
                 $diagnostics = $job['diagnostics'] ?? [];
-                ProcessSupervisor::reconcile(self::nullableInt($diagnostics['pgid'] ?? null), self::nullableString($diagnostics['run_id'] ?? null));
+                $this->reconcileProcesses($diagnostics);
                 if (isset($diagnostics['base_head'], $diagnostics['branch']) && is_string($diagnostics['base_head']) && is_string($diagnostics['branch'])) {
                     $prepared = $this->worktrees->prepare($jobId, $diagnostics['base_head']);
                     $this->worktrees->reconcile($prepared['path'], $diagnostics['branch'], $diagnostics['base_head']);
                 }
-                $this->store->requeue($jobId);
+                $requeue = true;
+            } catch (\Throwable $e) {
+                $this->store->failReconciliation($jobId, $e->getMessage());
             } finally {
                 flock($lock, LOCK_UN);
                 fclose($lock);
             }
+            if ($requeue) {
+                // Publish the queued state only after releasing the local lock.
+                $this->store->requeue($jobId);
+            }
+        }
+    }
+
+    /** @param array<string, mixed> $diagnostics */
+    private function reconcileProcesses(array $diagnostics): void
+    {
+        ProcessSupervisor::reconcile(
+            self::nullableInt($diagnostics['pgid'] ?? null),
+            self::nullableString($diagnostics['run_id'] ?? null),
+            $diagnostics,
+        );
+    }
+
+    /**
+     * @param array{job_id:int,worker_id:int,lease_token:string,lease_generation:int,lease_expires_at:int} $lease
+     */
+    private function shouldStop(int $jobId, array $lease, float &$nextHeartbeat): bool
+    {
+        $current = $this->store->job($jobId);
+        if ($current === null || $current['state'] === Store::CANCELLED) {
+            return true;
+        }
+        if (microtime(true) >= $nextHeartbeat) {
+            $nextHeartbeat = microtime(true) + max(1, intdiv($this->config->leaseSeconds, 3));
+            if (!$this->store->heartbeat($jobId, $this->workerId, $lease['lease_token'], $this->config->leaseSeconds)) {
+                return true;
+            }
+        }
+
+        return !in_array($current['state'], [Store::STARTING, Store::RUNNING], true);
+    }
+
+    /** @param array{job_id:int,worker_id:int,lease_token:string,lease_generation:int,lease_expires_at:int} $lease */
+    private function assertLease(int $jobId, array $lease, float &$nextHeartbeat): void
+    {
+        if ($this->shouldStop($jobId, $lease, $nextHeartbeat)) {
+            throw new \RuntimeException('The coder lease was lost or cancellation was requested.');
         }
     }
 
     /**
-     * @param array<string, mixed>                                                                                      $diagnostics
+     * @param array<string, mixed>                                                                         $diagnostics
      * @param array{job_id:int,worker_id:int,lease_token:string,lease_generation:int,lease_expires_at:int} $lease
      */
     private function persist(int $jobId, array $lease, array $diagnostics, ?string $head, ?string $sessionId, string $path, string $progress): void
@@ -267,6 +311,17 @@ final class Worker
                 throw new \RuntimeException('Local check failed: '.implode(' ', $record['argv']).' (exit '.$record['exit'].').');
             }
         }
+    }
+
+    /** @param array<string, mixed> $diagnostics */
+    private function interruptedResult(int $jobId, string $runId, string $branch, string $path, ?string $head, ?string $sessionId, array $diagnostics = []): LocalResult
+    {
+        if (($this->store->job($jobId)['state'] ?? null) === Store::CANCELLED) {
+            return $this->cancelledResult($jobId, $runId, $branch, $path, $head, $sessionId);
+        }
+        $diagnostics['error'] ??= 'The coder lease is no longer owned by this worker.';
+
+        return new LocalResult(LocalResult::LEASE_LOST, $jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
     }
 
     private function cancelledResult(int $jobId, string $runId, string $branch, string $path, ?string $head, ?string $sessionId): LocalResult

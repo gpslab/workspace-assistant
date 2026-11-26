@@ -374,6 +374,32 @@ final class Store
             && $stmt->rowCount() === 1;
     }
 
+    /** Return a freshly assigned job to the queue when its local run lock is temporarily busy. */
+    public function releaseLease(int $jobId, int $workerId, string $leaseToken, ?int $now = null): bool
+    {
+        $now ??= time();
+
+        return $this->transaction(function (\PDO $pdo) use ($jobId, $workerId, $leaseToken, $now): bool {
+            $stmt = $pdo->prepare(
+                <<<'SQL'
+                UPDATE coder_jobs
+                   SET state = 'queued', worker_id = NULL, lease_token = NULL,
+                       leased_at = NULL, heartbeat_at = NULL, lease_expires_at = NULL, updated_at = :now
+                 WHERE id = :job AND worker_id = :worker AND lease_token = :token
+                   AND state = 'starting' AND lease_expires_at > :now AND cancellation_requested = 0
+                SQL
+            );
+            $stmt->execute(['now' => $now, 'job' => $jobId, 'worker' => $workerId, 'token' => $leaseToken]);
+            if ($stmt->rowCount() !== 1) {
+                return false;
+            }
+            $pdo->prepare('UPDATE coder_workers SET active_job_id = NULL, updated_at = :now WHERE id = :worker AND active_job_id = :job')
+                ->execute(['now' => $now, 'worker' => $workerId, 'job' => $jobId]);
+
+            return true;
+        });
+    }
+
     /**
      * Update execution identity and diagnostics without weakening the lease guard.
      * Null values leave the corresponding stored value unchanged.
@@ -450,10 +476,12 @@ final class Store
     }
 
     /**
-     * Reconcile every expired lease. Jobs stop being executable and workers become free, but jobs
-     * remain reconciling until requeue() explicitly authorizes another assignment.
+     * Reconcile every expired lease and return already reconciling jobs again until they reach a
+     * final state. A worker that could not take the local lock therefore cannot strand a job forever.
+     * Jobs stop being executable and workers become free, but expired jobs remain reconciling until
+     * requeue() explicitly authorizes another assignment.
      *
-     * @return list<int> reconciled job ids
+     * @return list<int> job ids requiring reconciliation
      */
     public function reconcileExpiredLeases(?int $now = null): array
     {
@@ -463,8 +491,9 @@ final class Store
             $stmt = $pdo->prepare(
                 <<<'SQL'
                 SELECT id FROM coder_jobs
-                 WHERE lease_expires_at IS NOT NULL AND lease_expires_at <= :now
-                   AND state IN ('starting', 'running', 'reconciling', 'waiting_ci_review', 'awaiting_action')
+                 WHERE (state = 'reconciling' AND worker_id IS NULL AND lease_token IS NULL)
+                    OR (lease_expires_at IS NOT NULL AND lease_expires_at <= :now
+                        AND state IN ('starting', 'running', 'reconciling', 'waiting_ci_review', 'awaiting_action'))
                  ORDER BY id
                 SQL
             );
@@ -505,6 +534,37 @@ final class Store
         return $stmt->rowCount() === 1;
     }
 
+    /** A failed reconciliation is terminal and retains the diagnostics needed for manual recovery. */
+    public function failReconciliation(int $jobId, string $error, ?int $now = null): bool
+    {
+        $now ??= time();
+
+        return $this->transaction(function (\PDO $pdo) use ($jobId, $error, $now): bool {
+            $job = $this->job($jobId);
+            if ($job === null || $job['state'] !== self::RECONCILING || $job['worker_id'] !== null) {
+                return false;
+            }
+            $diagnostics = $job['diagnostics'];
+            $diagnostics['reconciliation_error'] = $error;
+            $stmt = $pdo->prepare(
+                <<<'SQL'
+                UPDATE coder_jobs
+                   SET state = 'failed', last_error = :error, diagnostics = :diagnostics,
+                       completed_at = :now, updated_at = :now
+                 WHERE id = :job AND state = 'reconciling' AND worker_id IS NULL AND lease_token IS NULL
+                SQL
+            );
+            $stmt->execute([
+                'error' => $error,
+                'diagnostics' => json_encode($diagnostics, JSON_THROW_ON_ERROR),
+                'now' => $now,
+                'job' => $jobId,
+            ]);
+
+            return $stmt->rowCount() === 1;
+        });
+    }
+
     /** Cancellation is durable and terminal; it also releases worker capacity transactionally. */
     public function cancel(int $jobId, ?int $now = null, ?string $reason = null): bool
     {
@@ -537,6 +597,30 @@ final class Store
 
             return $stmt->rowCount() === 1;
         });
+    }
+
+    /** Preserve a process cleanup error without changing the already durable cancelled outcome. */
+    public function recordCancellationError(int $jobId, string $error, ?int $now = null): bool
+    {
+        $now ??= time();
+        $job = $this->job($jobId);
+        if ($job === null || $job['state'] !== self::CANCELLED) {
+            return false;
+        }
+        $diagnostics = $job['diagnostics'];
+        $diagnostics['cancellation']['reconciliation_error'] = $error;
+        $stmt = $this->connection()->prepare(
+            "UPDATE coder_jobs SET diagnostics = :diagnostics, last_error = :error, updated_at = :now
+             WHERE id = :job AND state = 'cancelled'"
+        );
+        $stmt->execute([
+            'diagnostics' => json_encode($diagnostics, JSON_THROW_ON_ERROR),
+            'error' => $error,
+            'now' => $now,
+            'job' => $jobId,
+        ]);
+
+        return $stmt->rowCount() === 1;
     }
 
     /** @param array<string, mixed>|null $diagnostics */
