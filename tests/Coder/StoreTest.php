@@ -238,6 +238,7 @@ final class StoreTest extends TestCase
 
         self::assertFalse($this->store->heartbeat($id, 1, $old['lease_token'], 10, 110));
         self::assertSame([$id], $this->store->reconcileExpiredLeases(110));
+        self::assertSame([$id], $this->store->reconcileExpiredLeases(111), 'Unfinished reconciliation must remain discoverable.');
         self::assertSame(Store::RECONCILING, $this->job($id)['state']);
         self::assertNull($this->job($id)['worker_id']);
         self::assertNull($this->worker(1)['active_job_id']);
@@ -295,11 +296,12 @@ final class StoreTest extends TestCase
         $lease = $this->store->assign(5, 30, 100);
         self::assertNotNull($lease);
 
-        self::assertTrue($this->store->cancel($id, 105));
+        self::assertTrue($this->store->cancel($id, 105, 'blocked'));
         $reloaded = new Store($this->dir);
         $job = $reloaded->job($id);
         self::assertNotNull($job);
         self::assertSame(Store::CANCELLED, $job['state']);
+        self::assertSame(['reason' => 'blocked', 'requested_at' => 105], $job['diagnostics']['cancellation']);
         self::assertTrue($job['cancellation_requested']);
         self::assertSame(105, $job['cancellation_requested_at']);
         self::assertSame(105, $job['cancelled_at']);
@@ -432,6 +434,42 @@ final class StoreTest extends TestCase
         self::assertSame(1, $cancelled['retry_count']);
         self::assertSame(1, $cancelled['dispute_count']);
         self::assertSame(['process-event'], $this->store->processedEventKeys($id));
+    }
+
+    public function testBusyLocalLockCanReleaseFreshLeaseForAnotherAttempt(): void
+    {
+        $this->store->registerWorker(1, 100);
+        $id = $this->store->enqueue('example/repo', 'coder/lock-release', now: 100);
+        $lease = $this->store->assign(1, 30, 100);
+        self::assertNotNull($lease);
+
+        self::assertTrue($this->store->releaseLease($id, 1, $lease['lease_token'], 101));
+        self::assertSame(Store::QUEUED, $this->job($id)['state']);
+        self::assertNull($this->job($id)['worker_id']);
+        self::assertNull($this->worker(1)['active_job_id']);
+        self::assertFalse($this->store->complete($id, 1, $lease['lease_token'], [], 102));
+
+        $next = $this->store->assign(1, 30, 103);
+        self::assertNotNull($next);
+        self::assertSame(2, $next['lease_generation']);
+    }
+
+    public function testFailedReconciliationIsTerminalAndRetainsDiagnostics(): void
+    {
+        $this->store->registerWorker(1, 100);
+        $id = $this->store->enqueue('example/repo', 'coder/reconcile-failure', diagnostics: ['run_id' => 'old'], now: 100);
+        $lease = $this->store->assign(1, 10, 100);
+        self::assertNotNull($lease);
+        $this->store->reconcileExpiredLeases(110);
+
+        self::assertTrue($this->store->failReconciliation($id, 'Unexpected commit author.', 111));
+        $job = $this->job($id);
+        self::assertSame(Store::FAILED, $job['state']);
+        self::assertSame('Unexpected commit author.', $job['last_error']);
+        self::assertSame(['run_id' => 'old', 'reconciliation_error' => 'Unexpected commit author.'], $job['diagnostics']);
+        self::assertSame(111, $job['completed_at']);
+        self::assertSame([], $this->store->reconcileExpiredLeases(112));
+        self::assertFalse($this->store->requeue($id, 112));
     }
 
     /** @return array<string, mixed> */
