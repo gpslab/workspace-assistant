@@ -8,6 +8,7 @@ use GpsLab\WorkspaceAssistant\Coder\CheckContract;
 use GpsLab\WorkspaceAssistant\Coder\CheckRunner;
 use GpsLab\WorkspaceAssistant\Coder\Config;
 use GpsLab\WorkspaceAssistant\Coder\ExecutionEnvironment;
+use GpsLab\WorkspaceAssistant\Coder\ImplementationChecks;
 use GpsLab\WorkspaceAssistant\Coder\LocalResult;
 use GpsLab\WorkspaceAssistant\Coder\Process;
 use GpsLab\WorkspaceAssistant\Coder\ProcessSupervisor;
@@ -23,6 +24,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(CheckContract::class)]
 #[CoversClass(CheckRunner::class)]
 #[CoversClass(ExecutionEnvironment::class)]
+#[CoversClass(ImplementationChecks::class)]
 #[CoversClass(LocalResult::class)]
 #[CoversClass(PublicationRequest::class)]
 #[CoversClass(Process::class)]
@@ -54,6 +56,13 @@ final class WorkerTest extends TestCase
         mkdir($this->logDir);
         $this->writeComposerScripts();
         file_put_contents($this->repository.'/README.md', "fixture\n");
+        file_put_contents($this->repository.'/check.php', <<<'PHP'
+            <?php
+            $log = getenv('CODER_TEST_CHECK_LOG');
+            if (is_string($log) && $log !== '') {
+                file_put_contents($log, $argv[1]."\n", FILE_APPEND);
+            }
+            PHP);
         $this->git($this->repository, ['init', '-q']);
         $this->git($this->repository, ['config', 'user.name', 'Repository Owner']);
         $this->git($this->repository, ['config', 'user.email', 'owner@example.test']);
@@ -134,7 +143,44 @@ final class WorkerTest extends TestCase
         self::assertStringContainsString('BatchMode=yes', $environment['GIT_SSH_COMMAND']);
         $sessions = file($this->logDir.'/sessions.log', FILE_IGNORE_NEW_LINES) ?: [];
         self::assertCount(1, $sessions);
-        self::assertSame(['prompt' => 'Implement the fixture', 'session_id' => null], json_decode($sessions[0], true, 512, JSON_THROW_ON_ERROR));
+        $session = json_decode($sessions[0], true, 512, JSON_THROW_ON_ERROR);
+        self::assertStringStartsWith('Implement the fixture', $session['prompt']);
+        self::assertStringContainsString('Targeted implementation checks', $session['prompt']);
+        self::assertNull($session['session_id']);
+    }
+
+    public function testTargetedChecksRunInsideEngineBeforeOneFinalFullSet(): void
+    {
+        putenv('CODER_TEST_CHECK_LOG='.$this->logDir.'/checks.log');
+        $this->writeComposerScripts(named: true);
+        $this->git($this->repository, ['add', 'composer.json']);
+        $this->git($this->repository, ['commit', '-q', '-m', 'Record fixture check order']);
+        $this->enqueue();
+
+        $result = $this->worker()->runNext();
+
+        self::assertNotNull($result);
+        self::assertSame(LocalResult::PUBLICATION_REQUESTED, $result->status, (string) ($result->details['error'] ?? ''));
+        self::assertSame(
+            ['test', 'engine_done', 'cs:check', 'stan', 'test'],
+            file($this->logDir.'/checks.log', FILE_IGNORE_NEW_LINES),
+        );
+        self::assertCount(1, $result->details['checks']['targeted']);
+        self::assertCount(3, $result->details['checks']['full']);
+    }
+
+    public function testEngineCannotSkipTargetedImplementationChecks(): void
+    {
+        $id = $this->enqueue();
+
+        $result = $this->worker(mode: 'skip_checks')->runNext();
+
+        self::assertNotNull($result);
+        self::assertSame(LocalResult::FAILED, $result->status);
+        self::assertStringContainsString('targeted implementation check', (string) ($result->details['error'] ?? ''));
+        self::assertSame($this->baseHead, $result->head);
+        self::assertArrayNotHasKey('local_commit', $result->details);
+        self::assertSame(Store::FAILED, $this->store->job($id)['state'] ?? null);
     }
 
     public function testExistingSessionIsPassedToResumedEngine(): void
@@ -153,10 +199,9 @@ final class WorkerTest extends TestCase
         self::assertSame('coder-session-1', $result->sessionId);
         $sessions = file($this->logDir.'/sessions.log', FILE_IGNORE_NEW_LINES) ?: [];
         self::assertCount(1, $sessions);
-        self::assertSame(
-            ['prompt' => 'Resume the fixture', 'session_id' => 'session-before-retry'],
-            json_decode($sessions[0], true, 512, JSON_THROW_ON_ERROR),
-        );
+        $session = json_decode($sessions[0], true, 512, JSON_THROW_ON_ERROR);
+        self::assertStringStartsWith('Resume the fixture', $session['prompt']);
+        self::assertSame('session-before-retry', $session['session_id']);
         self::assertSame($id, $result->jobId);
     }
 
@@ -180,13 +225,19 @@ final class WorkerTest extends TestCase
     {
         $id = $this->enqueue();
 
-        $result = $this->worker(mode: 'expire', leaseSeconds: 1)->runNext();
+        $result = $this->worker(mode: 'expire')->runNext();
 
         self::assertNotNull($result);
-        self::assertSame(LocalResult::LEASE_LOST, $result->status, (string) file_get_contents($this->logDir.'/expiry.json'));
+        $expiry = json_decode((string) file_get_contents($this->logDir.'/expiry.json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame([$id], $expiry['expired'], (string) json_encode($expiry, JSON_THROW_ON_ERROR));
+        self::assertSame(LocalResult::LEASE_LOST, $result->status, (string) json_encode($expiry, JSON_THROW_ON_ERROR));
         self::assertNotSame(LocalResult::CANCELLED, $result->status);
         self::assertNull($result->publicationRequest());
-        self::assertSame(Store::RECONCILING, $this->store->job($id)['state'] ?? null);
+        self::assertSame(
+            Store::RECONCILING,
+            $this->store->job($id)['state'] ?? null,
+            (string) json_encode(['result' => $result->details, 'job' => $this->store->job($id)], JSON_THROW_ON_ERROR),
+        );
     }
 
     public function testSecretGuardBlocksTheLocalCommit(): void
@@ -401,10 +452,14 @@ final class WorkerTest extends TestCase
         return trim($result['stdout']);
     }
 
-    private function writeComposerScripts(string $script = '@php -r "exit(0);"'): void
+    private function writeComposerScripts(string $script = '@php -r "exit(0);"', bool $named = false): void
     {
+        $scripts = [];
+        foreach (['cs:check', 'stan', 'test'] as $name) {
+            $scripts[$name] = $named ? '@php check.php '.$name : $script;
+        }
         file_put_contents($this->repository.'/composer.json', json_encode([
-            'scripts' => ['cs:check' => $script, 'stan' => $script, 'test' => $script],
+            'scripts' => $scripts,
         ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)."\n");
     }
 

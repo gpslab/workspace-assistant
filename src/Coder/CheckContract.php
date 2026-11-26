@@ -14,7 +14,7 @@ final class CheckContract
      * @param array<string, mixed> $jobDiagnostics
      * @param \Closure():void|null $onTick
      *
-     * @return array{targeted:list<list<string>>, full:list<list<string>>}
+     * @return array{targeted:list<list<string>>, full:list<list<string>>, composer:string}
      */
     public static function forRepository(string $repository, array $jobDiagnostics, ?\Closure $onTick = null): array
     {
@@ -45,13 +45,14 @@ final class CheckContract
             }
         }
         $targeted = $jobDiagnostics['targeted_checks'] ?? [['composer', 'test']];
-        if (!is_array($targeted) || !array_is_list($targeted)) {
-            throw new \RuntimeException('targeted_checks must be a list of argv arrays.');
+        if (!is_array($targeted) || !array_is_list($targeted) || $targeted === []) {
+            throw new \RuntimeException('targeted_checks must be a non-empty list of argv arrays.');
         }
 
         return [
-            'targeted' => self::commands($targeted),
+            'targeted' => self::targetedCommands($targeted),
             'full' => [['composer', 'cs:check'], ['composer', 'stan'], ['composer', 'test']],
+            'composer' => $composer,
         ];
     }
 
@@ -63,8 +64,11 @@ final class CheckContract
      *
      * @return list<list<string>>
      */
-    private static function commands(array $commands): array
+    public static function targetedCommands(array $commands): array
     {
+        if ($commands === []) {
+            throw new \RuntimeException('At least one targeted implementation check is required.');
+        }
         $result = [];
         foreach ($commands as $command) {
             if (!is_array($command) || count($command) < 2 || ($command[0] ?? null) !== 'composer' || ($command[1] ?? null) !== 'test') {

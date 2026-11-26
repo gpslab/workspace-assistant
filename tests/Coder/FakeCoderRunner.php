@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests\Coder;
 
 use GpsLab\WorkspaceAssistant\AgentRunner;
+use GpsLab\WorkspaceAssistant\Coder\ImplementationChecks;
+use GpsLab\WorkspaceAssistant\Coder\Process;
 use GpsLab\WorkspaceAssistant\Coder\Store;
 use GpsLab\WorkspaceAssistant\RunAnswer;
 use GpsLab\WorkspaceAssistant\RunnerState;
@@ -41,7 +43,7 @@ final class FakeCoderRunner implements AgentRunner
 
         if ($this->mode === 'expire') {
             $store = new Store($this->stateDir);
-            $expired = $store->reconcileExpiredLeases(time() + 100);
+            $expired = $store->reconcileExpiredLeases(time() + 1000);
             file_put_contents($this->logDir.'/expiry.json', json_encode([
                 'expired' => $expired, 'jobs' => $store->jobs(),
             ], JSON_THROW_ON_ERROR));
@@ -54,6 +56,14 @@ final class FakeCoderRunner implements AgentRunner
             file_put_contents($this->worktree.'/secret.txt', 'token = ghp_'.str_repeat('Ab3', 13)."\n");
         } elseif (!in_array($this->mode, ['block', 'crash'], true)) {
             file_put_contents($this->worktree.'/coder.txt', $prompt."\n");
+        }
+
+        if ($this->mode !== 'skip_checks' && !in_array($this->mode, ['expire', 'block', 'crash'], true)) {
+            $this->runTargetedChecks($prompt);
+            $checkLog = getenv('CODER_TEST_CHECK_LOG');
+            if (is_string($checkLog) && $checkLog !== '') {
+                file_put_contents($checkLog, "engine_done\n", FILE_APPEND);
+            }
         }
 
         if (in_array($this->mode, ['block', 'crash'], true)) {
@@ -82,6 +92,27 @@ final class FakeCoderRunner implements AgentRunner
     public function poll(): RunnerState
     {
         return $this->mode === 'block' ? RunnerState::Running : RunnerState::Done;
+    }
+
+    private function runTargetedChecks(string $prompt): void
+    {
+        $start = strpos($prompt, ImplementationChecks::PROMPT_MARKER);
+        if ($start === false) {
+            throw new \RuntimeException('The fake engine received no targeted check contract.');
+        }
+        $json = substr($prompt, $start + strlen(ImplementationChecks::PROMPT_MARKER));
+        $json = strtok($json, "\n");
+        $argv = json_decode((string) $json, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($argv) || !array_is_list($argv)) {
+            throw new \RuntimeException('The targeted check helper argv is invalid.');
+        }
+        /** @var list<string> $argv */
+        /** @var array<string, string> $environment */
+        $environment = getenv();
+        $result = Process::run($argv, $this->worktree, 30, $environment);
+        if ($result['exit'] !== 0) {
+            throw new \RuntimeException('The fake engine targeted checks failed: '.$result['stderr']);
+        }
     }
 
     public function result(): RunAnswer

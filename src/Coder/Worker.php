@@ -132,11 +132,21 @@ final class Worker
                 throw new \RuntimeException('The coder lease was lost before execution.');
             }
 
+            $contract = CheckContract::forRepository($path, $diagnostics, $tick);
+            $runDirectory = $this->config->stateDir.'/coder-runs/'.$runId;
             if (($diagnostics['engine_complete'] ?? false) !== true) {
                 $prompt = $diagnostics['prompt'] ?? null;
                 if (!is_string($prompt) || trim($prompt) === '') {
                     throw new \RuntimeException('A leased fixture job must carry a non-empty diagnostics.prompt.');
                 }
+                $prompt = ImplementationChecks::prompt(
+                    $prompt,
+                    $contract['targeted'],
+                    $contract['composer'],
+                    $runDirectory,
+                    $path,
+                    $this->config->checkTimeout,
+                );
                 $diagnostics['phase'] = 'engine';
                 $diagnostics['run_id'] = $runId;
                 $status = $this->supervisor->run(
@@ -144,7 +154,7 @@ final class Worker
                     $prompt,
                     $sessionId,
                     $runId,
-                    $this->config->stateDir.'/coder-runs/'.$runId,
+                    $runDirectory,
                     $this->config->runTimeout,
                     function (array $update) use (&$diagnostics, &$sessionId, $jobId, $lease, $path, $head): void {
                         $diagnostics = array_merge($diagnostics, $update);
@@ -166,20 +176,20 @@ final class Worker
                 if ($sessionId === null) {
                     throw new \RuntimeException('The coder engine returned no resumable session id.');
                 }
+                // Pin the gates again after untrusted engine work and before accepting its check report.
+                $contract = CheckContract::forRepository($path, $diagnostics, $tick);
+                $diagnostics['checks']['targeted'] = ImplementationChecks::results($runDirectory, $contract['targeted']);
+                $diagnostics['phase'] = 'targeted_done';
+                $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Targeted implementation checks recorded');
+                $this->assertChecksPassed($diagnostics['checks']['targeted']);
                 $diagnostics['engine_complete'] = true;
                 $diagnostics['phase'] = 'engine_done';
                 $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Coder engine finished');
             }
 
-            $contract = CheckContract::forRepository($path, $diagnostics, $tick);
             if (!isset($diagnostics['local_commit'])) {
                 if (!isset($diagnostics['checks']['targeted'])) {
-                    $diagnostics['phase'] = 'targeted_checks';
-                    $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Running targeted checks');
-                    $diagnostics['checks']['targeted'] = $this->checks->run($contract['targeted'], $path, $tick);
-                    $diagnostics['phase'] = 'targeted_done';
-                    $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Targeted checks recorded');
-                    $this->assertChecksPassed($diagnostics['checks']['targeted']);
+                    throw new \RuntimeException('The completed engine run has no targeted implementation check report.');
                 }
                 if (!isset($diagnostics['checks']['full'])) {
                     $diagnostics['phase'] = 'full_checks';
@@ -275,7 +285,7 @@ final class Worker
             return true;
         }
         if (microtime(true) >= $nextHeartbeat) {
-            $nextHeartbeat = microtime(true) + max(1, intdiv($this->config->leaseSeconds, 3));
+            $nextHeartbeat = microtime(true) + max(0.1, $this->config->leaseSeconds / 3);
             if (!$this->store->heartbeat($jobId, $this->workerId, $lease['lease_token'], $this->config->leaseSeconds)) {
                 return true;
             }
