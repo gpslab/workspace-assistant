@@ -616,8 +616,8 @@ final class Store
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
         $pdo->exec('PRAGMA busy_timeout = '.$this->busyTimeoutMs);
-        $journal = $this->query($pdo, 'PRAGMA journal_mode = WAL')->fetchColumn();
-        if (strtolower((string) $journal) !== 'wal') {
+        $journal = $this->enableWal($pdo);
+        if (strtolower($journal) !== 'wal') {
             throw new \RuntimeException('The coder store could not enable SQLite WAL journaling.');
         }
         $pdo->exec('PRAGMA foreign_keys = ON');
@@ -649,6 +649,25 @@ final class Store
                 $current = $version;
             }
         });
+    }
+
+    /**
+     * Changing journal mode can report SQLITE_BUSY immediately instead of invoking SQLite's busy
+     * handler. Retry that specific error for the configured timeout while another process migrates.
+     */
+    private function enableWal(\PDO $pdo): string
+    {
+        $deadline = hrtime(true) + $this->busyTimeoutMs * 1_000_000;
+        while (true) {
+            try {
+                return (string) $this->query($pdo, 'PRAGMA journal_mode = WAL')->fetchColumn();
+            } catch (\PDOException $e) {
+                if ((int) ($e->errorInfo[1] ?? 0) !== 5 || hrtime(true) >= $deadline) {
+                    throw $e;
+                }
+                usleep(10_000);
+            }
+        }
     }
 
     private function query(\PDO $pdo, string $sql): \PDOStatement
