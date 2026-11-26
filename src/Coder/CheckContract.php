@@ -9,7 +9,7 @@ final class CheckContract
 {
     /**
      * The execution engine cannot replace the gates it is graded by. The contract comes from the
-     * immutable base commit and the checkout must still carry exactly the same Composer definitions.
+     * immutable base commit and the checkout must still carry exactly the same check-script definitions.
      *
      * @param array<string, mixed> $jobDiagnostics
      * @param \Closure():void|null $onTick
@@ -32,17 +32,10 @@ final class CheckContract
         if ($result['exit'] !== 0) {
             throw new \RuntimeException('The base commit has no readable composer.json check contract.');
         }
-        $composer = $result['stdout'];
-        if (file_get_contents($repository.'/composer.json') !== $composer) {
+        $composer = self::definitions($result['stdout']);
+        $current = file_get_contents($repository.'/composer.json');
+        if (!is_string($current) || self::definitions($current) !== $composer) {
             throw new \RuntimeException('A coder job cannot change the Composer check definitions.');
-        }
-        /** @var array{scripts?:array<string, mixed>}|null $data */
-        $data = json_decode($composer, true);
-        $scripts = is_array($data) && is_array($data['scripts'] ?? null) ? array_keys($data['scripts']) : [];
-        foreach (['cs:check', 'stan', 'test'] as $required) {
-            if (!in_array($required, $scripts, true)) {
-                throw new \RuntimeException("The target repository check contract lacks composer {$required}.");
-            }
         }
         $targeted = $jobDiagnostics['targeted_checks'] ?? [['composer', 'test']];
         if (!is_array($targeted) || !array_is_list($targeted) || $targeted === []) {
@@ -54,6 +47,23 @@ final class CheckContract
             'full' => [['composer', 'cs:check'], ['composer', 'stan'], ['composer', 'test']],
             'composer' => $composer,
         ];
+    }
+
+    /** Pin only the executable gates, leaving dependencies and unrelated Composer metadata editable. */
+    public static function definitions(string $composer): string
+    {
+        /** @var array{scripts?:array<string, mixed>}|null $data */
+        $data = json_decode($composer, true);
+        $scripts = is_array($data) && is_array($data['scripts'] ?? null) ? $data['scripts'] : [];
+        $definitions = [];
+        foreach (['cs:check', 'stan', 'test'] as $required) {
+            if (!array_key_exists($required, $scripts)) {
+                throw new \RuntimeException("The target repository check contract lacks composer {$required}.");
+            }
+            $definitions[$required] = $scripts[$required];
+        }
+
+        return json_encode($definitions, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     }
 
     /**

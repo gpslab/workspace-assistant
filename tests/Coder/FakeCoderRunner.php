@@ -48,7 +48,11 @@ final class FakeCoderRunner implements AgentRunner
                 'expired' => $expired, 'jobs' => $store->jobs(),
             ], JSON_THROW_ON_ERROR));
         }
-        if ($this->mode === 'tamper') {
+        if ($this->mode === 'dependency') {
+            $composer = json_decode((string) file_get_contents($this->worktree.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+            $composer['require']['example/package'] = '^1.0';
+            file_put_contents($this->worktree.'/composer.json', json_encode($composer, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)."\n");
+        } elseif ($this->mode === 'tamper') {
             $composer = json_decode((string) file_get_contents($this->worktree.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
             $composer['scripts']['test'] = 'true';
             file_put_contents($this->worktree.'/composer.json', json_encode($composer, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)."\n");
@@ -56,6 +60,15 @@ final class FakeCoderRunner implements AgentRunner
             file_put_contents($this->worktree.'/secret.txt', 'token = ghp_'.str_repeat('Ab3', 13)."\n");
         } elseif (!in_array($this->mode, ['block', 'crash'], true)) {
             file_put_contents($this->worktree.'/coder.txt', $prompt."\n");
+        }
+
+        if ($this->mode === 'foreign_branch') {
+            $this->git(['switch', '-c', 'foreign-branch']);
+            $this->git(['add', '-A']);
+            $this->git(['commit', '-q', '-m', 'Foreign branch commit']);
+        } elseif ($this->mode === 'foreign_author') {
+            $this->git(['add', '-A']);
+            $this->git(['-c', 'user.name=Foreign Author', '-c', 'user.email=foreign@example.test', 'commit', '-q', '-m', 'Foreign author commit']);
         }
 
         if ($this->mode !== 'skip_checks' && !in_array($this->mode, ['expire', 'block', 'crash'], true)) {
@@ -92,6 +105,17 @@ final class FakeCoderRunner implements AgentRunner
     public function poll(): RunnerState
     {
         return $this->mode === 'block' ? RunnerState::Running : RunnerState::Done;
+    }
+
+    /** @param list<string> $arguments */
+    private function git(array $arguments): void
+    {
+        /** @var array<string, string> $environment */
+        $environment = getenv();
+        $result = Process::run(['git', ...$arguments], $this->worktree, 30, $environment);
+        if ($result['exit'] !== 0) {
+            throw new \RuntimeException('The fake engine git operation failed: '.$result['stderr']);
+        }
     }
 
     private function runTargetedChecks(string $prompt): void

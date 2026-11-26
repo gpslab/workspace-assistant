@@ -176,6 +176,8 @@ final class Worker
                 if ($sessionId === null) {
                     throw new \RuntimeException('The coder engine returned no resumable session id.');
                 }
+                // Untrusted engine work may switch branches or create commits with another identity.
+                $head = $this->worktrees->reconcile($path, $branch, $prepared['base_head'], $tick)['head'];
                 // Pin the gates again after untrusted engine work and before accepting its check report.
                 $contract = CheckContract::forRepository($path, $diagnostics, $tick);
                 $diagnostics['checks']['targeted'] = ImplementationChecks::results($runDirectory, $contract['targeted']);

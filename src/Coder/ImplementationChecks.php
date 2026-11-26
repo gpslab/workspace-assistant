@@ -18,7 +18,7 @@ final class ImplementationChecks
     public static function prompt(
         string $prompt,
         array $commands,
-        string $composerJson,
+        string $checkDefinitions,
         string $runDirectory,
         string $worktree,
         int $timeout,
@@ -27,7 +27,7 @@ final class ImplementationChecks
             throw new \RuntimeException('Unable to create the coder run directory.');
         }
         $contractPath = $runDirectory.'/'.self::CONTRACT_FILE;
-        self::write($contractPath, ['commands' => $commands, 'composer_json' => $composerJson, 'timeout' => $timeout]);
+        self::write($contractPath, ['commands' => $commands, 'check_definitions' => $checkDefinitions, 'timeout' => $timeout]);
         $argv = [
             PHP_BINARY,
             dirname(__DIR__, 2).'/bin/coder-targeted-check.php',
@@ -100,12 +100,13 @@ final class ImplementationChecks
         [$contractPath, $worktree, $reportPath] = $paths;
         $contract = self::read($contractPath);
         $commands = $contract['commands'] ?? null;
-        $composerJson = $contract['composer_json'] ?? null;
+        $checkDefinitions = $contract['check_definitions'] ?? null;
         $timeout = $contract['timeout'] ?? null;
-        if (!is_array($commands) || !array_is_list($commands) || !is_string($composerJson) || !is_int($timeout) || $timeout < 1) {
+        if (!is_array($commands) || !array_is_list($commands) || !is_string($checkDefinitions) || !is_int($timeout) || $timeout < 1) {
             throw new \RuntimeException('The targeted implementation check contract is invalid.');
         }
-        if (file_get_contents($worktree.'/composer.json') !== $composerJson) {
+        $current = file_get_contents($worktree.'/composer.json');
+        if (!is_string($current) || CheckContract::definitions($current) !== $checkDefinitions) {
             throw new \RuntimeException('A coder job cannot change the Composer check definitions.');
         }
         $records = (new CheckRunner($timeout))->run(CheckContract::targetedCommands($commands), $worktree);

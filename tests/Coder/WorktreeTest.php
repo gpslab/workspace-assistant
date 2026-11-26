@@ -46,6 +46,24 @@ final class WorktreeTest extends TestCase
         @rmdir($this->root);
     }
 
+    public function testWorktreeRootMustBeOutsideManagedRepository(): void
+    {
+        $worktrees = new Worktree($this->repository, $this->repository.'/.coder-worktrees', 'Coder Author', 'coder@example.test');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('outside the managed repository');
+        $worktrees->prepare(6);
+    }
+
+    public function testManagedRepositoryMustNotBeInsideWorktreeRoot(): void
+    {
+        $worktrees = new Worktree($this->repository, $this->root, 'Coder Author', 'coder@example.test');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('outside the managed repository');
+        $worktrees->prepare(6);
+    }
+
     public function testFirstAndResumedCommitsKeepTheConfiguredAuthorWithoutHistoryRewrites(): void
     {
         $worktrees = new Worktree($this->repository, $this->root.'/isolated', 'Coder Author', 'coder@example.test');

@@ -64,6 +64,7 @@ final class Worktree
 
         $this->configureAuthor($path, $onTick);
         $this->reconcile($path, $branch, $baseHead, $onTick);
+        $this->installDependencies($path, $onTick);
 
         return ['path' => $path, 'branch' => $branch, 'base_head' => $baseHead, 'created' => $created];
     }
@@ -134,6 +135,23 @@ final class Worktree
         }
 
         return ['head' => $this->git($path, ['rev-parse', 'HEAD'], $onTick), 'committed' => $committed];
+    }
+
+    /** Install the locked tools before either the engine or the worker tries to run repository checks. */
+    private function installDependencies(string $path, ?\Closure $onTick): void
+    {
+        if (!is_file($path.'/composer.json')) {
+            return;
+        }
+        if (!is_file($path.'/composer.lock')) {
+            throw new \RuntimeException('The isolated coder worktree requires composer.lock for reproducible checks.');
+        }
+        $result = Process::run([
+            'composer', 'install', '--no-interaction', '--prefer-dist', '--no-progress', '--no-plugins', '--no-scripts',
+        ], $path, 300, $this->environment, $onTick);
+        if ($result['exit'] !== 0) {
+            throw new \RuntimeException('Unable to install isolated coder dependencies: '.trim($result['stderr']."\n".$result['stdout']));
+        }
     }
 
     /** @param \Closure():void|null $onTick */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests\Coder;
 
+use GpsLab\WorkspaceAssistant\ClaudeRunner;
 use GpsLab\WorkspaceAssistant\Coder\CheckContract;
 use GpsLab\WorkspaceAssistant\Coder\CheckRunner;
 use GpsLab\WorkspaceAssistant\Coder\Config;
@@ -17,6 +18,7 @@ use GpsLab\WorkspaceAssistant\Coder\Store;
 use GpsLab\WorkspaceAssistant\Coder\Worker;
 use GpsLab\WorkspaceAssistant\Coder\Worktree;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(Worker::class)]
@@ -55,6 +57,7 @@ final class WorkerTest extends TestCase
         mkdir($this->repository, 0700, true);
         mkdir($this->logDir);
         $this->writeComposerScripts();
+        file_put_contents($this->repository.'/.gitignore', "/vendor/\n");
         file_put_contents($this->repository.'/README.md', "fixture\n");
         file_put_contents($this->repository.'/check.php', <<<'PHP'
             <?php
@@ -66,6 +69,7 @@ final class WorkerTest extends TestCase
         $this->git($this->repository, ['init', '-q']);
         $this->git($this->repository, ['config', 'user.name', 'Repository Owner']);
         $this->git($this->repository, ['config', 'user.email', 'owner@example.test']);
+        $this->composer($this->repository, ['update', '--no-interaction', '--no-plugins', '--no-scripts', '--no-install']);
         $this->git($this->repository, ['add', '-A']);
         $this->git($this->repository, ['commit', '-q', '-m', 'Initial fixture']);
         $this->baseHead = $this->git($this->repository, ['rev-parse', 'HEAD']);
@@ -169,6 +173,43 @@ final class WorkerTest extends TestCase
         self::assertCount(3, $result->details['checks']['full']);
     }
 
+    public function testFreshWorktreeInstallsLockedCheckTools(): void
+    {
+        $package = $this->repository.'/tools/test-runner';
+        mkdir($package.'/bin', 0700, true);
+        file_put_contents($package.'/composer.json', json_encode([
+            'name' => 'fixture/test-runner', 'version' => '1.0.0', 'bin' => ['bin/test-runner'],
+        ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)."\n");
+        file_put_contents($package.'/bin/test-runner', <<<'PHP'
+            #!/usr/bin/env php
+            <?php
+            $log = getenv('CODER_TEST_TOOL_LOG');
+            if (is_string($log) && $log !== '') {
+                file_put_contents($log, "test-runner\n", FILE_APPEND);
+            }
+            PHP);
+        chmod($package.'/bin/test-runner', 0700);
+        $composer = json_decode((string) file_get_contents($this->repository.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        $composer['repositories'] = [['type' => 'path', 'url' => 'tools/test-runner', 'options' => ['symlink' => false]]];
+        $composer['require-dev']['fixture/test-runner'] = '1.0.0';
+        $composer['scripts']['test'] = 'test-runner';
+        file_put_contents($this->repository.'/composer.json', json_encode($composer, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)."\n");
+        $this->composer($this->repository, ['update', '--no-interaction', '--no-plugins', '--no-scripts', '--no-install']);
+        $this->git($this->repository, ['add', '-A']);
+        $this->git($this->repository, ['commit', '-q', '-m', 'Add locked fixture test runner']);
+        putenv('CODER_TEST_TOOL_LOG='.$this->logDir.'/tool.log');
+        $id = $this->enqueue();
+        $worktree = $this->worktreeDir.'/job-'.$id;
+        self::assertDirectoryDoesNotExist($worktree.'/vendor');
+
+        $result = $this->worker()->runNext();
+
+        self::assertNotNull($result);
+        self::assertSame(LocalResult::PUBLICATION_REQUESTED, $result->status, (string) ($result->details['error'] ?? ''));
+        self::assertFileExists($worktree.'/vendor/bin/test-runner');
+        self::assertSame(['test-runner', 'test-runner'], file($this->logDir.'/tool.log', FILE_IGNORE_NEW_LINES));
+    }
+
     public function testEngineCannotSkipTargetedImplementationChecks(): void
     {
         $id = $this->enqueue();
@@ -203,6 +244,39 @@ final class WorkerTest extends TestCase
         self::assertStringStartsWith('Resume the fixture', $session['prompt']);
         self::assertSame('session-before-retry', $session['session_id']);
         self::assertSame($id, $result->jobId);
+    }
+
+    /** @return iterable<string, array{string, bool, string}> */
+    public static function engineGitViolations(): iterable
+    {
+        foreach (['first run' => false, 'resumed run' => true] as $label => $resumed) {
+            yield $label.' foreign branch' => ['foreign_branch', $resumed, 'deterministic branch'];
+            yield $label.' foreign author' => ['foreign_author', $resumed, 'unexpected author'];
+        }
+    }
+
+    #[DataProvider('engineGitViolations')]
+    public function testEngineBranchAndAuthorsAreReconciledBeforePublication(string $mode, bool $resumed, string $error): void
+    {
+        $diagnostics = ['prompt' => 'Implement the fixture'];
+        if ($resumed) {
+            $diagnostics['base_head'] = $this->baseHead;
+        }
+        $id = $this->store->enqueue('example/repo', 'fixture', diagnostics: $diagnostics);
+        if ($resumed) {
+            (new Worktree($this->repository, $this->worktreeDir, self::AUTHOR_NAME, self::AUTHOR_EMAIL))->prepare($id, $this->baseHead);
+        }
+
+        $result = $this->worker(mode: $mode)->runNext();
+
+        self::assertNotNull($result);
+        self::assertSame(LocalResult::FAILED, $result->status);
+        self::assertNull($result->publicationRequest());
+        self::assertStringContainsString($error, (string) ($result->details['error'] ?? ''));
+        self::assertArrayNotHasKey('local_commit', $result->details);
+        self::assertSame(Store::FAILED, $this->store->job($id)['state'] ?? null);
+        $engineHead = $this->git($result->worktree, ['rev-parse', 'HEAD']);
+        self::assertSame($this->baseHead, $this->git($result->worktree, ['rev-parse', $engineHead.'^']), 'Rejection must not rewrite engine history.');
     }
 
     public function testChecksAndGitWorkHeartbeatBeyondTheLeaseDuration(): void
@@ -240,6 +314,22 @@ final class WorkerTest extends TestCase
         );
     }
 
+    public function testDefaultEngineAttachesSecretGuardPreToolUseHook(): void
+    {
+        $worker = new Worker($this->config(), $this->store);
+        $runner = (new \ReflectionMethod(Worker::class, 'claudeRunner'))->invoke($worker, $this->repository);
+        self::assertInstanceOf(ClaudeRunner::class, $runner);
+        $json = (new \ReflectionProperty(ClaudeRunner::class, 'settingsJson'))->getValue($runner);
+        self::assertIsString($json);
+        $settings = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('Bash', $settings['hooks']['PreToolUse'][0]['matcher']);
+        self::assertSame([[
+            'type' => 'command',
+            'command' => PHP_BINARY.' '.escapeshellarg(dirname(__DIR__, 2).'/bin/secret-guard-hook.php'),
+        ]], $settings['hooks']['PreToolUse'][0]['hooks']);
+    }
+
     public function testSecretGuardBlocksTheLocalCommit(): void
     {
         $id = $this->enqueue();
@@ -265,6 +355,19 @@ final class WorkerTest extends TestCase
         self::assertStringContainsString('cannot change the Composer check definitions', (string) ($result->details['error'] ?? ''));
         self::assertSame($this->baseHead, $result->head);
         self::assertArrayNotHasKey('checks', $this->store->job($id)['diagnostics'] ?? []);
+    }
+
+    public function testEngineCanChangeUnrelatedComposerDependencies(): void
+    {
+        $id = $this->enqueue();
+
+        $result = $this->worker(mode: 'dependency')->runNext();
+
+        self::assertNotNull($result);
+        self::assertSame(LocalResult::PUBLICATION_REQUESTED, $result->status, (string) ($result->details['error'] ?? ''));
+        self::assertSame(Store::DONE, $this->store->job($id)['state'] ?? null);
+        $composer = json_decode((string) file_get_contents($result->worktree.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('^1.0', $composer['require']['example/package']);
     }
 
     public function testTargetedChecksCannotInjectAnArbitraryWorkerCommand(): void
@@ -423,7 +526,16 @@ final class WorkerTest extends TestCase
 
     private function worker(?Store $store = null, string $mode = 'write', int $leaseSeconds = 300): Worker
     {
-        $config = new Config(
+        return new Worker(
+            $this->config($leaseSeconds),
+            $store ?? $this->store,
+            fn (string $worktree): FakeCoderRunner => new FakeCoderRunner($worktree, $this->stateDir, $this->logDir, $mode),
+        );
+    }
+
+    private function config(int $leaseSeconds = 300): Config
+    {
+        return new Config(
             repository: $this->repository,
             stateDir: $this->stateDir,
             worktreeDir: $this->worktreeDir,
@@ -432,12 +544,6 @@ final class WorkerTest extends TestCase
             runTimeout: 30,
             leaseSeconds: $leaseSeconds,
             checkTimeout: 30,
-        );
-
-        return new Worker(
-            $config,
-            $store ?? $this->store,
-            fn (string $worktree): FakeCoderRunner => new FakeCoderRunner($worktree, $this->stateDir, $this->logDir, $mode),
         );
     }
 
@@ -450,6 +556,15 @@ final class WorkerTest extends TestCase
         self::assertSame(0, $result['exit'], $result['stderr'].$result['stdout']);
 
         return trim($result['stdout']);
+    }
+
+    /** @param list<string> $arguments */
+    private function composer(string $cwd, array $arguments): void
+    {
+        /** @var array<string, string> $environment */
+        $environment = getenv();
+        $result = Process::run(['composer', ...$arguments], $cwd, 60, $environment);
+        self::assertSame(0, $result['exit'], $result['stderr'].$result['stdout']);
     }
 
     private function writeComposerScripts(string $script = '@php -r "exit(0);"', bool $named = false): void
