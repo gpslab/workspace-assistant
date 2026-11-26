@@ -506,14 +506,18 @@ final class Store
     }
 
     /** Cancellation is durable and terminal; it also releases worker capacity transactionally. */
-    public function cancel(int $jobId, ?int $now = null): bool
+    public function cancel(int $jobId, ?int $now = null, ?string $reason = null): bool
     {
         $now ??= time();
 
-        return $this->transaction(function (\PDO $pdo) use ($jobId, $now): bool {
+        return $this->transaction(function (\PDO $pdo) use ($jobId, $now, $reason): bool {
             $job = $this->job($jobId);
             if ($job === null || in_array($job['state'], self::TERMINAL_STATES, true)) {
                 return false;
+            }
+            $diagnostics = $job['diagnostics'];
+            if ($reason !== null) {
+                $diagnostics['cancellation'] = ['reason' => $reason, 'requested_at' => $now];
             }
             if ($job['worker_id'] !== null) {
                 $pdo->prepare('UPDATE coder_workers SET active_job_id = NULL, updated_at = :now WHERE id = :worker AND active_job_id = :job')
@@ -524,11 +528,12 @@ final class Store
                 UPDATE coder_jobs
                    SET state = 'cancelled', cancellation_requested = 1, cancellation_requested_at = :now,
                        cancelled_at = :now, completed_at = :now, lease_token = NULL,
-                       leased_at = NULL, heartbeat_at = NULL, lease_expires_at = NULL, updated_at = :now
+                       leased_at = NULL, heartbeat_at = NULL, lease_expires_at = NULL, updated_at = :now,
+                       diagnostics = :diagnostics
                  WHERE id = :job AND state NOT IN ('cancelled', 'failed', 'done')
                 SQL
             );
-            $stmt->execute(['now' => $now, 'job' => $jobId]);
+            $stmt->execute(['now' => $now, 'diagnostics' => json_encode($diagnostics, JSON_THROW_ON_ERROR), 'job' => $jobId]);
 
             return $stmt->rowCount() === 1;
         });
