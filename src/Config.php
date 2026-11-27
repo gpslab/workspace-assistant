@@ -571,6 +571,9 @@ final class Config
         if ($this->openroninLogins === []) {
             $warnings[] = 'OPENRONIN_LOGINS is not set: the openronin marker is accepted from any author';
         }
+        if ($this->coderIntake->routing->coderRepositories() !== [] && !$this->epicsAvailable()) {
+            $warnings[] = 'REPOSITORY_EXECUTORS configures coder intake, but standalone intake requires FORGE=github; polling is disabled';
+        }
         if ($this->isKimi() && KimiGatedPreconditions::homeAgentsPresent($homeDir ?? (string) getenv('HOME'))) {
             $warnings[] = KimiGatedPreconditions::HOME_AGENTS_REASON;
         }

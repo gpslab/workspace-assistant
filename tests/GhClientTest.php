@@ -100,18 +100,21 @@ final class GhClientTest extends TestCase
     public function testStandaloneIntakeUsesOnlyReadOnlyIssueApis(): void
     {
         $calls = [];
-        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd) use (&$calls): array {
+        $timeouts = [];
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd, int $timeout) use (&$calls, &$timeouts): array {
             $calls[] = $cmd;
+            $timeouts[] = $timeout;
 
             return ['exit' => 0, 'stdout' => '[{"number":7}]', 'stderr' => ''];
         });
 
-        self::assertSame([['number' => 7]], $gh->openIssues('o/r', 2, 50, 1));
-        self::assertSame([['number' => 7]], $gh->issueEvents('o/r', 7, 1));
+        self::assertSame([['number' => 7]], $gh->openIssues('o/r', 2, 50, 3));
+        self::assertSame([['number' => 7]], $gh->issueEvents('o/r', 7, 4));
         self::assertSame([
-            ['gh', 'api', 'repos/o/r/issues?state=open&sort=created&direction=asc&per_page=50&page=2'],
+            ['gh', 'api', 'repos/o/r/issues?state=open&labels=openronin%3Ado-it&sort=created&direction=asc&per_page=50&page=2'],
             ['gh', 'api', 'repos/o/r/issues/7/events?per_page=100&page=1'],
         ], $calls);
+        self::assertSame([3, 4], $timeouts);
     }
 
     public function testColdReviewNoRunsOnHeadIsDone(): void

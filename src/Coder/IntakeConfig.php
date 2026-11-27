@@ -13,9 +13,9 @@ final readonly class IntakeConfig
         public Routing $routing = new Routing(),
         public string $trustedAuthor = '',
         public int $pollSeconds = 30,
-        public int $tickBudgetSeconds = 2,
+        public int $tickBudgetSeconds = 10,
         public int $workBudget = 4,
-        public int $requestTimeoutSeconds = 1,
+        public int $requestTimeoutSeconds = 5,
     ) {
         if ($pollSeconds < 1 || $tickBudgetSeconds < 1 || $workBudget < 1 || $requestTimeoutSeconds < 1) {
             throw new \InvalidArgumentException('Coder intake intervals, budgets and timeouts must be positive.');
@@ -34,9 +34,9 @@ final readonly class IntakeConfig
             routing: Routing::fromEnv($env),
             trustedAuthor: trim((string) $env->get('CODER_INTAKE_AUTHOR', '')),
             pollSeconds: max(5, (int) $env->get('CODER_INTAKE_POLL_SECONDS', '30')),
-            tickBudgetSeconds: max(1, (int) $env->get('CODER_INTAKE_TICK_BUDGET', '2')),
+            tickBudgetSeconds: max(1, (int) $env->get('CODER_INTAKE_TICK_BUDGET', '10')),
             workBudget: min(100, max(1, (int) $env->get('CODER_INTAKE_WORK_BUDGET', '4'))),
-            requestTimeoutSeconds: max(1, (int) $env->get('CODER_INTAKE_REQUEST_TIMEOUT', '1')),
+            requestTimeoutSeconds: max(1, (int) $env->get('CODER_INTAKE_REQUEST_TIMEOUT', '5')),
         );
     }
 }

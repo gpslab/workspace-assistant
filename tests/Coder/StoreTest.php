@@ -39,8 +39,8 @@ final class StoreTest extends TestCase
         self::assertFileExists($this->dir.'/state.sqlite');
         self::assertFileExists($this->dir.'/coder.sqlite');
         self::assertSame($this->dir.'/coder.sqlite', $other->path());
-        self::assertSame(3, $other->schemaVersion());
-        self::assertSame([1, 2, 3], $other->migrationVersions());
+        self::assertSame(4, $other->schemaVersion());
+        self::assertSame([1, 2, 3, 4], $other->migrationVersions());
         self::assertSame(
             ['journal_mode' => 'wal', 'busy_timeout' => 4321, 'foreign_keys' => 1],
             $other->connectionSettings()
@@ -56,18 +56,19 @@ final class StoreTest extends TestCase
     {
         $this->store->enqueue('example/repo', 'coder/one');
         $this->store->reconnect();
-        self::assertSame([1, 2, 3], $this->store->migrationVersions());
+        self::assertSame([1, 2, 3, 4], $this->store->migrationVersions());
         self::assertCount(1, $this->store->jobs());
 
         $this->store->disconnect();
         $pdo = new \PDO('sqlite:'.$this->dir.'/coder.sqlite');
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->exec('DROP INDEX coder_one_active_pr_per_worker');
+        $pdo->exec('ALTER TABLE coder_intake_cursors DROP COLUMN issue_number');
         $pdo->exec('DELETE FROM coder_schema_migrations WHERE version >= 2');
         $pdo = null;
 
         $upgraded = new Store($this->dir);
-        self::assertSame([1, 2, 3], $upgraded->migrationVersions());
+        self::assertSame([1, 2, 3, 4], $upgraded->migrationVersions());
         $index = $upgraded->connectionSettings();
         self::assertSame('wal', $index['journal_mode']);
         $pdo = new \PDO('sqlite:'.$this->dir.'/coder.sqlite');
@@ -94,7 +95,7 @@ final class StoreTest extends TestCase
 
         try {
             $results = $this->concurrently([$open, $open]);
-            self::assertSame([3, 3], array_column($results, 'version'));
+            self::assertSame([4, 4], array_column($results, 'version'));
             self::assertSame(['wal', 'wal'], array_column(array_column($results, 'settings'), 'journal_mode'));
             self::assertSame([2345, 2345], array_column(array_column($results, 'settings'), 'busy_timeout'));
 
@@ -344,14 +345,33 @@ final class StoreTest extends TestCase
         self::assertCount(1, $this->store->jobs());
         self::assertSame(['issue:7:event:99'], $this->store->processedEventKeys($id));
         self::assertSame('Implement', $this->store->job($id)['diagnostics']['prompt'] ?? null);
+        self::assertNull($this->store->enqueueIntake('example/repo', 'issue:7:event:100', 'coder/issue-7', 7, ['prompt' => 'Re-label'], 11));
+        self::assertCount(1, $this->store->jobs());
+        self::assertSame(['issue:7:event:99'], $this->store->processedEventKeys($id));
+        self::assertNotNull($this->store->enqueueIntake('example/other', 'issue:7:event:100', 'coder/issue-7', 7, ['prompt' => 'Other repository'], 11));
 
-        $this->store->saveIntakeCursor('example/repo', 2, 17, 12);
+        $this->store->saveIntakeCursor('example/repo', 17, 12);
         $this->store->saveIntakeSchedule('example/repo', 12);
         $this->store->reconnect();
 
-        self::assertSame(['page' => 2, 'offset' => 17], $this->store->intakeCursor('example/repo'));
+        self::assertSame(['issue_number' => 17], $this->store->intakeCursor('example/repo'));
         self::assertSame('example/repo', $this->store->intakeSchedule());
-        self::assertSame(['page' => 1, 'offset' => 0], $this->store->intakeCursor('example/other'));
+        self::assertSame(['issue_number' => 0], $this->store->intakeCursor('example/other'));
+    }
+
+    public function testConcurrentRelabelsCannotCreateTwoActiveJobsForOneIssue(): void
+    {
+        $operations = array_map(fn (int $eventId): \Closure => function () use ($eventId): ?int {
+            $store = new Store($this->dir);
+
+            return $store->enqueueIntake('example/repo', 'issue:7:event:'.$eventId, 'coder/issue-7', 7, ['prompt' => 'Implement'], 100);
+        }, [91, 92]);
+
+        $results = $this->concurrently($operations);
+
+        self::assertCount(1, array_filter($results, is_int(...)));
+        self::assertCount(1, $this->store->jobs());
+        self::assertCount(1, $this->store->processedEventKeys($this->store->jobs()[0]['id']));
     }
 
     public function testConcurrentProcessesCannotLeaseOneJobToTwoWorkers(): void

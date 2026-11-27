@@ -13,7 +13,7 @@ use GpsLab\WorkspaceAssistant\Log;
 final class IntakeController
 {
     private const int ISSUE_PAGE_SIZE = 50;
-    private const int APPROVAL_TIMESTAMP_SLACK_SECONDS = 5;
+    private const int MAX_ISSUE_PAGES = 20;
     private const string LABEL_DO_IT = 'openronin:do-it';
 
     private float $lastPollAt = 0.0;
@@ -77,7 +77,7 @@ final class IntakeController
                 $examined += $this->pollRepository($repository, $this->config->workBudget - $examined, $deadline);
             } catch (\Throwable $e) {
                 // One repository never prevents another repository or the Telegram loop from progressing.
-                Log::line("coder intake {$repository}: ".$e->getMessage());
+                Log::line("warning: coder intake {$repository} failed; its cursor is retained for the next scheduled pass: ".$e->getMessage());
             } finally {
                 $this->store->saveIntakeSchedule($repository);
             }
@@ -91,37 +91,54 @@ final class IntakeController
 
     private function pollRepository(string $repository, int $workLeft, float $deadline): int
     {
-        if ($workLeft < 1 || ($this->clock)() >= $deadline) {
-            return 0;
-        }
-        $cursor = $this->store->intakeCursor($repository);
-        $issues = $this->github->openIssues(
-            $repository,
-            $cursor['page'],
-            self::ISSUE_PAGE_SIZE,
-            $this->requestTimeout($deadline),
-        );
-        if ($issues === []) {
-            $this->store->saveIntakeCursor($repository, 1, 0);
-
-            return 0;
-        }
-
+        $after = $this->store->intakeCursor($repository)['issue_number'];
         $examined = 0;
-        $offset = $cursor['offset'];
-        $count = count($issues);
-        while ($offset < $count && $examined < $workLeft) {
-            if (($this->clock)() >= $deadline) {
+        for ($page = 1; $page <= self::MAX_ISSUE_PAGES && $examined < $workLeft; ++$page) {
+            if (($this->clock)() + 1 > $deadline) {
                 break;
             }
-            $issue = $issues[$offset];
-            ++$offset;
-            ++$examined;
-            $this->admit($repository, $issue, $deadline);
-            $this->store->saveIntakeCursor($repository, $cursor['page'], $offset);
-        }
-        if ($offset >= $count) {
-            $this->store->saveIntakeCursor($repository, $count < self::ISSUE_PAGE_SIZE ? 1 : $cursor['page'] + 1, 0);
+            $issues = $this->github->openIssues(
+                $repository,
+                $page,
+                self::ISSUE_PAGE_SIZE,
+                $this->requestTimeout($deadline),
+            );
+            if ($issues === []) {
+                $this->store->saveIntakeCursor($repository, 0);
+                break;
+            }
+
+            $count = count($issues);
+            $completedPage = true;
+            foreach ($issues as $issue) {
+                $number = $issue['number'] ?? null;
+                $number = is_int($number) || (is_string($number) && ctype_digit($number)) ? (int) $number : null;
+                if ($number !== null && $number <= $after) {
+                    continue;
+                }
+                if (($this->clock)() + 1 > $deadline) {
+                    $completedPage = false;
+                    break;
+                }
+                ++$examined;
+                $this->admit($repository, $issue, $deadline);
+                if ($number !== null) {
+                    $after = $number;
+                    $this->store->saveIntakeCursor($repository, $after);
+                }
+                if ($examined >= $workLeft) {
+                    $completedPage = false;
+                    break;
+                }
+            }
+            if (!$completedPage) {
+                break;
+            }
+            if ($count < self::ISSUE_PAGE_SIZE) {
+                // The ordered scan reached its end; the next pass also considers older re-labelled issues.
+                $this->store->saveIntakeCursor($repository, 0);
+                break;
+            }
         }
 
         return $examined;
@@ -201,7 +218,7 @@ final class IntakeController
 
     /**
      * The trusted label must approve the current title and body, not a later edit. GitHub updates
-     * `updated_at` when the label is applied, so a few seconds of clock slack are allowed.
+     * `updated_at` when the label is applied; a later content update requires a fresh trusted label.
      *
      * @param array<string, mixed> $issue
      * @param array<string, mixed> $approval
@@ -217,7 +234,7 @@ final class IntakeController
         $approvedTimestamp = strtotime($approvedAt);
 
         return $updatedTimestamp !== false && $approvedTimestamp !== false
-            && $updatedTimestamp <= $approvedTimestamp + self::APPROVAL_TIMESTAMP_SLACK_SECONDS;
+            && $updatedTimestamp <= $approvedTimestamp;
     }
 
     private function hasDoItLabel(mixed $labels): bool

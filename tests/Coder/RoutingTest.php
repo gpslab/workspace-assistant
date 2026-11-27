@@ -49,9 +49,9 @@ final class RoutingTest extends TestCase
         self::assertSame([], $config->routing->coderRepositories());
         self::assertFalse($config->routing->isCoderRouted('acme/one'));
         self::assertSame(30, $config->pollSeconds);
-        self::assertSame(2, $config->tickBudgetSeconds);
+        self::assertSame(10, $config->tickBudgetSeconds);
         self::assertSame(4, $config->workBudget);
-        self::assertSame(1, $config->requestTimeoutSeconds);
+        self::assertSame(5, $config->requestTimeoutSeconds);
     }
 
     public function testOneTypedMapDefinesExclusiveExecutorsAndTheCoderAllowlist(): void

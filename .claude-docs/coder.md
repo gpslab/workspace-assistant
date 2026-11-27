@@ -17,20 +17,24 @@ or drain the external Openronin service.
 A scheduled `poll()` examines only open issues in coder-routed repositories through read-only issue
 and issue-event APIs. An issue is admitted only when its current `openronin:do-it` label is proven
 by a latest `labeled` event from `CODER_INTAKE_AUTHOR`, a separately configured trusted human login.
-The issue's `updated_at` must be no more than five seconds later than that event's `created_at`;
-this binds approval to the title and body while allowing for the label's own update. A later edit,
-missing or malformed timestamp, a label by itself, comments, arbitrary issues and unlisted
-repositories create no instruction: a fresh trusted label is required after such an edit. The
-immutable label-event id is part of the `(repository, event_key)` intake identity.
-`Store::enqueueIntake()` records that identity and creates the queued job in one immediate
-transaction, so a repeated or concurrent event returns without another job.
+The issue's `updated_at` must be no later than that event's `created_at`; this binds approval to the
+title and body current at the trusted label event. A later edit, missing or malformed timestamp, a
+label by itself, comments, arbitrary issues and unlisted repositories create no instruction: a fresh
+trusted label is required after such an edit. The immutable label-event id is part of the
+`(repository, event_key)` intake identity. `Store::enqueueIntake()` records that identity and creates
+the queued job in one immediate transaction, so a repeated or concurrent event returns without
+another job. The same transaction also checks for an active `(repository, issue_number)` job before
+inserting, so distinct re-label events cannot create concurrent jobs for one issue.
 
-The controller owns both durable cursors in `state/coder.sqlite`: the next issue offset within each
-repository and the repository starting the next round-robin pass. `Coder\Worker` only consumes
-leased jobs and never polls GitHub. `CODER_INTAKE_POLL_SECONDS`, `CODER_INTAKE_TICK_BUDGET`,
+The controller owns both durable cursors in `state/coder.sqlite`: the last examined issue number in
+each repository's server-filtered, creation-ordered scan and the repository starting the next
+round-robin pass. Every pass resumes from page one and skips only issue identities at or before that
+cursor, so closing an earlier issue cannot shift a numeric offset past new work. Reaching the end
+resets the cursor to consider older re-labelled issues. `Coder\Worker` only consumes leased jobs and
+never polls GitHub. `CODER_INTAKE_POLL_SECONDS`, `CODER_INTAKE_TICK_BUDGET`,
 `CODER_INTAKE_WORK_BUDGET` and `CODER_INTAKE_REQUEST_TIMEOUT` bound the pass. A repository failure
-is logged and isolated; a slow or full event page fails closed. Intake adds no GitHub write and no
-production worker start.
+is logged as a warning with its cursor retained and isolated; a slow or full event page fails closed.
+Intake adds no GitHub write and no production worker start.
 
 `Coder\RoutingGuard` rejects coder routing at startup while an epic containing the repository is
 `running`; `paused`, `blocked` and `done` epics permit startup. Resuming a paused or blocked epic

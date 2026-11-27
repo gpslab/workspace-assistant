@@ -305,9 +305,9 @@ Claude; nothing filters the injected memory. The same holds for a Kimi run and t
 | `REPOSITORY_EXECUTORS` | empty | Exclusive repository-to-executor map, comma-separated `owner/repository:openronin` or `owner/repository:coder`. The repositories mapped to `coder` are the standalone intake allowlist; empty disables it |
 | `CODER_INTAKE_AUTHOR` | empty | Trusted human GitHub login whose `openronin:do-it` label event authorizes standalone intake; required with coder routing. Separate from Telegram and executor login settings |
 | `CODER_INTAKE_POLL_SECONDS` | `30` | Seconds between bounded read-only intake passes (minimum `5`) |
-| `CODER_INTAKE_TICK_BUDGET` | `2` | Time budget of one intake pass, seconds |
+| `CODER_INTAKE_TICK_BUDGET` | `10` | Time budget of one intake pass, seconds |
 | `CODER_INTAKE_WORK_BUDGET` | `4` | Maximum repository scans and issue records examined per intake pass (maximum `100`) |
-| `CODER_INTAKE_REQUEST_TIMEOUT` | `1` | Timeout of one read-only GitHub request, seconds; cannot exceed the tick budget |
+| `CODER_INTAKE_REQUEST_TIMEOUT` | `5` | Timeout of one read-only GitHub request, seconds; cannot exceed the tick budget |
 | `ENGINE` | `claude` | Agent engine that runs the jobs: `claude`, `opencode` or `kimi`; anything else is a startup error. See [OpenCode](#opencode) and [Kimi](#kimi) |
 | `CLAUDE_BIN` | `claude` | Path or name of the `claude` binary (`ENGINE=claude`) |
 | `OPENCODE_BIN` | `opencode` | Path or name of the `opencode` binary (`ENGINE=opencode`) |
@@ -354,12 +354,19 @@ Claude; nothing filters the injected memory. The same holds for a Kimi run and t
 
 `REPOSITORY_EXECUTORS` is empty by default, so the bot creates no standalone jobs and starts no
 coder worker. Mapping a repository to `coder` enables bounded, read-only polling of its open issues
-in the Bot loop. Intake requires the current `openronin:do-it` label and a matching latest `labeled`
-event by `CODER_INTAKE_AUTHOR`; comments and labels from other actors create no jobs. The issue's
-`updated_at` must be no more than five seconds later than the label event's `created_at`, so an edit
-after approval is refused until the issue is labeled again. The worker remains an explicitly invoked
-local process. Polling does not push, create pull requests, mutate labels, comment, or perform any
-other GitHub write.
+in the Bot loop. Standalone intake requires `FORGE=github` and an authenticated `gh` client; on
+another forge, configured coder routing produces a startup warning and polling stays disabled. Only
+issues carrying `openronin:do-it` are listed by GitHub. Intake also requires a matching latest
+`labeled` event by `CODER_INTAKE_AUTHOR`; comments and labels from other actors create no jobs. The
+issue's `updated_at` must be no later than the label event's `created_at`, so an edit after approval
+is refused until the issue is labeled again. The worker remains an explicitly invoked local process.
+Polling does not push, create pull requests, mutate labels, comment, or perform any other GitHub write.
+Request and repository failures retain the durable cursor, are logged as warnings, and are retried on
+a later scheduled pass.
+
+Changing `REPOSITORY_EXECUTORS` or the intake settings requires a bot restart. On that restart the
+store automatically applies the pending `state/coder.sqlite` migration for stable polling cursors;
+no manual SQL is needed. Intake transactions enforce one active job per repository and issue.
 
 Each repository can have only one executor assignment. Routing a repository to `coder` is rejected
 at startup while an epic containing it is `running`; pause or complete that epic first. A blocked

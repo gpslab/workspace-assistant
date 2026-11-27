@@ -142,6 +142,9 @@ final class Store
                 updated_at INTEGER NOT NULL
             );
             SQL,
+        4 => <<<'SQL'
+            ALTER TABLE coder_intake_cursors ADD COLUMN issue_number INTEGER NOT NULL DEFAULT 0;
+            SQL,
     ];
 
     private ?\PDO $pdo = null;
@@ -665,6 +668,18 @@ final class Store
         $now ??= time();
 
         return $this->transaction(function (\PDO $pdo) use ($repository, $eventKey, $branch, $issueNumber, $diagnostics, $now): ?int {
+            $active = $pdo->prepare(
+                <<<'SQL'
+                SELECT id FROM coder_jobs
+                 WHERE repository = :repository AND issue_number = :issue
+                   AND state IN ('queued', 'starting', 'running', 'reconciling', 'waiting_ci_review', 'awaiting_action')
+                 LIMIT 1
+                SQL
+            );
+            $active->execute(['repository' => $repository, 'issue' => $issueNumber]);
+            if ($active->fetchColumn() !== false) {
+                return null;
+            }
             $stmt = $pdo->prepare(
                 'INSERT OR IGNORE INTO coder_processed_events (repository, event_key, job_id, processed_at) VALUES (:repository, :key, NULL, :now)'
             );
@@ -680,27 +695,28 @@ final class Store
         });
     }
 
-    /** @return array{page:int, offset:int} */
+    /** @return array{issue_number:int} the last examined issue, or 0 to restart the ordered scan */
     public function intakeCursor(string $repository): array
     {
-        $stmt = $this->connection()->prepare('SELECT page, offset FROM coder_intake_cursors WHERE repository = :repository');
+        $stmt = $this->connection()->prepare('SELECT issue_number FROM coder_intake_cursors WHERE repository = :repository');
         $stmt->execute(['repository' => $repository]);
-        $row = $stmt->fetch();
+        $number = $stmt->fetchColumn();
 
-        return $row === false ? ['page' => 1, 'offset' => 0] : ['page' => (int) $row['page'], 'offset' => (int) $row['offset']];
+        return ['issue_number' => $number === false ? 0 : (int) $number];
     }
 
-    public function saveIntakeCursor(string $repository, int $page, int $offset, ?int $now = null): void
+    public function saveIntakeCursor(string $repository, int $issueNumber, ?int $now = null): void
     {
-        if ($page < 1 || $offset < 0) {
-            throw new \InvalidArgumentException('A coder intake cursor needs a positive page and a non-negative offset.');
+        if ($issueNumber < 0) {
+            throw new \InvalidArgumentException('A coder intake cursor needs a non-negative issue number.');
         }
         $this->connection()->prepare(
             <<<'SQL'
-            INSERT INTO coder_intake_cursors (repository, page, offset, updated_at) VALUES (:repository, :page, :offset, :now)
-            ON CONFLICT(repository) DO UPDATE SET page = excluded.page, offset = excluded.offset, updated_at = excluded.updated_at
+            INSERT INTO coder_intake_cursors (repository, page, offset, issue_number, updated_at)
+            VALUES (:repository, 1, 0, :issue, :now)
+            ON CONFLICT(repository) DO UPDATE SET issue_number = excluded.issue_number, updated_at = excluded.updated_at
             SQL
-        )->execute(['repository' => $repository, 'page' => $page, 'offset' => $offset, 'now' => $now ?? time()]);
+        )->execute(['repository' => $repository, 'issue' => $issueNumber, 'now' => $now ?? time()]);
     }
 
     /** Repository after which the next round-robin pass starts. */

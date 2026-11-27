@@ -87,7 +87,7 @@ final class GhClient implements Forge, IntakeApi
         [$owner, $name] = self::intakeRepository($repository);
 
         return $this->readOnlyList(
-            "repos/{$owner}/{$name}/issues?state=open&sort=created&direction=asc&per_page={$perPage}&page={$page}",
+            "repos/{$owner}/{$name}/issues?state=open&labels=openronin%3Ado-it&sort=created&direction=asc&per_page={$perPage}&page={$page}",
             $timeoutSeconds,
         );
     }
@@ -987,12 +987,12 @@ final class GhClient implements Forge, IntakeApi
      */
     private function run(array $cmd, ?int $timeout = null): array
     {
-        if ($this->runner !== null) {
-            return ($this->runner)($cmd);
-        }
         $timeout ??= $this->timeout;
         if ($timeout < 1) {
             throw new \InvalidArgumentException('The gh request timeout must be positive.');
+        }
+        if ($this->runner !== null) {
+            return ($this->runner)($cmd, $timeout);
         }
         $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (!is_resource($proc)) {
@@ -1015,7 +1015,7 @@ final class GhClient implements Forge, IntakeApi
                 proc_terminate($proc, 9);
                 proc_close($proc);
 
-                throw new \RuntimeException('gh: timeout');
+                throw new \RuntimeException("gh: timeout after {$timeout} seconds");
             }
             usleep(50000);
         }
