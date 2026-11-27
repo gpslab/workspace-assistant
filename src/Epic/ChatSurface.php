@@ -230,6 +230,11 @@ final class ChatSurface
         if ($running && array_filter($this->db->epicTasks($epic['slug']), static fn (array $t): bool => $t['status'] === 'blocked') === []) {
             return $this->t('epic.not_paused', ['slug' => $epic['slug'], 'status' => $epic['status']]);
         }
+        try {
+            $this->routingGuard->assertPlanAllowed($this->db->epicTasks($epic['slug']), $this->db->epicReleases($epic['slug']));
+        } catch (\InvalidArgumentException $e) {
+            return $this->t('epic.blocked', ['reason' => $e->getMessage()]);
+        }
         $unblocked = $this->db->epicResume($epic['slug']);
         $this->card->update($epic['slug']);
         if ($running) {

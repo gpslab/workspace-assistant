@@ -355,14 +355,17 @@ Claude; nothing filters the injected memory. The same holds for a Kimi run and t
 `REPOSITORY_EXECUTORS` is empty by default, so the bot creates no standalone jobs and starts no
 coder worker. Mapping a repository to `coder` enables bounded, read-only polling of its open issues
 in the Bot loop. Intake requires the current `openronin:do-it` label and a matching latest `labeled`
-event by `CODER_INTAKE_AUTHOR`; comments and labels from other actors create no jobs. The worker
-remains an explicitly invoked local process. Polling does not push, create pull requests, mutate
-labels, comment, or perform any other GitHub write.
+event by `CODER_INTAKE_AUTHOR`; comments and labels from other actors create no jobs. The issue's
+`updated_at` must be no more than five seconds later than the label event's `created_at`, so an edit
+after approval is refused until the issue is labeled again. The worker remains an explicitly invoked
+local process. Polling does not push, create pull requests, mutate labels, comment, or perform any
+other GitHub write.
 
 Each repository can have only one executor assignment. Routing a repository to `coder` is rejected
-while an epic containing it is `running` or `blocked`; pause or complete that epic first. New epic
-plans for a coder-routed repository are rejected, and an existing epic stops loudly rather than
-applying `openronin:do-it` there. The map does not disable or drain an external Openronin service.
+at startup while an epic containing it is `running`; pause or complete that epic first. A blocked
+epic does not prevent startup, but resuming it with coder-routed tasks is refused. New epic plans for
+a coder-routed repository are rejected, and an existing epic stops loudly rather than applying
+`openronin:do-it` there. The map does not disable or drain an external Openronin service.
 
 ### Epic run models
 

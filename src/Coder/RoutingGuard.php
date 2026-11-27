@@ -17,7 +17,7 @@ final readonly class RoutingGuard
     ) {
     }
 
-    /** Routing is valid only while every epic containing the repository is paused or done. */
+    /** A running epic conflicts at startup; a blocked one stays stopped and its resume is guarded separately. */
     public function assertRoutingAllowed(): void
     {
         $coderRepositories = $this->routing->coderRepositories();

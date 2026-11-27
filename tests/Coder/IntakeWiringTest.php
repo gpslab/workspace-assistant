@@ -31,6 +31,7 @@ final class WiringIntakeApi implements IntakeApi
             'state' => 'open',
             'title' => 'Wired intake',
             'body' => 'Implement through the Bot loop',
+            'updated_at' => '2026-01-01T00:00:00Z',
             'labels' => [['name' => 'openronin:do-it']],
         ]];
     }
@@ -40,6 +41,7 @@ final class WiringIntakeApi implements IntakeApi
         return [[
             'id' => 700,
             'event' => 'labeled',
+            'created_at' => '2026-01-01T00:00:00Z',
             'actor' => ['login' => 'peter'],
             'label' => ['name' => 'openronin:do-it'],
         ]];

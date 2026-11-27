@@ -926,7 +926,7 @@ final class Database
      */
     public function epicsBlockingRouting(): array
     {
-        $stmt = $this->pdo->query("SELECT * FROM epics WHERE status IN ('running', 'blocked') ORDER BY rowid");
+        $stmt = $this->pdo->query("SELECT * FROM epics WHERE status = 'running' ORDER BY rowid");
 
         return $stmt === false ? [] : array_values(array_map(self::epicRow(...), $stmt->fetchAll()));
     }

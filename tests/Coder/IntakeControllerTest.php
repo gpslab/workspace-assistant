@@ -92,6 +92,7 @@ final class IntakeControllerTest extends TestCase
             'state' => $state,
             'title' => 'Task '.$number,
             'body' => 'Implement task '.$number,
+            'updated_at' => '2026-01-01T00:00:00Z',
             'html_url' => 'https://example.test/issue/'.$number,
             'labels' => $doIt ? [['name' => 'openronin:do-it']] : [],
         ] + ($pr ? ['pull_request' => ['url' => 'https://example.test/pr/'.$number]] : []);
@@ -100,7 +101,7 @@ final class IntakeControllerTest extends TestCase
     /** @return array<string, mixed> */
     private static function approval(int $id, string $actor = 'peter'): array
     {
-        return ['id' => $id, 'event' => 'labeled', 'actor' => ['login' => $actor], 'label' => ['name' => 'openronin:do-it']];
+        return ['id' => $id, 'event' => 'labeled', 'created_at' => '2026-01-01T00:00:00Z', 'actor' => ['login' => $actor], 'label' => ['name' => 'openronin:do-it']];
     }
 
     public function testEmptyDefaultAllowlistCreatesNoJobsAndStartsNoWorker(): void
@@ -156,6 +157,47 @@ final class IntakeControllerTest extends TestCase
         self::assertSame(['issues', 'events', 'events', 'events', 'events'], array_column($this->api->calls, 'kind'));
         self::assertNotContains('acme/open', array_column($this->api->calls, 'repository'));
         self::assertNotContains('acme/unlisted', array_column($this->api->calls, 'repository'));
+    }
+
+    public function testIssueEditedAfterApprovalFailsClosedUntilItIsLabeledAgain(): void
+    {
+        $issue = self::issue(1);
+        $issue['body'] = 'Edited after the trusted approval';
+        $issue['updated_at'] = '2026-01-01T00:00:06Z';
+        $this->api->issues['acme/one'] = [$issue];
+        $this->api->events['acme/one#1'] = [self::approval(9001)];
+        $controller = $this->controller(['acme/one' => 'coder']);
+
+        self::assertSame(1, $controller->poll());
+        self::assertSame([], $this->store->jobs());
+
+        $reapproval = self::approval(9002);
+        $reapproval['created_at'] = '2026-01-01T00:00:06Z';
+        $this->api->events['acme/one#1'] = [$reapproval];
+        $this->now += 5;
+        self::assertSame(1, $controller->poll());
+
+        self::assertCount(1, $this->store->jobs());
+        self::assertSame('9002', $this->store->jobs()[0]['diagnostics']['label_event_id']);
+    }
+
+    public function testMissingOrMalformedContentApprovalTimestampsFailClosed(): void
+    {
+        $missingIssueTimestamp = self::issue(1);
+        unset($missingIssueTimestamp['updated_at']);
+        $invalidIssueTimestamp = self::issue(3);
+        $invalidIssueTimestamp['updated_at'] = 'not-a-date';
+        $this->api->issues['acme/one'] = [$missingIssueTimestamp, self::issue(2), $invalidIssueTimestamp];
+        $missingEventTimestamp = self::approval(9002);
+        unset($missingEventTimestamp['created_at']);
+        $this->api->events = [
+            'acme/one#1' => [self::approval(9001)],
+            'acme/one#2' => [$missingEventTimestamp],
+            'acme/one#3' => [self::approval(9003)],
+        ];
+
+        self::assertSame(3, $this->controller(['acme/one' => 'coder'])->poll());
+        self::assertSame([], $this->store->jobs());
     }
 
     public function testAFullEventPageCannotProveTheCurrentLabelAndFailsClosed(): void

@@ -17,7 +17,10 @@ or drain the external Openronin service.
 A scheduled `poll()` examines only open issues in coder-routed repositories through read-only issue
 and issue-event APIs. An issue is admitted only when its current `openronin:do-it` label is proven
 by a latest `labeled` event from `CODER_INTAKE_AUTHOR`, a separately configured trusted human login.
-A label by itself, comments, arbitrary issues and unlisted repositories create no instruction. The
+The issue's `updated_at` must be no more than five seconds later than that event's `created_at`;
+this binds approval to the title and body while allowing for the label's own update. A later edit,
+missing or malformed timestamp, a label by itself, comments, arbitrary issues and unlisted
+repositories create no instruction: a fresh trusted label is required after such an edit. The
 immutable label-event id is part of the `(repository, event_key)` intake identity.
 `Store::enqueueIntake()` records that identity and creates the queued job in one immediate
 transaction, so a repeated or concurrent event returns without another job.
@@ -29,11 +32,12 @@ leased jobs and never polls GitHub. `CODER_INTAKE_POLL_SECONDS`, `CODER_INTAKE_T
 is logged and isolated; a slow or full event page fails closed. Intake adds no GitHub write and no
 production worker start.
 
-`Coder\RoutingGuard` rejects coder routing while an epic containing the repository is `running` or
-`blocked`; `paused` and `done` epics permit it. It rejects new epic plans containing a coder-routed
-repository before `Database::epicCreate()`, and `Epic\Orchestrator` checks it again immediately
-before applying `openronin:do-it`, blocking the task and epic with an explicit reason instead of
-labelling the issue.
+`Coder\RoutingGuard` rejects coder routing at startup while an epic containing the repository is
+`running`; `paused`, `blocked` and `done` epics permit startup. Resuming a paused or blocked epic
+whose plan contains a coder-routed repository is refused, so a routing block cannot put the Bot into
+a restart crash loop. The guard rejects new epic plans containing a coder-routed repository before
+`Database::epicCreate()`, and `Epic\Orchestrator` checks it again immediately before applying
+`openronin:do-it`, blocking the task and epic with an explicit reason instead of labelling the issue.
 
 ## Migrations and identities
 

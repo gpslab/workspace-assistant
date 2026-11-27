@@ -141,6 +141,31 @@ final class KeyboardTest extends TestCase
         return $this->tg->sent[count($this->tg->sent) - 1]['text'];
     }
 
+    private function coderBot(): Bot
+    {
+        $config = new Config(
+            botToken: 't',
+            allowedUserIds: [555],
+            repoPath: $this->work,
+            forgeRepo: '',
+            claudeBin: 'claude',
+            claudeTimeout: 0,
+            claudeStallTimeout: 900,
+            claudeExtraArgs: [],
+            claudeAppendSystemPrompt: '',
+            stateDir: $this->root.'/state',
+            outboxDir: $this->root.'/state',
+            inboxDir: $this->root.'/state',
+            pollTimeout: 30,
+            gitTimeout: 30,
+            epicsDir: 'context/epics',
+            forgeOwners: new ForgeOwners(['anime-db', 'gpslab']),
+            coderIntake: new IntakeConfig(new Routing(['anime-db/a' => 'coder']), 'peter'),
+        );
+
+        return new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root));
+    }
+
     /** @return array<string, array{string, bool, bool, list<string>}> */
     public static function stateProvider(): array
     {
@@ -369,32 +394,31 @@ final class KeyboardTest extends TestCase
 
     public function testPlanForRoutedRepositoryIsRejectedBeforeEpicCreate(): void
     {
-        $config = new Config(
-            botToken: 't',
-            allowedUserIds: [555],
-            repoPath: $this->work,
-            forgeRepo: '',
-            claudeBin: 'claude',
-            claudeTimeout: 0,
-            claudeStallTimeout: 900,
-            claudeExtraArgs: [],
-            claudeAppendSystemPrompt: '',
-            stateDir: $this->root.'/state',
-            outboxDir: $this->root.'/state',
-            inboxDir: $this->root.'/state',
-            pollTimeout: 30,
-            gitTimeout: 30,
-            epicsDir: 'context/epics',
-            forgeOwners: new ForgeOwners(['anime-db', 'gpslab']),
-            coderIntake: new IntakeConfig(new Routing(['anime-db/a' => 'coder']), 'peter'),
-        );
-        $bot = new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root));
+        $bot = $this->coderBot();
         $this->writePlan('routed');
 
         (new \ReflectionMethod(Bot::class, 'handleCommand'))->invoke($bot, self::CHAT, self::THREAD, '/epic start routed', 0);
 
         self::assertNull($this->db->epicGet('routed'));
         self::assertStringContainsString('anime-db/a', $this->lastText());
+        self::assertStringContainsString('routed to the standalone coder', $this->lastText());
+    }
+
+    public function testRestartAfterRoutingBlockSucceedsAndResumeRefusesTheConflict(): void
+    {
+        $this->epicIn('cur', 'blocked');
+        $bot = $this->coderBot();
+        $resume = new \ReflectionMethod(Bot::class, 'handleCommand');
+
+        $resume->invoke($bot, self::CHAT, self::THREAD, '/epic resume', 0);
+
+        self::assertSame('blocked', $this->db->epicGet('cur')['status'] ?? null);
+        self::assertStringContainsString('routed to the standalone coder', $this->lastText());
+
+        $this->db->epicSetStatus('cur', 'paused');
+        $resume->invoke($bot, self::CHAT, self::THREAD, '/epic resume', 0);
+
+        self::assertSame('paused', $this->db->epicGet('cur')['status'] ?? null);
         self::assertStringContainsString('routed to the standalone coder', $this->lastText());
     }
 

@@ -101,7 +101,7 @@ final class RoutingTest extends TestCase
         new IntakeConfig(new Routing(), '', 30, 2, 4, 3);
     }
 
-    public function testRoutingIsRejectedForRunningAndBlockedEpicsButAllowedWhenPausedOrDone(): void
+    public function testRoutingIsRejectedForRunningEpicsButAllowedWhenPausedBlockedOrDone(): void
     {
         $db = new Database($this->dir);
         $db->epicCreate('active', 1, 2, [['task' => 'acme/other#1', 'after' => []]], [
@@ -113,7 +113,7 @@ final class RoutingTest extends TestCase
         $db->epicSetStatus('active', 'paused');
         $guard->assertRoutingAllowed();
         $db->epicSetStatus('active', 'blocked');
-        $this->assertRoutingRejected($guard, 'blocked');
+        $guard->assertRoutingAllowed();
         $db->epicSetStatus('active', 'done');
         $guard->assertRoutingAllowed();
 

@@ -13,6 +13,7 @@ use GpsLab\WorkspaceAssistant\Log;
 final class IntakeController
 {
     private const int ISSUE_PAGE_SIZE = 50;
+    private const int APPROVAL_TIMESTAMP_SLACK_SECONDS = 5;
     private const string LABEL_DO_IT = 'openronin:do-it';
 
     private float $lastPollAt = 0.0;
@@ -144,7 +145,7 @@ final class IntakeController
             return;
         }
         $approval = $this->currentApproval($events);
-        if ($approval === null) {
+        if ($approval === null || !$this->approvalCoversContent($issue, $approval)) {
             return;
         }
         $eventId = $approval['id'];
@@ -196,6 +197,27 @@ final class IntakeController
             && strcasecmp($actor, $this->config->trustedAuthor) === 0
             ? $latest
             : null;
+    }
+
+    /**
+     * The trusted label must approve the current title and body, not a later edit. GitHub updates
+     * `updated_at` when the label is applied, so a few seconds of clock slack are allowed.
+     *
+     * @param array<string, mixed> $issue
+     * @param array<string, mixed> $approval
+     */
+    private function approvalCoversContent(array $issue, array $approval): bool
+    {
+        $updatedAt = $issue['updated_at'] ?? null;
+        $approvedAt = $approval['created_at'] ?? null;
+        if (!is_string($updatedAt) || !is_string($approvedAt)) {
+            return false;
+        }
+        $updatedTimestamp = strtotime($updatedAt);
+        $approvedTimestamp = strtotime($approvedAt);
+
+        return $updatedTimestamp !== false && $approvedTimestamp !== false
+            && $updatedTimestamp <= $approvedTimestamp + self::APPROVAL_TIMESTAMP_SLACK_SECONDS;
     }
 
     private function hasDoItLabel(mixed $labels): bool
