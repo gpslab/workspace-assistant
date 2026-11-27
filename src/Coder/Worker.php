@@ -200,7 +200,7 @@ final class Worker
                 if (!isset($diagnostics['checks']['full'])) {
                     $diagnostics['phase'] = 'full_checks';
                     $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Running full final checks');
-                    $diagnostics['checks']['full'] = $this->checks->run($contract['full'], $path, $tick);
+                    $diagnostics['checks']['full'] = $this->checks->run($contract['full'], $path, $tick, true);
                     $diagnostics['phase'] = 'full_done';
                     $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Full final checks recorded');
                     $this->assertChecksPassed($diagnostics['checks']['full']);

@@ -23,12 +23,16 @@ final class CheckRunner
      *
      * @return list<array{argv:list<string>, exit:int, seconds:float, timed_out:bool}>
      */
-    public function run(array $commands, string $worktree, ?\Closure $onTick = null): array
-    {
+    public function run(
+        array $commands,
+        string $worktree,
+        ?\Closure $onTick = null,
+        bool $dedicatedGroup = false,
+    ): array {
         $records = [];
         foreach ($commands as $argv) {
             $started = microtime(true);
-            $result = Process::run($argv, $worktree, $this->timeout, $this->environment, $onTick);
+            $result = Process::run($argv, $worktree, $this->timeout, $this->environment, $onTick, $dedicatedGroup);
             $records[] = [
                 'argv' => $argv,
                 'exit' => $result['exit'],

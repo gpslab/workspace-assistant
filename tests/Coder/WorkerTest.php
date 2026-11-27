@@ -578,7 +578,7 @@ final class WorkerTest extends TestCase
             exit(1);
         }
 
-        $processes = $this->waitForTargetedCheckProcesses($stateFile);
+        $processes = $this->waitForCheckProcesses($stateFile);
         $this->processGroups[] = $processes['pgid'];
         foreach (['composer', 'check', 'descendant'] as $name) {
             self::assertTrue($this->processAlive($processes[$name]), 'The '.$name.' positive control must be active.');
@@ -600,6 +600,79 @@ final class WorkerTest extends TestCase
             'A cancelled check must not write to the worktree later.',
         );
         self::assertSame([], glob($this->stateDir.'/coder-runs/job-'.$id.'-lease-*/targeted-results.json') ?: []);
+        $this->processGroups = [];
+    }
+
+    public function testCancellationTerminatesActiveFullCheckProcessGroup(): void
+    {
+        $stateFile = $this->root.'/full-check-processes.json';
+        file_put_contents($this->repository.'/slow-check.php', <<<'PHP'
+            <?php
+            $child = pcntl_fork();
+            if ($child === -1) {
+                exit(1);
+            }
+            if ($child === 0) {
+                usleep(1000000);
+                file_put_contents($argv[2], "descendant\n", FILE_APPEND);
+                exit(0);
+            }
+            file_put_contents($argv[1], json_encode([
+                'composer' => posix_getppid(),
+                'check' => getmypid(),
+                'descendant' => $child,
+                'pgid' => posix_getpgid(getmypid()),
+            ], JSON_THROW_ON_ERROR));
+            usleep(1000000);
+            file_put_contents($argv[2], "check\n", FILE_APPEND);
+            pcntl_waitpid($child, $status);
+            PHP);
+        $this->writeComposerScripts();
+        $composer = json_decode((string) file_get_contents($this->repository.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        $composer['scripts']['cs:check'] = '@php slow-check.php '.escapeshellarg($stateFile).' cancelled-full-check-survived';
+        file_put_contents($this->repository.'/composer.json', json_encode($composer, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)."\n");
+        $this->git($this->repository, ['add', 'composer.json', 'slow-check.php']);
+        $this->git($this->repository, ['commit', '-q', '-m', 'Add cancellable full check fixture']);
+        $id = $this->enqueue();
+        $resultFile = $this->root.'/full-check-cancel-result.json';
+        $pid = pcntl_fork();
+        self::assertGreaterThanOrEqual(0, $pid);
+        if ($pid === 0) {
+            $this->store->disconnect();
+            try {
+                $result = $this->worker(new Store($this->stateDir))->runNext();
+                file_put_contents($resultFile, json_encode(['status' => $result?->status], JSON_THROW_ON_ERROR));
+                $code = 0;
+            } catch (\Throwable $e) {
+                file_put_contents($resultFile, json_encode(['error' => $e->getMessage()], JSON_THROW_ON_ERROR));
+                $code = 1;
+            }
+            pcntl_exec(PHP_BINARY, ['-r', 'exit('.$code.');']);
+            exit(1);
+        }
+
+        $processes = $this->waitForCheckProcesses($stateFile);
+        $this->processGroups[] = $processes['pgid'];
+        self::assertSame('full_checks', $this->store->job($id)['diagnostics']['phase'] ?? null);
+        foreach (['composer', 'check', 'descendant'] as $name) {
+            self::assertTrue($this->processAlive($processes[$name]), 'The '.$name.' positive control must be active.');
+        }
+
+        $cancelled = $this->worker()->cancel($id);
+        $this->waitForProcess($pid);
+        $data = json_decode((string) file_get_contents($resultFile), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame(LocalResult::CANCELLED, $cancelled->status);
+        self::assertSame(['status' => LocalResult::CANCELLED], $data);
+        foreach (['composer', 'check', 'descendant'] as $name) {
+            self::assertFalse($this->processAlive($processes[$name]), 'The '.$name.' must not survive full-check cancellation.');
+        }
+        self::assertFalse($this->groupAlive($processes['pgid']), 'The complete full check PGID must be gone.');
+        usleep(1_200_000);
+        self::assertFileDoesNotExist(
+            $this->worktreeDir.'/job-'.$id.'/cancelled-full-check-survived',
+            'A cancelled full check must not write to the worktree later.',
+        );
         $this->processGroups = [];
     }
 
@@ -781,7 +854,7 @@ final class WorkerTest extends TestCase
     }
 
     /** @return array{composer:int,check:int,descendant:int,pgid:int} */
-    private function waitForTargetedCheckProcesses(string $path): array
+    private function waitForCheckProcesses(string $path): array
     {
         $deadline = microtime(true) + 10;
         while (microtime(true) < $deadline) {
@@ -803,7 +876,7 @@ final class WorkerTest extends TestCase
             }
             usleep(50_000);
         }
-        self::fail('The active targeted check did not publish its process identities.');
+        self::fail('The active check did not publish its process identities.');
     }
 
     private function processAlive(int $pid): bool

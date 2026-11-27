@@ -14,8 +14,14 @@ final class Process
      *
      * @return array{exit:int, stdout:string, stderr:string, timed_out:bool}
      */
-    public static function run(array $argv, string $cwd, int $timeout, array $environment, ?\Closure $onTick = null): array
-    {
+    public static function run(
+        array $argv,
+        string $cwd,
+        int $timeout,
+        array $environment,
+        ?\Closure $onTick = null,
+        bool $dedicatedGroup = false,
+    ): array {
         if ($argv === []) {
             throw new \InvalidArgumentException('A process argv cannot be empty.');
         }
@@ -35,6 +41,16 @@ final class Process
             $command = [...$command, ...$argv];
             $processEnvironment = [];
         }
+        if ($dedicatedGroup) {
+            // proc_open() returns after exec, when the parent can no longer change the child's group.
+            // This argv-only launcher establishes the group first; env performs the usual PATH lookup.
+            $command = [
+                PHP_BINARY,
+                '-r',
+                'if (!posix_setpgid(0, 0)) { exit(250); } pcntl_exec("/usr/bin/env", array_slice($argv, 1)); exit(250);',
+                ...$command,
+            ];
+        }
         $proc = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd, $processEnvironment);
         if (!is_resource($proc)) {
             throw new \RuntimeException('Unable to start '.implode(' ', $argv).'.');
@@ -42,6 +58,7 @@ final class Process
         fclose($pipes[0]);
         stream_set_blocking($pipes[1], false);
         stream_set_blocking($pipes[2], false);
+        $pgid = $dedicatedGroup ? proc_get_status($proc)['pid'] : null;
         $stdout = $stderr = '';
         $deadline = microtime(true) + $timeout;
         $timedOut = false;
@@ -58,10 +75,16 @@ final class Process
                 }
                 if (microtime(true) >= $deadline) {
                     $timedOut = true;
-                    proc_terminate($proc, 15);
-                    usleep(300_000);
-                    if (proc_get_status($proc)['running']) {
+                    if ($pgid !== null) {
+                        ProcessSupervisor::terminateGroup($pgid);
+                        // Also stop the launcher if cancellation raced its pre-exec setpgid().
                         proc_terminate($proc, 9);
+                    } else {
+                        proc_terminate($proc, 15);
+                        usleep(300_000);
+                        if (proc_get_status($proc)['running']) {
+                            proc_terminate($proc, 9);
+                        }
                     }
                     break;
                 }
@@ -70,7 +93,12 @@ final class Process
             $stdout .= stream_get_contents($pipes[1]) ?: '';
             $stderr .= stream_get_contents($pipes[2]) ?: '';
         } catch (\Throwable $e) {
-            proc_terminate($proc, 9);
+            if ($pgid !== null) {
+                ProcessSupervisor::terminateGroup($pgid);
+                proc_terminate($proc, 9);
+            } else {
+                proc_terminate($proc, 9);
+            }
             throw $e;
         } finally {
             fclose($pipes[1]);
