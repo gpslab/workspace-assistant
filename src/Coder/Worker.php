@@ -139,32 +139,36 @@ final class Worker
                 if (!is_string($prompt) || trim($prompt) === '') {
                     throw new \RuntimeException('A leased fixture job must carry a non-empty diagnostics.prompt.');
                 }
-                $prompt = ImplementationChecks::prompt(
-                    $prompt,
+                $implementationChecks = ImplementationChecks::start(
                     $contract['targeted'],
                     $contract['composer'],
                     $runDirectory,
                     $path,
                     $this->config->checkTimeout,
                 );
+                $prompt = $implementationChecks->prompt($prompt);
                 $diagnostics['phase'] = 'engine';
                 $diagnostics['run_id'] = $runId;
-                $status = $this->supervisor->run(
-                    fn (): AgentRunner => ($this->runnerFactory)($path),
-                    $prompt,
-                    $sessionId,
-                    $runId,
-                    $runDirectory,
-                    $this->config->runTimeout,
-                    function (array $update) use (&$diagnostics, &$sessionId, $jobId, $lease, $path, $head): void {
-                        $diagnostics = array_merge($diagnostics, $update);
-                        $sessionId = self::nullableString($update['session_id'] ?? null) ?? $sessionId;
-                        $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Coder engine running');
-                    },
-                    function () use ($jobId, $lease, &$nextHeartbeat): bool {
-                        return $this->shouldStop($jobId, $lease, $nextHeartbeat);
-                    },
-                );
+                try {
+                    $status = $this->supervisor->run(
+                        fn (): AgentRunner => ($this->runnerFactory)($path),
+                        $prompt,
+                        $sessionId,
+                        $runId,
+                        $runDirectory,
+                        $this->config->runTimeout,
+                        function (array $update) use (&$diagnostics, &$sessionId, $jobId, $lease, $path, $head): void {
+                            $diagnostics = array_merge($diagnostics, $update);
+                            $sessionId = self::nullableString($update['session_id'] ?? null) ?? $sessionId;
+                            $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Coder engine running');
+                        },
+                        function () use ($jobId, $lease, &$nextHeartbeat): bool {
+                            return $this->shouldStop($jobId, $lease, $nextHeartbeat);
+                        },
+                    );
+                } finally {
+                    $implementationChecks->stop();
+                }
                 $diagnostics = array_merge($diagnostics, $status);
                 $sessionId = self::nullableString($status['session_id'] ?? null) ?? $sessionId;
                 if ($status['phase'] === 'cancelled') {
@@ -180,7 +184,7 @@ final class Worker
                 $head = $this->worktrees->reconcile($path, $branch, $prepared['base_head'], $tick)['head'];
                 // Pin the gates again after untrusted engine work and before accepting its check report.
                 $contract = CheckContract::forRepository($path, $diagnostics, $tick);
-                $diagnostics['checks']['targeted'] = ImplementationChecks::results($runDirectory, $contract['targeted']);
+                $diagnostics['checks']['targeted'] = $implementationChecks->results($contract['targeted']);
                 $diagnostics['phase'] = 'targeted_done';
                 $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Targeted implementation checks recorded');
                 $this->assertChecksPassed($diagnostics['checks']['targeted']);

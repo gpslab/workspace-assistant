@@ -153,6 +153,44 @@ final class WorkerTest extends TestCase
         self::assertNull($session['session_id']);
     }
 
+    public function testEngineCannotUseInheritedForgeCliConfiguration(): void
+    {
+        $credential = 'dummy-fixture-credential';
+        $ghConfig = $this->root.'/inherited-gh';
+        $glabConfig = $this->root.'/inherited-glab';
+        mkdir($ghConfig, 0700, true);
+        mkdir($glabConfig, 0700, true);
+        file_put_contents($ghConfig.'/hosts.yml', "github.com:\n  oauth_token: {$credential}\n  user: fixture\n");
+        file_put_contents($glabConfig.'/config.yml', "hosts:\n  gitlab.com:\n    token: {$credential}\n");
+        $this->installFakeForgeCli();
+        putenv('GH_CONFIG_DIR='.$ghConfig);
+        putenv('GLAB_CONFIG_DIR='.$glabConfig);
+        putenv('XDG_CONFIG_HOME='.$this->root.'/inherited-xdg');
+        /** @var array<string, string> $inherited */
+        $inherited = getenv();
+        foreach (['gh', 'glab'] as $cli) {
+            $positiveControl = Process::run([$cli, 'auth', 'token'], $this->repository, 5, $inherited);
+            self::assertSame(0, $positiveControl['exit'], $positiveControl['stderr']);
+            self::assertSame($credential, trim($positiveControl['stdout']), 'The fixture must expose its dummy credential before sanitization.');
+        }
+        $this->enqueue();
+
+        $result = $this->worker(mode: 'forge_config')->runNext();
+
+        self::assertNotNull($result);
+        self::assertSame(LocalResult::PUBLICATION_REQUESTED, $result->status, (string) ($result->details['error'] ?? ''));
+        $environment = json_decode((string) file_get_contents($this->logDir.'/environment.json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertNotSame($ghConfig, $environment['GH_CONFIG_DIR']);
+        self::assertNotSame($glabConfig, $environment['GLAB_CONFIG_DIR']);
+        self::assertNotSame($this->root.'/inherited-xdg', $environment['XDG_CONFIG_HOME']);
+        self::assertNotSame($environment['GH_CONFIG_DIR'], $environment['GLAB_CONFIG_DIR']);
+        $probes = json_decode((string) file_get_contents($this->logDir.'/forge-cli.json'), true, 512, JSON_THROW_ON_ERROR);
+        foreach (['gh', 'glab'] as $cli) {
+            self::assertSame(1, $probes[$cli]['exit'], 'The engine must not read the inherited dummy credential.');
+            self::assertSame('', $probes[$cli]['stdout']);
+        }
+    }
+
     public function testTargetedChecksRunInsideEngineBeforeOneFinalFullSet(): void
     {
         putenv('CODER_TEST_CHECK_LOG='.$this->logDir.'/checks.log');
@@ -171,6 +209,26 @@ final class WorkerTest extends TestCase
         );
         self::assertCount(1, $result->details['checks']['targeted']);
         self::assertCount(3, $result->details['checks']['full']);
+    }
+
+    public function testTargetedCheckBrokerStopsWithAnInheritedSigtermHandler(): void
+    {
+        $previousHandler = pcntl_signal_get_handler(SIGTERM);
+        $previousAsync = pcntl_async_signals();
+        pcntl_async_signals(true);
+        pcntl_signal(SIGTERM, static function (): void {
+        });
+        $this->enqueue();
+
+        try {
+            $result = $this->worker()->runNext();
+        } finally {
+            pcntl_signal(SIGTERM, $previousHandler);
+            pcntl_async_signals($previousAsync);
+        }
+
+        self::assertNotNull($result);
+        self::assertSame(LocalResult::PUBLICATION_REQUESTED, $result->status, (string) ($result->details['error'] ?? ''));
     }
 
     public function testFreshWorktreeInstallsLockedCheckTools(): void
@@ -222,6 +280,25 @@ final class WorkerTest extends TestCase
         self::assertSame($this->baseHead, $result->head);
         self::assertArrayNotHasKey('local_commit', $result->details);
         self::assertSame(Store::FAILED, $this->store->job($id)['state'] ?? null);
+    }
+
+    public function testEngineCannotForgeTargetedImplementationCheckReport(): void
+    {
+        putenv('CODER_TEST_CHECK_LOG='.$this->logDir.'/checks.log');
+        $this->writeComposerScripts(named: true);
+        $this->git($this->repository, ['add', 'composer.json']);
+        $this->git($this->repository, ['commit', '-q', '-m', 'Record forged check execution']);
+        $id = $this->enqueue();
+
+        $result = $this->worker(mode: 'forge_checks')->runNext();
+
+        self::assertNotNull($result);
+        self::assertSame(LocalResult::FAILED, $result->status);
+        self::assertStringContainsString('worker attestation', (string) ($result->details['error'] ?? ''));
+        self::assertNull($result->publicationRequest());
+        self::assertArrayNotHasKey('local_commit', $result->details);
+        self::assertSame(Store::FAILED, $this->store->job($id)['state'] ?? null);
+        self::assertFileDoesNotExist($this->logDir.'/checks.log', 'Neither targeted nor final checks may run for the forged report.');
     }
 
     public function testExistingSessionIsPassedToResumedEngine(): void
@@ -565,6 +642,33 @@ final class WorkerTest extends TestCase
         $environment = getenv();
         $result = Process::run(['composer', ...$arguments], $cwd, 60, $environment);
         self::assertSame(0, $result['exit'], $result['stderr'].$result['stdout']);
+    }
+
+    private function installFakeForgeCli(): void
+    {
+        $directory = $this->root.'/bin';
+        mkdir($directory, 0700, true);
+        $script = <<<'PHP'
+            #!/usr/bin/env php
+            <?php
+            $cli = basename($argv[0]);
+            $directory = getenv($cli === 'gh' ? 'GH_CONFIG_DIR' : 'GLAB_CONFIG_DIR');
+            $file = $cli === 'gh' ? 'hosts.yml' : 'config.yml';
+            if (!is_string($directory) || !is_file($directory.'/'.$file)) {
+                exit(1);
+            }
+            $contents = file_get_contents($directory.'/'.$file);
+            $pattern = $cli === 'gh' ? '/oauth_token:\s*(\S+)/' : '/token:\s*(\S+)/';
+            if (!is_string($contents) || preg_match($pattern, $contents, $match) !== 1) {
+                exit(1);
+            }
+            echo $match[1], "\n";
+            PHP;
+        foreach (['gh', 'glab'] as $cli) {
+            file_put_contents($directory.'/'.$cli, $script."\n");
+            chmod($directory.'/'.$cli, 0700);
+        }
+        putenv('PATH='.$directory.':'.getenv('PATH'));
     }
 
     private function writeComposerScripts(string $script = '@php -r "exit(0);"', bool $named = false): void

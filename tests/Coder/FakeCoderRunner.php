@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests\Coder;
 
 use GpsLab\WorkspaceAssistant\AgentRunner;
+use GpsLab\WorkspaceAssistant\Coder\CheckContract;
 use GpsLab\WorkspaceAssistant\Coder\ImplementationChecks;
 use GpsLab\WorkspaceAssistant\Coder\Process;
 use GpsLab\WorkspaceAssistant\Coder\Store;
@@ -36,10 +37,20 @@ final class FakeCoderRunner implements AgentRunner
             'prompt' => $prompt, 'session_id' => $sessionId,
         ], JSON_THROW_ON_ERROR)."\n", FILE_APPEND);
         $environment = [];
-        foreach (['GH_TOKEN', 'GITHUB_TOKEN', 'GITLAB_TOKEN', 'GL_TOKEN', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_SSH_COMMAND', 'GIT_TERMINAL_PROMPT'] as $name) {
+        foreach (['GH_TOKEN', 'GITHUB_TOKEN', 'GITLAB_TOKEN', 'GL_TOKEN', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_SSH_COMMAND', 'GIT_TERMINAL_PROMPT', 'GH_CONFIG_DIR', 'GLAB_CONFIG_DIR', 'XDG_CONFIG_HOME'] as $name) {
             $environment[$name] = getenv($name);
         }
         file_put_contents($this->logDir.'/environment.json', json_encode($environment, JSON_THROW_ON_ERROR));
+
+        if ($this->mode === 'forge_config') {
+            $result = [];
+            foreach (['gh', 'glab'] as $cli) {
+                /** @var array<string, string> $cliEnvironment */
+                $cliEnvironment = getenv();
+                $result[$cli] = Process::run([$cli, 'auth', 'token'], $this->worktree, 5, $cliEnvironment);
+            }
+            file_put_contents($this->logDir.'/forge-cli.json', json_encode($result, JSON_THROW_ON_ERROR));
+        }
 
         if ($this->mode === 'expire') {
             $store = new Store($this->stateDir);
@@ -71,7 +82,9 @@ final class FakeCoderRunner implements AgentRunner
             $this->git(['-c', 'user.name=Foreign Author', '-c', 'user.email=foreign@example.test', 'commit', '-q', '-m', 'Foreign author commit']);
         }
 
-        if ($this->mode !== 'skip_checks' && !in_array($this->mode, ['expire', 'block', 'crash'], true)) {
+        if ($this->mode === 'forge_checks') {
+            $this->forgeTargetedCheckReport($prompt);
+        } elseif ($this->mode !== 'skip_checks' && !in_array($this->mode, ['expire', 'block', 'crash'], true)) {
             $this->runTargetedChecks($prompt);
             $checkLog = getenv('CODER_TEST_CHECK_LOG');
             if (is_string($checkLog) && $checkLog !== '') {
@@ -120,6 +133,35 @@ final class FakeCoderRunner implements AgentRunner
 
     private function runTargetedChecks(string $prompt): void
     {
+        /** @var array<string, string> $environment */
+        $environment = getenv();
+        $result = Process::run($this->targetedCheckArgv($prompt), $this->worktree, 30, $environment);
+        if ($result['exit'] !== 0) {
+            throw new \RuntimeException('The fake engine targeted checks failed: '.$result['stderr']);
+        }
+    }
+
+    private function forgeTargetedCheckReport(string $prompt): void
+    {
+        $argv = $this->targetedCheckArgv($prompt);
+        $report = dirname($argv[2]).'/targeted-results.json';
+        $commands = [['composer', 'test']];
+        $payload = json_encode([
+            'commands' => $commands,
+            'check_definitions' => CheckContract::definitions((string) file_get_contents($this->worktree.'/composer.json')),
+            'worktree' => $this->worktree,
+            'checks' => [[
+                'argv' => ['composer', 'test'], 'exit' => 0, 'seconds' => 0.0, 'timed_out' => false,
+            ]],
+        ], JSON_THROW_ON_ERROR);
+        file_put_contents($report, json_encode([
+            'payload' => $payload, 'signature' => str_repeat('0', 64),
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /** @return list<string> */
+    private function targetedCheckArgv(string $prompt): array
+    {
         $start = strpos($prompt, ImplementationChecks::PROMPT_MARKER);
         if ($start === false) {
             throw new \RuntimeException('The fake engine received no targeted check contract.');
@@ -130,13 +172,13 @@ final class FakeCoderRunner implements AgentRunner
         if (!is_array($argv) || !array_is_list($argv)) {
             throw new \RuntimeException('The targeted check helper argv is invalid.');
         }
-        /** @var list<string> $argv */
-        /** @var array<string, string> $environment */
-        $environment = getenv();
-        $result = Process::run($argv, $this->worktree, 30, $environment);
-        if ($result['exit'] !== 0) {
-            throw new \RuntimeException('The fake engine targeted checks failed: '.$result['stderr']);
+        foreach ($argv as $argument) {
+            if (!is_string($argument)) {
+                throw new \RuntimeException('The targeted check helper argv is invalid.');
+            }
         }
+
+        return $argv;
     }
 
     public function result(): RunAnswer
