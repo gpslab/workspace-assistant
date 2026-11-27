@@ -350,13 +350,13 @@ final class StoreTest extends TestCase
         self::assertSame(['issue:7:event:99'], $this->store->processedEventKeys($id));
         self::assertNotNull($this->store->enqueueIntake('example/other', 'issue:7:event:100', 'coder/issue-7', 7, ['prompt' => 'Other repository'], 11));
 
-        $this->store->saveIntakeCursor('example/repo', 17, 12);
+        $this->store->saveIntakeCursor('example/repo', 17, 12, page: 3);
         $this->store->saveIntakeSchedule('example/repo', 12);
         $this->store->reconnect();
 
-        self::assertSame(['issue_number' => 17], $this->store->intakeCursor('example/repo'));
+        self::assertSame(['issue_number' => 17, 'page' => 3], $this->store->intakeCursor('example/repo'));
         self::assertSame('example/repo', $this->store->intakeSchedule());
-        self::assertSame(['issue_number' => 0], $this->store->intakeCursor('example/other'));
+        self::assertSame(['issue_number' => 0, 'page' => 1], $this->store->intakeCursor('example/other'));
     }
 
     public function testConcurrentRelabelsCannotCreateTwoActiveJobsForOneIssue(): void

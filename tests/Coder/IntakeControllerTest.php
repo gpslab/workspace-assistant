@@ -254,6 +254,23 @@ final class IntakeControllerTest extends TestCase
         self::assertSame([1, 2], array_column($this->store->jobs(), 'issue_number'));
     }
 
+    public function testPageCapResumesAtLaterCandidatesWithoutStarvation(): void
+    {
+        $this->api->issues['acme/one'] = array_map(static fn (int $number): array => self::issue($number), range(1, 1001));
+        $this->api->events['acme/one#1001'] = [self::approval(91001)];
+        $this->store->saveIntakeCursor('acme/one', 1000);
+        $controller = $this->controller(['acme/one' => 'coder']);
+
+        self::assertSame(0, $controller->poll());
+        self::assertSame(range(1, 20), array_column($this->api->calls, 'page'));
+        self::assertSame(['issue_number' => 1000, 'page' => 21], $this->store->intakeCursor('acme/one'));
+
+        $this->now += 5;
+        self::assertSame(1, $controller->poll());
+        self::assertSame([1001], array_column($this->store->jobs(), 'issue_number'));
+        self::assertSame(21, $this->api->calls[20]['page']);
+    }
+
     public function testRelabelDoesNotCreateASecondActiveJobForOneIssue(): void
     {
         $this->api->issues['acme/one'] = [self::issue(1)];
@@ -285,7 +302,7 @@ final class IntakeControllerTest extends TestCase
         $first = $this->controller($routing, work: 1);
         self::assertSame(1, $first->poll());
         self::assertSame(['acme/a'], array_column($this->store->jobs(), 'repository'));
-        self::assertSame(['issue_number' => 1], $this->store->intakeCursor('acme/a'));
+        self::assertSame(['issue_number' => 1, 'page' => 1], $this->store->intakeCursor('acme/a'));
         self::assertSame('acme/a', $this->store->intakeSchedule());
 
         // A new controller resumes the durable schedule: the worker owns no second cursor.
@@ -321,7 +338,7 @@ final class IntakeControllerTest extends TestCase
         self::assertSame(['issues', 'events', 'events'], array_column($this->api->calls, 'kind'));
         self::assertSame([1, 1, 1], array_column($this->api->calls, 'timeout'));
         self::assertSame([1, 2], array_column($this->store->jobs(), 'issue_number'));
-        self::assertSame(['issue_number' => 2], $this->store->intakeCursor('acme/one'));
+        self::assertSame(['issue_number' => 2, 'page' => 1], $this->store->intakeCursor('acme/one'));
     }
 
     public function testFailureIsIsolatedAndASlowRepositoryDoesNotStarveTheNextRepository(): void

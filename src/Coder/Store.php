@@ -695,28 +695,28 @@ final class Store
         });
     }
 
-    /** @return array{issue_number:int} the last examined issue, or 0 to restart the ordered scan */
+    /** @return array{issue_number:int, page:int} the last examined issue and the next page of a capped scan */
     public function intakeCursor(string $repository): array
     {
-        $stmt = $this->connection()->prepare('SELECT issue_number FROM coder_intake_cursors WHERE repository = :repository');
+        $stmt = $this->connection()->prepare('SELECT issue_number, page FROM coder_intake_cursors WHERE repository = :repository');
         $stmt->execute(['repository' => $repository]);
-        $number = $stmt->fetchColumn();
+        $row = $stmt->fetch();
 
-        return ['issue_number' => $number === false ? 0 : (int) $number];
+        return $row === false ? ['issue_number' => 0, 'page' => 1] : ['issue_number' => (int) $row['issue_number'], 'page' => (int) $row['page']];
     }
 
-    public function saveIntakeCursor(string $repository, int $issueNumber, ?int $now = null): void
+    public function saveIntakeCursor(string $repository, int $issueNumber, ?int $now = null, int $page = 1): void
     {
-        if ($issueNumber < 0) {
-            throw new \InvalidArgumentException('A coder intake cursor needs a non-negative issue number.');
+        if ($issueNumber < 0 || $page < 1) {
+            throw new \InvalidArgumentException('A coder intake cursor needs a non-negative issue number and a positive page.');
         }
         $this->connection()->prepare(
             <<<'SQL'
             INSERT INTO coder_intake_cursors (repository, page, offset, issue_number, updated_at)
-            VALUES (:repository, 1, 0, :issue, :now)
-            ON CONFLICT(repository) DO UPDATE SET issue_number = excluded.issue_number, updated_at = excluded.updated_at
+            VALUES (:repository, :page, 0, :issue, :now)
+            ON CONFLICT(repository) DO UPDATE SET page = excluded.page, offset = 0, issue_number = excluded.issue_number, updated_at = excluded.updated_at
             SQL
-        )->execute(['repository' => $repository, 'issue' => $issueNumber, 'now' => $now ?? time()]);
+        )->execute(['repository' => $repository, 'issue' => $issueNumber, 'page' => $page, 'now' => $now ?? time()]);
     }
 
     /** Repository after which the next round-robin pass starts. */

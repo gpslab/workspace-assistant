@@ -91,9 +91,11 @@ final class IntakeController
 
     private function pollRepository(string $repository, int $workLeft, float $deadline): int
     {
-        $after = $this->store->intakeCursor($repository)['issue_number'];
+        $cursor = $this->store->intakeCursor($repository);
+        $after = $cursor['issue_number'];
         $examined = 0;
-        for ($page = 1; $page <= self::MAX_ISSUE_PAGES && $examined < $workLeft; ++$page) {
+        $restarted = false;
+        for ($page = $cursor['page'], $fetchedPages = 0; $fetchedPages < self::MAX_ISSUE_PAGES && $examined < $workLeft; ++$page, ++$fetchedPages) {
             if (($this->clock)() + 1 > $deadline) {
                 break;
             }
@@ -105,6 +107,7 @@ final class IntakeController
             );
             if ($issues === []) {
                 $this->store->saveIntakeCursor($repository, 0);
+                $restarted = true;
                 break;
             }
 
@@ -137,8 +140,14 @@ final class IntakeController
             if ($count < self::ISSUE_PAGE_SIZE) {
                 // The ordered scan reached its end; the next pass also considers older re-labelled issues.
                 $this->store->saveIntakeCursor($repository, 0);
+                $restarted = true;
                 break;
             }
+        }
+        if (!$restarted && $examined === 0) {
+            // Continue a capped scan of already-cursored records on the next pass. Examining new work
+            // saves page one above, so closing an earlier issue cannot shift a persisted offset past it.
+            $this->store->saveIntakeCursor($repository, $after, page: $page);
         }
 
         return $examined;

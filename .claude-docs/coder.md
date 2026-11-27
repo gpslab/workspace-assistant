@@ -28,13 +28,16 @@ inserting, so distinct re-label events cannot create concurrent jobs for one iss
 
 The controller owns both durable cursors in `state/coder.sqlite`: the last examined issue number in
 each repository's server-filtered, creation-ordered scan and the repository starting the next
-round-robin pass. Every pass resumes from page one and skips only issue identities at or before that
-cursor, so closing an earlier issue cannot shift a numeric offset past new work. Reaching the end
-resets the cursor to consider older re-labelled issues. `Coder\Worker` only consumes leased jobs and
-never polls GitHub. `CODER_INTAKE_POLL_SECONDS`, `CODER_INTAKE_TICK_BUDGET`,
-`CODER_INTAKE_WORK_BUDGET` and `CODER_INTAKE_REQUEST_TIMEOUT` bound the pass. A repository failure
-is logged as a warning with its cursor retained and isolated; a slow or full event page fails closed.
-Intake adds no GitHub write and no production worker start.
+round-robin pass. Passes normally resume from page one and skip only issue identities at or before
+the issue cursor, so closing an earlier issue cannot shift a numeric offset past new work. When the
+page cap contains only already-cursored records, the next page is retained for the following pass;
+examining new work returns the durable scan to page one. This bounds each pass without permanently
+starving candidates beyond the cap. Reaching the end resets the cursor to consider older re-labelled
+issues. `Coder\Worker` only consumes leased jobs and never polls GitHub.
+`CODER_INTAKE_POLL_SECONDS`, `CODER_INTAKE_TICK_BUDGET`, `CODER_INTAKE_WORK_BUDGET` and
+`CODER_INTAKE_REQUEST_TIMEOUT` bound the pass. A repository failure is logged as a warning with its
+cursor retained and isolated; a slow or full event page fails closed. Intake adds no GitHub write and
+no production worker start.
 
 `Coder\RoutingGuard` rejects coder routing at startup while an epic containing the repository is
 `running`; `paused`, `blocked` and `done` epics permit startup. Resuming a paused or blocked epic
