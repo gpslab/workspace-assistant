@@ -28,6 +28,7 @@ final class ProcessSupervisor
         int $timeout,
         \Closure $onUpdate,
         \Closure $isCancelled,
+        ?\Closure $beforeEngineStart = null,
     ): array {
         if (!function_exists('pcntl_fork') || !function_exists('posix_setsid')) {
             throw new \RuntimeException('The coder worker requires pcntl and POSIX process-group support.');
@@ -41,7 +42,7 @@ final class ProcessSupervisor
             throw new \RuntimeException('Unable to fork the coder engine supervisor.');
         }
         if ($pid === 0) {
-            $this->child($factory, $prompt, $sessionId, self::identity((int) posix_getpid(), $runId), $statusPath);
+            $this->child($factory, $prompt, $sessionId, self::identity((int) posix_getpid(), $runId), $statusPath, $beforeEngineStart);
         }
         $identity = self::identity($pid, $runId);
 
@@ -140,9 +141,12 @@ final class ProcessSupervisor
      * @param \Closure():AgentRunner $factory
      * @param array<string, mixed>   $identity
      */
-    private function child(\Closure $factory, string $prompt, ?string $sessionId, array $identity, string $statusPath): void
+    private function child(\Closure $factory, string $prompt, ?string $sessionId, array $identity, string $statusPath, ?\Closure $beforeEngineStart): void
     {
         try {
+            if ($beforeEngineStart !== null) {
+                $beforeEngineStart();
+            }
             if (posix_setsid() === -1) {
                 throw new \RuntimeException('Unable to create the coder process group.');
             }
@@ -229,7 +233,7 @@ final class ProcessSupervisor
     }
 
     /** @return array{run_id:string,supervisor_pid:int,pgid:int,supervisor_start_time:?string,boot_id:string} */
-    private static function identity(int $pid, string $runId): array
+    public static function identity(int $pid, string $runId): array
     {
         return [
             'run_id' => $runId,

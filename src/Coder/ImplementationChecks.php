@@ -36,6 +36,7 @@ final class ImplementationChecks
         string $runDirectory,
         string $worktree,
         int $timeout,
+        ?\Closure $beforeBrokerStart = null,
     ): self {
         if (!function_exists('pcntl_fork') || !function_exists('posix_setpgid')) {
             throw new \RuntimeException('The coder worker requires pcntl and POSIX process-group support for targeted checks.');
@@ -58,6 +59,9 @@ final class ImplementationChecks
             throw new \RuntimeException('Unable to fork the targeted check broker.');
         }
         if ($pid === 0) {
+            if ($beforeBrokerStart !== null) {
+                $beforeBrokerStart();
+            }
             if (!posix_setpgid(0, 0)) {
                 fclose($server);
                 posix_kill(posix_getpid(), SIGKILL);
@@ -77,6 +81,12 @@ final class ImplementationChecks
         fclose($server);
 
         return new self($pid, $secret, $runDirectory, $worktree, $checkDefinitions, $timeout);
+    }
+
+    /** @return array<string, mixed> */
+    public function identity(string $runId): array
+    {
+        return ProcessSupervisor::identity($this->brokerPid, $runId) + ['kind' => 'targeted', 'active' => true];
     }
 
     public function prompt(string $prompt): string

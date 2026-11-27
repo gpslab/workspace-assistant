@@ -28,11 +28,12 @@ final class CheckRunner
         string $worktree,
         ?\Closure $onTick = null,
         bool $dedicatedGroup = false,
+        ?\Closure $onGroupStart = null,
     ): array {
         $records = [];
         foreach ($commands as $argv) {
             $started = microtime(true);
-            $result = Process::run($argv, $worktree, $this->timeout, $this->environment, $onTick, $dedicatedGroup);
+            $result = Process::run($argv, $worktree, $this->timeout, $this->environment, $onTick, $dedicatedGroup, $onGroupStart);
             $records[] = [
                 'argv' => $argv,
                 'exit' => $result['exit'],

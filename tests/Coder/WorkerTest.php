@@ -594,12 +594,11 @@ final class WorkerTest extends TestCase
             self::assertFalse($this->processAlive($processes[$name]), 'The '.$name.' must not survive cancellation.');
         }
         self::assertFalse($this->groupAlive($processes['pgid']), 'The complete targeted check PGID must be gone.');
+        $reports = $this->targetedReportFingerprints($id);
+        $delayedWrite = $this->fileFingerprint($this->worktreeDir.'/job-'.$id.'/cancelled-check-survived');
         usleep(1_200_000);
-        self::assertFileDoesNotExist(
-            $this->worktreeDir.'/job-'.$id.'/cancelled-check-survived',
-            'A cancelled check must not write to the worktree later.',
-        );
-        self::assertSame([], glob($this->stateDir.'/coder-runs/job-'.$id.'-lease-*/targeted-results.json') ?: []);
+        self::assertSame($delayedWrite, $this->fileFingerprint($this->worktreeDir.'/job-'.$id.'/cancelled-check-survived'));
+        self::assertSame($reports, $this->targetedReportFingerprints($id), (string) json_encode($this->store->job($id), JSON_THROW_ON_ERROR));
         $this->processGroups = [];
     }
 
@@ -668,11 +667,97 @@ final class WorkerTest extends TestCase
             self::assertFalse($this->processAlive($processes[$name]), 'The '.$name.' must not survive full-check cancellation.');
         }
         self::assertFalse($this->groupAlive($processes['pgid']), 'The complete full check PGID must be gone.');
+        $delayedWrite = $this->fileFingerprint($this->worktreeDir.'/job-'.$id.'/cancelled-full-check-survived');
         usleep(1_200_000);
-        self::assertFileDoesNotExist(
-            $this->worktreeDir.'/job-'.$id.'/cancelled-full-check-survived',
-            'A cancelled full check must not write to the worktree later.',
-        );
+        self::assertSame($delayedWrite, $this->fileFingerprint($this->worktreeDir.'/job-'.$id.'/cancelled-full-check-survived'));
+        $this->processGroups = [];
+    }
+
+    public function testCrashRecoveryTerminatesEngineInsteadOfSkippingItsInheritedJobLock(): void
+    {
+        $id = $this->enqueue();
+        $pid = $this->startWorker('block');
+        $job = $this->waitForRunningEngine($id);
+        $pgid = $job['diagnostics']['pgid'];
+        self::assertIsInt($pgid);
+        $this->processGroups[] = $pgid;
+        self::assertIsInt($job['diagnostics']['process_groups']['targeted']['pgid'] ?? null);
+        $this->killWorker($pid);
+        self::assertTrue($this->groupAlive($pgid), 'The surviving engine is the positive control for crash recovery.');
+
+        $this->expireAndRecover();
+
+        self::assertSame(Store::QUEUED, $this->store->job($id)['state'] ?? null);
+        self::assertFalse($this->groupAlive($pgid), 'Recovery must kill the surviving engine before requeueing.');
+        $this->processGroups = [];
+    }
+
+    public function testCrashRecoveryTerminatesPersistedTargetedCheckGroup(): void
+    {
+        $stateFile = $this->root.'/targeted-crash-processes.json';
+        $this->installSlowCheck();
+        $this->writeComposerScripts('@php slow-check.php '.escapeshellarg($stateFile).' crashed-targeted-survived');
+        $this->git($this->repository, ['add', 'composer.json', 'slow-check.php']);
+        $this->git($this->repository, ['commit', '-q', '-m', 'Add targeted crash fixture']);
+        $id = $this->enqueue();
+        $pid = $this->startWorker();
+        $processes = $this->waitForCheckProcesses($stateFile);
+        $this->processGroups[] = $processes['pgid'];
+        $identity = $this->store->job($id)['diagnostics']['process_groups']['targeted'] ?? null;
+        self::assertSame($processes['pgid'], $identity['pgid'] ?? null);
+        self::assertSame($this->store->job($id)['diagnostics']['run_id'] ?? null, $identity['run_id'] ?? null);
+        foreach (['composer', 'check', 'descendant'] as $name) {
+            self::assertTrue($this->processAlive($processes[$name]), 'The '.$name.' positive control must be active.');
+        }
+        $this->killWorker($pid);
+
+        $this->expireAndRecover();
+
+        self::assertSame(Store::QUEUED, $this->store->job($id)['state'] ?? null, (string) json_encode($this->store->job($id), JSON_THROW_ON_ERROR));
+        foreach (['composer', 'check', 'descendant'] as $name) {
+            self::assertFalse($this->processAlive($processes[$name]), 'The '.$name.' must not survive crash recovery.');
+        }
+        self::assertFalse($this->groupAlive($processes['pgid']));
+        $reports = $this->targetedReportFingerprints($id);
+        $delayedWrite = $this->fileFingerprint($this->worktreeDir.'/job-'.$id.'/crashed-targeted-survived');
+        usleep(1_200_000);
+        self::assertSame($delayedWrite, $this->fileFingerprint($this->worktreeDir.'/job-'.$id.'/crashed-targeted-survived'));
+        self::assertSame($reports, $this->targetedReportFingerprints($id), (string) json_encode($this->store->job($id), JSON_THROW_ON_ERROR));
+        $this->processGroups = [];
+    }
+
+    public function testCrashRecoveryTerminatesPersistedFullCheckGroup(): void
+    {
+        $stateFile = $this->root.'/full-crash-processes.json';
+        $this->installSlowCheck();
+        $this->writeComposerScripts();
+        $composer = json_decode((string) file_get_contents($this->repository.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        $composer['scripts']['cs:check'] = '@php slow-check.php '.escapeshellarg($stateFile).' crashed-full-survived';
+        file_put_contents($this->repository.'/composer.json', json_encode($composer, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)."\n");
+        $this->git($this->repository, ['add', 'composer.json', 'slow-check.php']);
+        $this->git($this->repository, ['commit', '-q', '-m', 'Add full-check crash fixture']);
+        $id = $this->enqueue();
+        $pid = $this->startWorker();
+        $processes = $this->waitForCheckProcesses($stateFile);
+        $this->processGroups[] = $processes['pgid'];
+        $identity = $this->store->job($id)['diagnostics']['process_groups']['full-0'] ?? null;
+        self::assertSame($processes['pgid'], $identity['pgid'] ?? null);
+        self::assertSame($this->store->job($id)['diagnostics']['run_id'] ?? null, $identity['run_id'] ?? null);
+        foreach (['composer', 'check', 'descendant'] as $name) {
+            self::assertTrue($this->processAlive($processes[$name]), 'The '.$name.' positive control must be active.');
+        }
+        $this->killWorker($pid);
+
+        $this->expireAndRecover();
+
+        self::assertSame(Store::QUEUED, $this->store->job($id)['state'] ?? null);
+        foreach (['composer', 'check', 'descendant'] as $name) {
+            self::assertFalse($this->processAlive($processes[$name]), 'The '.$name.' must not survive crash recovery.');
+        }
+        self::assertFalse($this->groupAlive($processes['pgid']));
+        $delayedWrite = $this->fileFingerprint($this->worktreeDir.'/job-'.$id.'/crashed-full-survived');
+        usleep(1_200_000);
+        self::assertSame($delayedWrite, $this->fileFingerprint($this->worktreeDir.'/job-'.$id.'/crashed-full-survived'));
         $this->processGroups = [];
     }
 
@@ -737,6 +822,79 @@ final class WorkerTest extends TestCase
         self::assertSame(Store::FAILED, $job['state']);
         self::assertArrayHasKey('reconciliation_error', $job['diagnostics']);
         self::assertSame(Store::DONE, $this->store->job($healthy)['state'] ?? null);
+    }
+
+    private function startWorker(string $mode = 'write'): int
+    {
+        $pid = pcntl_fork();
+        self::assertGreaterThanOrEqual(0, $pid);
+        if ($pid === 0) {
+            $this->store->disconnect();
+            try {
+                $this->worker(new Store($this->stateDir), $mode)->runNext();
+                $code = 0;
+            } catch (\Throwable) {
+                $code = 1;
+            }
+            pcntl_exec(PHP_BINARY, ['-r', 'exit('.$code.');']);
+            exit(1);
+        }
+
+        return $pid;
+    }
+
+    private function killWorker(int $pid): void
+    {
+        posix_kill($pid, SIGKILL);
+        pcntl_waitpid($pid, $status);
+    }
+
+    private function expireAndRecover(): void
+    {
+        $this->store->reconcileExpiredLeases(time() + 301);
+        $worker = $this->worker(new Store($this->stateDir));
+        (new \ReflectionMethod($worker, 'recoverExpired'))->invoke($worker);
+    }
+
+    /** @return array<string, string> */
+    private function targetedReportFingerprints(int $jobId): array
+    {
+        $fingerprints = [];
+        foreach (glob($this->stateDir.'/coder-runs/job-'.$jobId.'-lease-*/targeted-results.json') ?: [] as $path) {
+            $fingerprints[$path] = (string) md5_file($path);
+        }
+
+        return $fingerprints;
+    }
+
+    private function fileFingerprint(string $path): ?string
+    {
+        return is_file($path) ? (string) md5_file($path) : null;
+    }
+
+    private function installSlowCheck(): void
+    {
+        file_put_contents($this->repository.'/slow-check.php', <<<'PHP'
+            <?php
+            $child = pcntl_fork();
+            if ($child === -1) {
+                exit(1);
+            }
+            if ($child === 0) {
+                usleep(1000000);
+                file_put_contents($argv[2], "descendant\n", FILE_APPEND);
+                exit(0);
+            }
+            file_put_contents($argv[1], json_encode([
+                'composer' => posix_getppid(),
+                'check' => getmypid(),
+                'descendant' => $child,
+                'pgid' => posix_getpgid(getmypid()),
+            ], JSON_THROW_ON_ERROR));
+            usleep(1000000);
+            file_put_contents($argv[2], "check\n", FILE_APPEND);
+            pcntl_waitpid($child, $status);
+            PHP);
     }
 
     private function enqueue(): int

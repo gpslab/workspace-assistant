@@ -21,6 +21,7 @@ final class Process
         array $environment,
         ?\Closure $onTick = null,
         bool $dedicatedGroup = false,
+        ?\Closure $onGroupStart = null,
     ): array {
         if ($argv === []) {
             throw new \InvalidArgumentException('A process argv cannot be empty.');
@@ -63,6 +64,9 @@ final class Process
         $deadline = microtime(true) + $timeout;
         $timedOut = false;
         try {
+            if ($onGroupStart !== null && $pgid !== null) {
+                $onGroupStart($pgid);
+            }
             while (true) {
                 if ($onTick !== null) {
                     $onTick();

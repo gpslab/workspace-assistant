@@ -18,6 +18,8 @@ final class Worker
     private readonly ProcessSupervisor $supervisor;
     private readonly CheckRunner $checks;
     private int $workerId = 0;
+    /** @var resource|null */
+    private $jobLock;
 
     /** @param \Closure(string):AgentRunner|null $runnerFactory */
     public function __construct(
@@ -56,6 +58,7 @@ final class Worker
             return null;
         }
 
+        $this->jobLock = $lock;
         try {
             $job = $this->store->job($jobId);
             if ($job === null) {
@@ -66,6 +69,7 @@ final class Worker
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
+            $this->jobLock = null;
         }
     }
 
@@ -145,7 +149,10 @@ final class Worker
                     $runDirectory,
                     $path,
                     $this->config->checkTimeout,
+                    fn () => $this->releaseInheritedJobLock(),
                 );
+                $diagnostics['process_groups']['targeted'] = $implementationChecks->identity($runId);
+                $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Targeted check broker running');
                 $prompt = $implementationChecks->prompt($prompt);
                 $diagnostics['phase'] = 'engine';
                 $diagnostics['run_id'] = $runId;
@@ -165,9 +172,11 @@ final class Worker
                         function () use ($jobId, $lease, &$nextHeartbeat): bool {
                             return $this->shouldStop($jobId, $lease, $nextHeartbeat);
                         },
+                        fn () => $this->releaseInheritedJobLock(),
                     );
                 } finally {
                     $implementationChecks->stop();
+                    $diagnostics['process_groups']['targeted']['active'] = false;
                 }
                 $diagnostics = array_merge($diagnostics, $status);
                 $sessionId = self::nullableString($status['session_id'] ?? null) ?? $sessionId;
@@ -200,7 +209,24 @@ final class Worker
                 if (!isset($diagnostics['checks']['full'])) {
                     $diagnostics['phase'] = 'full_checks';
                     $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Running full final checks');
-                    $diagnostics['checks']['full'] = $this->checks->run($contract['full'], $path, $tick, true);
+                    $fullGroup = 0;
+                    $diagnostics['checks']['full'] = $this->checks->run(
+                        $contract['full'],
+                        $path,
+                        $tick,
+                        true,
+                        function (int $pgid) use (&$diagnostics, &$fullGroup, $jobId, $lease, $runId, $head, $sessionId, $path): void {
+                            $diagnostics['process_groups']['full-'.$fullGroup++] = ProcessSupervisor::identity($pgid, $runId) + [
+                                'kind' => 'full', 'active' => true,
+                            ];
+                            $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Full check process group running');
+                        },
+                    );
+                    foreach (array_keys($diagnostics['process_groups'] ?? []) as $key) {
+                        if (($diagnostics['process_groups'][$key]['kind'] ?? null) === 'full') {
+                            $diagnostics['process_groups'][$key]['active'] = false;
+                        }
+                    }
                     $diagnostics['phase'] = 'full_done';
                     $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Full final checks recorded');
                     $this->assertChecksPassed($diagnostics['checks']['full']);
@@ -274,6 +300,16 @@ final class Worker
     /** @param array<string, mixed> $diagnostics */
     private function reconcileProcesses(array $diagnostics): void
     {
+        foreach ($diagnostics['process_groups'] ?? [] as $identity) {
+            if (!is_array($identity)) {
+                continue;
+            }
+            ProcessSupervisor::reconcile(
+                self::nullableInt($identity['pgid'] ?? null),
+                self::nullableString($identity['run_id'] ?? null),
+                $identity,
+            );
+        }
         ProcessSupervisor::reconcile(
             self::nullableInt($diagnostics['pgid'] ?? null),
             self::nullableString($diagnostics['run_id'] ?? null),
@@ -363,6 +399,15 @@ final class Worker
         }
 
         return $lock;
+    }
+
+    private function releaseInheritedJobLock(): void
+    {
+        if (is_resource($this->jobLock)) {
+            flock($this->jobLock, LOCK_UN);
+            fclose($this->jobLock);
+            $this->jobLock = null;
+        }
     }
 
     private function claudeRunner(string $worktree): ClaudeRunner
