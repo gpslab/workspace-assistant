@@ -156,6 +156,16 @@ While the bot's commit is blocked by a secret (see [README](README.md#commit-gat
 `secret_blocked` in front of the message: the findings as `- file:line (type)` lines, without values (`{findings}`,
 built in code), and the instruction to remove the secret and rewrite an unpushed commit that holds it.
 
+### Standalone coder implementation
+
+`Coder\Worker` appends a targeted-check block to the leased job's implementation prompt. The block carries
+one fixed argument vector for `bin/coder-targeted-check.php`, the worker-owned broker socket and the check
+timeout. The engine invokes that helper after editing and before finishing; the broker executes only the
+allowed targeted Composer test commands pinned from the job's base commit and signs their records with a
+secret held only by the worker and broker. The worker verifies that attestation against the pinned contract
+and then runs the full final set itself. An engine-written report without the broker's attestation is not
+accepted. This block is built in code and has no prompt-file override.
+
 ### Files without text
 
 `Inbox` uses `default_file_prompt`:

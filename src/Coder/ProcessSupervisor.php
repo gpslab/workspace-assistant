@@ -1,0 +1,313 @@
+<?php
+
+declare(strict_types=1);
+
+namespace GpsLab\WorkspaceAssistant\Coder;
+
+use GpsLab\WorkspaceAssistant\AgentRunner;
+use GpsLab\WorkspaceAssistant\RunnerState;
+
+/** Runs one AgentRunner behind a session leader and supervises its complete process group. */
+final class ProcessSupervisor
+{
+    public const string RUN_ID_ENV = 'WORKSPACE_ASSISTANT_CODER_RUN_ID';
+
+    /**
+     * @param \Closure():AgentRunner             $factory
+     * @param \Closure(array<string,mixed>):void $onUpdate
+     * @param \Closure():bool                    $isCancelled
+     *
+     * @return array<string, mixed>
+     */
+    public function run(
+        \Closure $factory,
+        string $prompt,
+        ?string $sessionId,
+        string $runId,
+        string $runDirectory,
+        int $timeout,
+        \Closure $onUpdate,
+        \Closure $isCancelled,
+        ?\Closure $beforeEngineStart = null,
+    ): array {
+        if (!function_exists('pcntl_fork') || !function_exists('posix_setsid')) {
+            throw new \RuntimeException('The coder worker requires pcntl and POSIX process-group support.');
+        }
+        if (!is_dir($runDirectory) && !mkdir($runDirectory, 0700, true) && !is_dir($runDirectory)) {
+            throw new \RuntimeException('Unable to create the coder run directory.');
+        }
+        $statusPath = $runDirectory.'/status.json';
+        $pid = pcntl_fork();
+        if ($pid === -1) {
+            throw new \RuntimeException('Unable to fork the coder engine supervisor.');
+        }
+        if ($pid === 0) {
+            $this->child($factory, $prompt, $sessionId, self::identity((int) posix_getpid(), $runId), $statusPath, $beforeEngineStart);
+        }
+        $identity = self::identity($pid, $runId);
+
+        $status = $identity + ['phase' => 'launching', 'engine_pid' => null, 'engine_start_time' => null];
+        $onUpdate($status);
+        $deadline = microtime(true) + $timeout;
+        try {
+            while (true) {
+                $disk = self::readStatus($statusPath);
+                if ($disk !== null && $disk !== $status) {
+                    if (($disk['run_id'] ?? null) !== $runId) {
+                        throw new \RuntimeException('The coder engine reported a different run identity.');
+                    }
+                    $status = $disk;
+                    $onUpdate($status);
+                }
+                if ($isCancelled()) {
+                    self::terminateGroup($pid);
+                    $this->reap($pid);
+                    $status['phase'] = 'cancelled';
+
+                    return $status;
+                }
+                if (microtime(true) >= $deadline) {
+                    self::terminateGroup($pid);
+                    $this->reap($pid);
+                    $status['phase'] = 'failed';
+                    $status['error'] = 'The overall coder run timeout expired.';
+
+                    return $status;
+                }
+                if (in_array($status['phase'] ?? '', ['done', 'failed'], true)) {
+                    self::terminateGroup($pid);
+                    $this->reap($pid);
+
+                    return $status;
+                }
+                $wait = pcntl_waitpid($pid, $waitStatus, WNOHANG);
+                if ($wait === $pid) {
+                    $disk = self::readStatus($statusPath);
+                    if ($disk !== null && in_array($disk['phase'] ?? '', ['done', 'failed'], true)) {
+                        self::terminateGroup($pid);
+
+                        return $disk;
+                    }
+                    self::terminateGroup($pid);
+                    $status['phase'] = 'failed';
+                    $status['error'] = 'The coder engine supervisor exited without a durable result.';
+
+                    return $status;
+                }
+                usleep(50_000);
+            }
+        } catch (\Throwable $e) {
+            self::terminateGroup($pid);
+            $this->reap($pid);
+            throw $e;
+        }
+    }
+
+    /**
+     * Stop a surviving group only when a live supervisor or engine matches the durable process start
+     * identity. A post-fork putenv() is not visible in /proc/<pid>/environ and is not an identity.
+     *
+     * @param array<string, mixed> $identity
+     */
+    public static function reconcile(?int $pgid, ?string $runId, array $identity = []): bool
+    {
+        if ($pgid === null || $pgid < 1 || !self::groupAlive($pgid)) {
+            return false;
+        }
+        if ($runId === null || $runId === '' || !self::identityMatches($pgid, $runId, $identity)) {
+            throw new \RuntimeException('A surviving process group does not match the persisted coder run identity.');
+        }
+        self::terminateGroup($pgid);
+
+        return true;
+    }
+
+    public static function terminateGroup(int $pgid): void
+    {
+        if ($pgid < 1 || $pgid === posix_getpgid(posix_getpid()) || !self::groupAlive($pgid)) {
+            return;
+        }
+        posix_kill(-$pgid, SIGTERM);
+        $deadline = microtime(true) + 0.5;
+        while (self::groupAlive($pgid) && microtime(true) < $deadline) {
+            usleep(20_000);
+        }
+        if (self::groupAlive($pgid)) {
+            posix_kill(-$pgid, SIGKILL);
+        }
+    }
+
+    /**
+     * @param \Closure():AgentRunner $factory
+     * @param array<string, mixed>   $identity
+     */
+    private function child(\Closure $factory, string $prompt, ?string $sessionId, array $identity, string $statusPath, ?\Closure $beforeEngineStart): void
+    {
+        try {
+            if ($beforeEngineStart !== null) {
+                $beforeEngineStart();
+            }
+            if (posix_setsid() === -1) {
+                throw new \RuntimeException('Unable to create the coder process group.');
+            }
+            putenv(self::RUN_ID_ENV.'='.$identity['run_id']);
+            ExecutionEnvironment::apply();
+            $runner = $factory();
+            $runner->start($prompt, $sessionId);
+            if ($runner->pid() < 1) {
+                throw new \RuntimeException('The coder engine did not report its PID.');
+            }
+            $status = $identity + [
+                'phase' => 'running', 'engine_pid' => $runner->pid(),
+                'engine_start_time' => self::processStartTime($runner->pid()), 'session_id' => $runner->sessionId(),
+            ];
+            self::writeStatus($statusPath, $status);
+            while (($state = $runner->poll()) === RunnerState::Running) {
+                if ($runner->sessionId() !== $status['session_id']) {
+                    $status['session_id'] = $runner->sessionId();
+                    self::writeStatus($statusPath, $status);
+                }
+                usleep(50_000);
+            }
+            if ($state === RunnerState::Timeout) {
+                $status['phase'] = 'failed';
+                $status['error'] = $runner->timeoutReason();
+            } else {
+                $answer = $runner->result();
+                $status['phase'] = $answer->isError ? 'failed' : 'done';
+                $status['session_id'] = $answer->sessionId ?? $runner->sessionId();
+                $status['answer'] = $answer->text;
+                $status['error'] = $answer->isError ? $answer->text : null;
+                $status['progress'] = $runner->getProgressLines();
+                $status['diagnostics_path'] = $runner->diagnosticsPath();
+            }
+            self::writeStatus($statusPath, $status);
+        } catch (\Throwable $e) {
+            $enginePid = isset($runner) ? $runner->pid() : null;
+            self::writeStatus($statusPath, $identity + [
+                'phase' => 'failed', 'engine_pid' => $enginePid,
+                'engine_start_time' => is_int($enginePid) && $enginePid > 0 ? self::processStartTime($enginePid) : null,
+                'session_id' => isset($runner) ? $runner->sessionId() : $sessionId, 'error' => $e->getMessage(),
+            ]);
+        }
+
+        // A fork must not run the parent's PHPUnit/application shutdown handlers.
+        posix_kill(posix_getpid(), SIGKILL);
+        exit(250);
+    }
+
+    private function reap(int $pid): void
+    {
+        $deadline = microtime(true) + 1.0;
+        while (microtime(true) < $deadline) {
+            if (pcntl_waitpid($pid, $status, WNOHANG) === $pid) {
+                return;
+            }
+            usleep(20_000);
+        }
+    }
+
+    /** @return array<string, mixed>|null */
+    private static function readStatus(string $path): ?array
+    {
+        $json = @file_get_contents($path);
+        if ($json === false) {
+            return null;
+        }
+        $data = json_decode($json, true);
+
+        return is_array($data) ? $data : null;
+    }
+
+    /** @param array<string, mixed> $status */
+    private static function writeStatus(string $path, array $status): void
+    {
+        $tmp = $path.'.tmp';
+        if (file_put_contents($tmp, json_encode($status, JSON_THROW_ON_ERROR), LOCK_EX) === false) {
+            throw new \RuntimeException('Unable to persist coder engine status.');
+        }
+        chmod($tmp, 0600);
+        if (!rename($tmp, $path)) {
+            throw new \RuntimeException('Unable to publish coder engine status.');
+        }
+    }
+
+    /** @return array{run_id:string,supervisor_pid:int,pgid:int,supervisor_start_time:?string,boot_id:string} */
+    public static function identity(int $pid, string $runId): array
+    {
+        return [
+            'run_id' => $runId,
+            'supervisor_pid' => $pid,
+            'pgid' => $pid,
+            'supervisor_start_time' => self::processStartTime($pid),
+            'boot_id' => self::bootId(),
+        ];
+    }
+
+    /** @param array<string, mixed> $identity */
+    private static function identityMatches(int $pgid, string $runId, array $identity): bool
+    {
+        if (($identity['run_id'] ?? null) !== $runId || ($identity['pgid'] ?? null) !== $pgid) {
+            return false;
+        }
+        $bootId = self::bootId();
+        if ($bootId === '' || ($identity['boot_id'] ?? null) !== $bootId) {
+            return false;
+        }
+        foreach (['supervisor', 'engine'] as $kind) {
+            $pid = $identity[$kind.'_pid'] ?? null;
+            $started = $identity[$kind.'_start_time'] ?? null;
+            if (is_int($pid) && $pid > 0 && is_string($started) && $started !== ''
+                && posix_getpgid($pid) === $pgid && self::processStartTime($pid) === $started) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function processStartTime(int $pid): ?string
+    {
+        $stat = @file_get_contents('/proc/'.$pid.'/stat');
+        if (!is_string($stat)) {
+            return null;
+        }
+        $end = strrpos($stat, ')');
+        $fields = $end === false ? [] : (preg_split('/\s+/', trim(substr($stat, $end + 1))) ?: []);
+
+        return isset($fields[19]) && ctype_digit($fields[19]) ? $fields[19] : null;
+    }
+
+    private static function bootId(): string
+    {
+        $id = @file_get_contents('/proc/sys/kernel/random/boot_id');
+
+        return is_string($id) ? trim($id) : '';
+    }
+
+    /** @phpstan-impure */
+    private static function groupAlive(int $pgid): bool
+    {
+        return self::groupMembers($pgid) !== [];
+    }
+
+    /** @return list<int> live (non-zombie) process ids */
+    private static function groupMembers(int $pgid): array
+    {
+        $members = [];
+        foreach (glob('/proc/[0-9]*') ?: [] as $path) {
+            $pid = (int) basename($path);
+            $stat = @file_get_contents($path.'/stat');
+            if (!is_string($stat) || posix_getpgid($pid) !== $pgid) {
+                continue;
+            }
+            $end = strrpos($stat, ')');
+            $fields = $end === false ? [] : (preg_split('/\s+/', trim(substr($stat, $end + 1))) ?: []);
+            if (($fields[0] ?? '') !== 'Z') {
+                $members[] = $pid;
+            }
+        }
+
+        return $members;
+    }
+}
