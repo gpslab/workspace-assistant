@@ -533,6 +533,76 @@ final class WorkerTest extends TestCase
         $this->processGroups = [];
     }
 
+    public function testCancellationTerminatesActiveTargetedCheckProcessGroup(): void
+    {
+        $stateFile = $this->root.'/check-processes.json';
+        file_put_contents($this->repository.'/slow-check.php', <<<'PHP'
+            <?php
+            $child = pcntl_fork();
+            if ($child === -1) {
+                exit(1);
+            }
+            if ($child === 0) {
+                usleep(1000000);
+                file_put_contents($argv[2], "descendant\n", FILE_APPEND);
+                exit(0);
+            }
+            file_put_contents($argv[1], json_encode([
+                'composer' => posix_getppid(),
+                'check' => getmypid(),
+                'descendant' => $child,
+                'pgid' => posix_getpgid(getmypid()),
+            ], JSON_THROW_ON_ERROR));
+            usleep(1000000);
+            file_put_contents($argv[2], "check\n", FILE_APPEND);
+            pcntl_waitpid($child, $status);
+            PHP);
+        $this->writeComposerScripts('@php slow-check.php '.escapeshellarg($stateFile).' cancelled-check-survived');
+        $this->git($this->repository, ['add', 'composer.json', 'slow-check.php']);
+        $this->git($this->repository, ['commit', '-q', '-m', 'Add cancellable targeted check fixture']);
+        $id = $this->enqueue();
+        $resultFile = $this->root.'/check-cancel-result.json';
+        $pid = pcntl_fork();
+        self::assertGreaterThanOrEqual(0, $pid);
+        if ($pid === 0) {
+            $this->store->disconnect();
+            try {
+                $result = $this->worker(new Store($this->stateDir))->runNext();
+                file_put_contents($resultFile, json_encode(['status' => $result?->status], JSON_THROW_ON_ERROR));
+                $code = 0;
+            } catch (\Throwable $e) {
+                file_put_contents($resultFile, json_encode(['error' => $e->getMessage()], JSON_THROW_ON_ERROR));
+                $code = 1;
+            }
+            pcntl_exec(PHP_BINARY, ['-r', 'exit('.$code.');']);
+            exit(1);
+        }
+
+        $processes = $this->waitForTargetedCheckProcesses($stateFile);
+        $this->processGroups[] = $processes['pgid'];
+        foreach (['composer', 'check', 'descendant'] as $name) {
+            self::assertTrue($this->processAlive($processes[$name]), 'The '.$name.' positive control must be active.');
+        }
+
+        $cancelled = $this->worker()->cancel($id);
+        $this->waitForProcess($pid);
+        $data = json_decode((string) file_get_contents($resultFile), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame(LocalResult::CANCELLED, $cancelled->status);
+        self::assertSame(['status' => LocalResult::CANCELLED], $data);
+        foreach (['composer', 'check', 'descendant'] as $name) {
+            self::assertFalse($this->processAlive($processes[$name]), 'The '.$name.' must not survive cancellation.');
+        }
+        self::assertFalse($this->groupAlive($processes['pgid']), 'The complete targeted check PGID must be gone.');
+        usleep(1_200_000);
+        self::assertFileDoesNotExist(
+            $this->worktreeDir.'/job-'.$id.'/cancelled-check-survived',
+            'A cancelled check must not write to the worktree later.',
+        );
+        self::assertSame([], glob($this->stateDir.'/coder-runs/job-'.$id.'-lease-*/targeted-results.json') ?: []);
+        $this->processGroups = [];
+    }
+
     public function testBusyAssignmentLockReleasesLeaseInsteadOfFailingHealthyWork(): void
     {
         $id = $this->enqueue();
@@ -708,6 +778,44 @@ final class WorkerTest extends TestCase
             usleep(50_000);
         }
         self::fail('The active fake engine did not publish its process identity.');
+    }
+
+    /** @return array{composer:int,check:int,descendant:int,pgid:int} */
+    private function waitForTargetedCheckProcesses(string $path): array
+    {
+        $deadline = microtime(true) + 10;
+        while (microtime(true) < $deadline) {
+            $json = @file_get_contents($path);
+            $data = is_string($json) ? json_decode($json, true) : null;
+            if (is_array($data)) {
+                $valid = true;
+                foreach (['composer', 'check', 'descendant', 'pgid'] as $name) {
+                    $valid = $valid && is_int($data[$name] ?? null) && $data[$name] > 0;
+                }
+                if ($valid) {
+                    return [
+                        'composer' => $data['composer'],
+                        'check' => $data['check'],
+                        'descendant' => $data['descendant'],
+                        'pgid' => $data['pgid'],
+                    ];
+                }
+            }
+            usleep(50_000);
+        }
+        self::fail('The active targeted check did not publish its process identities.');
+    }
+
+    private function processAlive(int $pid): bool
+    {
+        $stat = @file_get_contents('/proc/'.$pid.'/stat');
+        if (!is_string($stat)) {
+            return false;
+        }
+        $end = strrpos($stat, ')');
+        $fields = $end === false ? [] : (preg_split('/\s+/', trim(substr($stat, $end + 1))) ?: []);
+
+        return ($fields[0] ?? '') !== 'Z';
     }
 
     private function waitForProcess(int $pid): void

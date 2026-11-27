@@ -37,8 +37,8 @@ final class ImplementationChecks
         string $worktree,
         int $timeout,
     ): self {
-        if (!function_exists('pcntl_fork')) {
-            throw new \RuntimeException('The coder worker requires pcntl for targeted check attestation.');
+        if (!function_exists('pcntl_fork') || !function_exists('posix_setpgid')) {
+            throw new \RuntimeException('The coder worker requires pcntl and POSIX process-group support for targeted checks.');
         }
         if (!is_dir($runDirectory) && !mkdir($runDirectory, 0700, true) && !is_dir($runDirectory)) {
             throw new \RuntimeException('Unable to create the coder run directory.');
@@ -58,7 +58,21 @@ final class ImplementationChecks
             throw new \RuntimeException('Unable to fork the targeted check broker.');
         }
         if ($pid === 0) {
+            if (!posix_setpgid(0, 0)) {
+                fclose($server);
+                posix_kill(posix_getpid(), SIGKILL);
+                exit(250);
+            }
             self::serve($server, $parentPid, $commands, $checkDefinitions, $runDirectory, $worktree, $timeout, $secret);
+        }
+        if (!posix_setpgid($pid, $pid)) {
+            // Close the race with stop(): the parent establishes the same group before returning.
+            posix_kill($pid, SIGKILL);
+            posix_kill(-$pid, SIGKILL);
+            pcntl_waitpid($pid, $status);
+            fclose($server);
+            @unlink($socketPath);
+            throw new \RuntimeException('Unable to create the targeted check process group.');
         }
         fclose($server);
 
@@ -140,12 +154,10 @@ final class ImplementationChecks
         }
         $this->stopped = true;
         $status = 0;
-        if (pcntl_waitpid($this->brokerPid, $status, WNOHANG) === 0) {
-            // The parent application may have installed a cooperative SIGTERM handler before forking.
-            // This one-shot broker has no cleanup of its own; the worker removes the socket below.
-            posix_kill($this->brokerPid, SIGKILL);
-            pcntl_waitpid($this->brokerPid, $status);
-        }
+        // The broker leads a dedicated group so Composer and every check descendant stop with it.
+        // Signal the group even if the broker exited first and left an orphaned check behind.
+        posix_kill(-$this->brokerPid, SIGKILL);
+        pcntl_waitpid($this->brokerPid, $status);
         @unlink($this->runDirectory.'/'.self::SOCKET_FILE);
     }
 
