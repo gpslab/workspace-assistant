@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Coder\IntakeConfig;
 use GpsLab\WorkspaceAssistant\Kimi\KimiGatedPreconditions;
 
 /**
@@ -127,6 +128,8 @@ final class Config
         public readonly string $memory3LayerBin = '',
         /** Ceiling of the injected part of one memory file (`MEMORY_3LAYER_CONTEXT_MAX_BYTES`) */
         public readonly int $memory3LayerContextMaxBytes = self::DEFAULT_MEMORY_CONTEXT_MAX_BYTES,
+        /** Explicit standalone coder routing and bounded read-only issue intake. */
+        public readonly IntakeConfig $coderIntake = new IntakeConfig(),
     ) {
     }
 
@@ -349,6 +352,7 @@ final class Config
             failedRunEvidenceDays: max(0, (int) $env->get('FAILED_RUN_EVIDENCE_DAYS', '14')),
             memory3LayerBin: $memory3LayerBin,
             memory3LayerContextMaxBytes: max(0, (int) $env->get('MEMORY_3LAYER_CONTEXT_MAX_BYTES', (string) self::DEFAULT_MEMORY_CONTEXT_MAX_BYTES)),
+            coderIntake: IntakeConfig::fromEnv($env),
         );
     }
 

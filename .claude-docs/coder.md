@@ -1,10 +1,39 @@
-# Standalone coder storage
+# Standalone coder intake and storage
 
 `GpsLab\WorkspaceAssistant\Coder\Store` is the durable storage and lease dispatcher for standalone
-coder jobs. It is not connected to the Bot loop and starts no service. Its default file is
-`state/coder.sqlite`; the Bot's `Database` continues to use `state/state.sqlite`. Each `Store`
-instance owns a PDO connection, enables WAL, foreign keys and a busy timeout, and can reconnect after
-`disconnect()`. There is no shared or static connection.
+coder jobs. Its default file is `state/coder.sqlite`; the Bot's `Database` continues to use
+`state/state.sqlite`. Each `Store` instance owns a PDO connection, enables WAL, foreign keys and a
+busy timeout, and can reconnect after `disconnect()`. There is no shared or static connection.
+
+## Explicit intake
+
+`Coder\IntakeController`, composed into `Bot`, is the only standalone polling component. With the
+default empty `REPOSITORY_EXECUTORS` map it is not wired, performs no request and starts no worker.
+The map assigns each listed repository exactly one executor, `openronin` or `coder`; only the
+`coder` entries form the intake allowlist. Duplicate assignments and unknown executors fail
+configuration validation. This map drives Workspace Assistant guards only: it does not reconfigure
+or drain the external Openronin service.
+
+A scheduled `poll()` examines only open issues in coder-routed repositories through read-only issue
+and issue-event APIs. An issue is admitted only when its current `openronin:do-it` label is proven
+by a latest `labeled` event from `CODER_INTAKE_AUTHOR`, a separately configured trusted human login.
+A label by itself, comments, arbitrary issues and unlisted repositories create no instruction. The
+immutable label-event id is part of the `(repository, event_key)` intake identity.
+`Store::enqueueIntake()` records that identity and creates the queued job in one immediate
+transaction, so a repeated or concurrent event returns without another job.
+
+The controller owns both durable cursors in `state/coder.sqlite`: the next issue offset within each
+repository and the repository starting the next round-robin pass. `Coder\Worker` only consumes
+leased jobs and never polls GitHub. `CODER_INTAKE_POLL_SECONDS`, `CODER_INTAKE_TICK_BUDGET`,
+`CODER_INTAKE_WORK_BUDGET` and `CODER_INTAKE_REQUEST_TIMEOUT` bound the pass. A repository failure
+is logged and isolated; a slow or full event page fails closed. Intake adds no GitHub write and no
+production worker start.
+
+`Coder\RoutingGuard` rejects coder routing while an epic containing the repository is `running` or
+`blocked`; `paused` and `done` epics permit it. It rejects new epic plans containing a coder-routed
+repository before `Database::epicCreate()`, and `Epic\Orchestrator` checks it again immediately
+before applying `openronin:do-it`, blocking the task and epic with an explicit reason instead of
+labelling the issue.
 
 ## Migrations and identities
 

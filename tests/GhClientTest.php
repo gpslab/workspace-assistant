@@ -97,6 +97,23 @@ final class GhClientTest extends TestCase
         return new GhClient(new ForgeOwners(['o']), 5, static fn (array $cmd): array => $result);
     }
 
+    public function testStandaloneIntakeUsesOnlyReadOnlyIssueApis(): void
+    {
+        $calls = [];
+        $gh = new GhClient(new ForgeOwners(['o']), 5, static function (array $cmd) use (&$calls): array {
+            $calls[] = $cmd;
+
+            return ['exit' => 0, 'stdout' => '[{"number":7}]', 'stderr' => ''];
+        });
+
+        self::assertSame([['number' => 7]], $gh->openIssues('o/r', 2, 50, 1));
+        self::assertSame([['number' => 7]], $gh->issueEvents('o/r', 7, 1));
+        self::assertSame([
+            ['gh', 'api', 'repos/o/r/issues?state=open&sort=created&direction=asc&per_page=50&page=2'],
+            ['gh', 'api', 'repos/o/r/issues/7/events?per_page=100&page=1'],
+        ], $calls);
+    }
+
     public function testColdReviewNoRunsOnHeadIsDone(): void
     {
         $gh = self::client(['exit' => 0, 'stdout' => '{"workflow_runs":[]}', 'stderr' => '']);

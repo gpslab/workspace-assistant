@@ -75,8 +75,10 @@ otherwise `/cancel` could not work while Claude thinks.
 
 `tick()`: the long-poll timeout is `0` when there is something to do without waiting (active job,
 immature album, queue head ready to start), otherwise `POLL_TIMEOUT`; it fetches updates, advances
-`offset`, dispatches, flushes mature albums, polls the job, starts the queue head, runs the
-`Orchestrator`. A zero timeout is followed by `usleep(200 ms)`.
+`offset`, dispatches, flushes mature albums, runs the bounded standalone coder intake pass on its
+schedule, polls the job, starts the queue head, and runs the `Orchestrator`. A zero timeout is
+followed by `usleep(200 ms)`. Intake has an empty repository allowlist by default and starts no
+worker; see [coder.md](coder.md).
 
 `dispatch()`: `callback_query` → `handleCallback` (access guard, then the first `Callback\Handler` that supports the data); the user id is checked against the whitelist; `/...`
 → command, anything else → the queue.
@@ -439,6 +441,8 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `FORGE_HOST`            | Forge host | `github.com` / `gitlab.com` |
 | `FORGE_OWNERS`          | Owners (alias `GITHUB_OWNERS`; the new key wins, a warning is logged when both are set); the first is the default for `repo#N`; namespace paths allowed with `FORGE=gitlab`; epics and PR links in `review` need it | empty |
 | `OPENRONIN_LOGINS`      | logins allowed to author the `<!-- openronin:bot -->` marker   | empty (any author + warning)     |
+| `REPOSITORY_EXECUTORS`  | exclusive `owner/repository:openronin|coder` map; coder entries are the standalone intake allowlist | empty (intake off) |
+| `CODER_INTAKE_*`        | trusted human approval login and bounded read-only intake schedule, tick/work budgets and request timeout ([coder.md](coder.md)) | off with empty routing |
 | `ENGINE`                | agent engine that runs the jobs: `claude`, `opencode` or `kimi` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner`, on `kimi` a `KimiRunner`, and on both `/model` is read-only | `claude` |
 | `CLAUDE_BIN`            | path to the claude binary                                      | `claude`                         |
 | `OPENCODE_BIN`          | path to the opencode binary (`ENGINE=opencode`; the installer checks this one instead of `CLAUDE_BIN`) | `opencode` |

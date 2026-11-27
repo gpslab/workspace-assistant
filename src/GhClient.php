@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant;
 
+use GpsLab\WorkspaceAssistant\Coder\IntakeApi;
 use GpsLab\WorkspaceAssistant\Epic\ColdFindings;
 use GpsLab\WorkspaceAssistant\Epic\Forge;
 use GpsLab\WorkspaceAssistant\Epic\ForgeNotFound;
@@ -12,7 +13,7 @@ use GpsLab\WorkspaceAssistant\Epic\TaskState;
 /**
  * {@see GitHub} over `gh` (GraphQL + REST). Arguments are an array, no shell.
  */
-final class GhClient implements Forge
+final class GhClient implements Forge, IntakeApi
 {
     private const string COLD_REVIEW_WORKFLOW = 'claude-review.yml';
     private const string COLD_REVIEWER = 'claude[bot]';
@@ -80,6 +81,47 @@ final class GhClient implements Forge
     /** @var list<string>|null */
     private ?array $repos = null;
     private int $reposAt = 0;
+
+    public function openIssues(string $repository, int $page, int $perPage, int $timeoutSeconds): array
+    {
+        [$owner, $name] = self::intakeRepository($repository);
+
+        return $this->readOnlyList(
+            "repos/{$owner}/{$name}/issues?state=open&sort=created&direction=asc&per_page={$perPage}&page={$page}",
+            $timeoutSeconds,
+        );
+    }
+
+    public function issueEvents(string $repository, int $issueNumber, int $timeoutSeconds): array
+    {
+        [$owner, $name] = self::intakeRepository($repository);
+
+        return $this->readOnlyList("repos/{$owner}/{$name}/issues/{$issueNumber}/events?per_page=100&page=1", $timeoutSeconds);
+    }
+
+    /** @return array{string, string} */
+    private static function intakeRepository(string $repository): array
+    {
+        if (preg_match('~^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$~', $repository) !== 1) {
+            throw new \InvalidArgumentException("Invalid intake repository '{$repository}'.");
+        }
+
+        [$owner, $name] = explode('/', $repository, 2);
+
+        return [rawurlencode($owner), rawurlencode($name)];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function readOnlyList(string $path, int $timeoutSeconds): array
+    {
+        $res = $this->run(['gh', 'api', $path], $timeoutSeconds);
+        $data = json_decode($res['stdout'], true);
+        if ($res['exit'] !== 0 || !is_array($data) || !array_is_list($data)) {
+            throw new \RuntimeException('gh api read: '.trim($res['stderr'] !== '' ? $res['stderr'] : $res['stdout']));
+        }
+
+        return array_values(array_filter($data, is_array(...)));
+    }
 
     public function openPrRepos(array $numbers): array
     {
@@ -943,10 +985,14 @@ final class GhClient implements Forge
      *
      * @return array{exit:int, stdout:string, stderr:string}
      */
-    private function run(array $cmd): array
+    private function run(array $cmd, ?int $timeout = null): array
     {
         if ($this->runner !== null) {
             return ($this->runner)($cmd);
+        }
+        $timeout ??= $this->timeout;
+        if ($timeout < 1) {
+            throw new \InvalidArgumentException('The gh request timeout must be positive.');
         }
         $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (!is_resource($proc)) {
@@ -957,7 +1003,7 @@ final class GhClient implements Forge
         stream_set_blocking($pipes[2], false);
         $out = '';
         $err = '';
-        $deadline = microtime(true) + $this->timeout;
+        $deadline = microtime(true) + $timeout;
         while (true) {
             $out .= (string) stream_get_contents($pipes[1]);
             $err .= (string) stream_get_contents($pipes[2]);

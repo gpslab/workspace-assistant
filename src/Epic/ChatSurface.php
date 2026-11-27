@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Epic;
 
+use GpsLab\WorkspaceAssistant\Coder\RoutingGuard;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\GitManager;
@@ -39,6 +40,7 @@ final class ChatSurface
         private readonly Card $card,
         private readonly Locale $locale,
         private readonly KimiGateGuard $kimiGate,
+        private readonly RoutingGuard $routingGuard,
     ) {
     }
 
@@ -177,6 +179,7 @@ final class ChatSurface
         $planPath = Run::planPath($this->config->repoPath, $this->config->epicsDir, $slug);
         try {
             $plan = Plan::load($planPath, $this->config->forgeOwners);
+            $this->routingGuard->assertPlanAllowed($plan->tasks, $plan->releases);
         } catch (\InvalidArgumentException $e) {
             return $this->t('epic.plan_invalid', ['error' => $e->getMessage()]);
         }

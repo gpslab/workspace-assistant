@@ -129,6 +129,19 @@ final class Store
             CREATE INDEX IF NOT EXISTS coder_jobs_lease ON coder_jobs(lease_expires_at);
             CREATE INDEX IF NOT EXISTS coder_job_events_job ON coder_job_events(job_id, id);
             SQL,
+        3 => <<<'SQL'
+            CREATE TABLE IF NOT EXISTS coder_intake_cursors (
+                repository TEXT PRIMARY KEY,
+                page       INTEGER NOT NULL,
+                offset     INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS coder_intake_schedule (
+                id         INTEGER PRIMARY KEY CHECK (id = 1),
+                repository TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            SQL,
     ];
 
     private ?\PDO $pdo = null;
@@ -633,6 +646,79 @@ final class Store
     public function fail(int $jobId, int $workerId, string $leaseToken, string $error, ?array $diagnostics = null, ?int $now = null): bool
     {
         return $this->finish($jobId, $workerId, $leaseToken, self::FAILED, $error, $diagnostics, $now);
+    }
+
+    /**
+     * Atomically record a trusted intake event and enqueue its job. The event key is the idempotency
+     * boundary: a concurrent or repeated delivery returns null and creates no second job.
+     *
+     * @param array<string, mixed> $diagnostics
+     */
+    public function enqueueIntake(
+        string $repository,
+        string $eventKey,
+        string $branch,
+        int $issueNumber,
+        array $diagnostics,
+        ?int $now = null,
+    ): ?int {
+        $now ??= time();
+
+        return $this->transaction(function (\PDO $pdo) use ($repository, $eventKey, $branch, $issueNumber, $diagnostics, $now): ?int {
+            $stmt = $pdo->prepare(
+                'INSERT OR IGNORE INTO coder_processed_events (repository, event_key, job_id, processed_at) VALUES (:repository, :key, NULL, :now)'
+            );
+            $stmt->execute(['repository' => $repository, 'key' => $eventKey, 'now' => $now]);
+            if ($stmt->rowCount() !== 1) {
+                return null;
+            }
+            $jobId = $this->enqueue($repository, $branch, $issueNumber, diagnostics: $diagnostics, now: $now);
+            $pdo->prepare('UPDATE coder_processed_events SET job_id = :job WHERE repository = :repository AND event_key = :key')
+                ->execute(['job' => $jobId, 'repository' => $repository, 'key' => $eventKey]);
+
+            return $jobId;
+        });
+    }
+
+    /** @return array{page:int, offset:int} */
+    public function intakeCursor(string $repository): array
+    {
+        $stmt = $this->connection()->prepare('SELECT page, offset FROM coder_intake_cursors WHERE repository = :repository');
+        $stmt->execute(['repository' => $repository]);
+        $row = $stmt->fetch();
+
+        return $row === false ? ['page' => 1, 'offset' => 0] : ['page' => (int) $row['page'], 'offset' => (int) $row['offset']];
+    }
+
+    public function saveIntakeCursor(string $repository, int $page, int $offset, ?int $now = null): void
+    {
+        if ($page < 1 || $offset < 0) {
+            throw new \InvalidArgumentException('A coder intake cursor needs a positive page and a non-negative offset.');
+        }
+        $this->connection()->prepare(
+            <<<'SQL'
+            INSERT INTO coder_intake_cursors (repository, page, offset, updated_at) VALUES (:repository, :page, :offset, :now)
+            ON CONFLICT(repository) DO UPDATE SET page = excluded.page, offset = excluded.offset, updated_at = excluded.updated_at
+            SQL
+        )->execute(['repository' => $repository, 'page' => $page, 'offset' => $offset, 'now' => $now ?? time()]);
+    }
+
+    /** Repository after which the next round-robin pass starts. */
+    public function intakeSchedule(): ?string
+    {
+        $repository = $this->query($this->connection(), 'SELECT repository FROM coder_intake_schedule WHERE id = 1')->fetchColumn();
+
+        return $repository === false ? null : (string) $repository;
+    }
+
+    public function saveIntakeSchedule(string $repository, ?int $now = null): void
+    {
+        $this->connection()->prepare(
+            <<<'SQL'
+            INSERT INTO coder_intake_schedule (id, repository, updated_at) VALUES (1, :repository, :now)
+            ON CONFLICT(id) DO UPDATE SET repository = excluded.repository, updated_at = excluded.updated_at
+            SQL
+        )->execute(['repository' => $repository, 'now' => $now ?? time()]);
     }
 
     /** Record an intake event exactly once within a repository. */

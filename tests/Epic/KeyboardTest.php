@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 
 use GpsLab\WorkspaceAssistant\Bot;
+use GpsLab\WorkspaceAssistant\Coder\IntakeConfig;
+use GpsLab\WorkspaceAssistant\Coder\Routing;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
@@ -363,6 +365,37 @@ final class KeyboardTest extends TestCase
         self::assertStringStartsWith('The epic was not created, the plan is invalid:', $edit['text']);
         self::assertSame([], $this->rows($edit));
         self::assertNull($this->db->epicGet('broken'));
+    }
+
+    public function testPlanForRoutedRepositoryIsRejectedBeforeEpicCreate(): void
+    {
+        $config = new Config(
+            botToken: 't',
+            allowedUserIds: [555],
+            repoPath: $this->work,
+            forgeRepo: '',
+            claudeBin: 'claude',
+            claudeTimeout: 0,
+            claudeStallTimeout: 900,
+            claudeExtraArgs: [],
+            claudeAppendSystemPrompt: '',
+            stateDir: $this->root.'/state',
+            outboxDir: $this->root.'/state',
+            inboxDir: $this->root.'/state',
+            pollTimeout: 30,
+            gitTimeout: 30,
+            epicsDir: 'context/epics',
+            forgeOwners: new ForgeOwners(['anime-db', 'gpslab']),
+            coderIntake: new IntakeConfig(new Routing(['anime-db/a' => 'coder']), 'peter'),
+        );
+        $bot = new Bot($config, $this->db, $this->tg, new GitManager($this->work, 30), new SessionFiles($this->root));
+        $this->writePlan('routed');
+
+        (new \ReflectionMethod(Bot::class, 'handleCommand'))->invoke($bot, self::CHAT, self::THREAD, '/epic start routed', 0);
+
+        self::assertNull($this->db->epicGet('routed'));
+        self::assertStringContainsString('anime-db/a', $this->lastText());
+        self::assertStringContainsString('routed to the standalone coder', $this->lastText());
     }
 
     public function testGoStartsTheEpicLikeTheTextCommand(): void

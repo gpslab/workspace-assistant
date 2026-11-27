@@ -919,6 +919,18 @@ final class Database
         return $stmt !== false && $stmt->fetchColumn() !== false;
     }
 
+    /**
+     * Epics whose state forbids changing a contained repository to standalone coder routing.
+     *
+     * @return list<array{slug:string, chat_id:int, thread_id:int, status:string, fingerprint:?string, attention:?string, blocked_reason:?string, done:bool, last_tick_at:int, stale_ticks:int, card_message_id:int, last_poll_at:int}>
+     */
+    public function epicsBlockingRouting(): array
+    {
+        $stmt = $this->pdo->query("SELECT * FROM epics WHERE status IN ('running', 'blocked') ORDER BY rowid");
+
+        return $stmt === false ? [] : array_values(array_map(self::epicRow(...), $stmt->fetchAll()));
+    }
+
     /** GitHub fingerprint remembered after the epic's last run; attention is the attention fingerprint (null — leave untouched). */
     public function epicSetFingerprint(string $slug, string $fingerprint, ?string $attention = null): void
     {

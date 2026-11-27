@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Tests\Epic;
 
+use GpsLab\WorkspaceAssistant\Coder\Routing;
+use GpsLab\WorkspaceAssistant\Coder\RoutingGuard;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\EditStatus;
 use GpsLab\WorkspaceAssistant\Epic\Card;
@@ -243,7 +245,7 @@ final class OrchestratorTest extends TestCase
     /** @var list<array{string, string}> */
     private array $notified = [];
 
-    private function orchestrator(int $tick = 1800, int $stall = 3, int $quiet = 600, int $answer = 7200, int $budget = 20, ?Card $card = null, ?string $locale = 'en'): Orchestrator
+    private function orchestrator(int $tick = 1800, int $stall = 3, int $quiet = 600, int $answer = 7200, int $budget = 20, ?Card $card = null, ?string $locale = 'en', ?RoutingGuard $routingGuard = null): Orchestrator
     {
         return new Orchestrator(
             $this->db,
@@ -268,7 +270,7 @@ final class OrchestratorTest extends TestCase
             },
             $card,
             $this->dir,
-            ...['owners' => new ForgeOwners(['anime-db', 'gpslab'])] + ($locale === null ? [] : ['locale' => new Locale($locale)]),
+            ...['owners' => new ForgeOwners(['anime-db', 'gpslab']), 'routingGuard' => $routingGuard] + ($locale === null ? [] : ['locale' => new Locale($locale)]),
         );
     }
 
@@ -713,6 +715,21 @@ final class OrchestratorTest extends TestCase
         $this->gh->states['a#1'] = $this->pr('a#1', 'merged');
         $this->orchestrator()->poll();
         self::assertSame(['b#2 openronin:do-it'], $this->gh->labelled);
+    }
+
+    public function testDoItIsRefusedLoudlyInAStandaloneCoderRepository(): void
+    {
+        $this->gh->states['a#1'] = $this->pr('a#1', 'merged');
+        $guard = new RoutingGuard(new Routing(['anime-db/b' => 'coder']), $this->db, new ForgeOwners(['anime-db', 'gpslab']));
+
+        $this->orchestrator(routingGuard: $guard)->poll();
+
+        self::assertSame([], $this->gh->labelled);
+        self::assertSame([], $this->enqueued);
+        self::assertSame('blocked', $this->db->epicGet('epic')['status'] ?? null);
+        self::assertSame('blocked', $this->db->epicTasks('epic')[1]['status'] ?? null);
+        self::assertStringContainsString('anime-db/b is routed to the standalone coder', $this->blockedReason());
+        self::assertStringContainsString('refusing to apply openronin:do-it', $this->blockedReason());
     }
 
     public function testDoItNotWhenAfterNotMerged(): void
