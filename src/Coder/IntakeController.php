@@ -174,15 +174,13 @@ final class IntakeController
         if ($approval === null) {
             return;
         }
-        $contentLastEditedAt = $this->github->issueContentLastEditedAt($repository, $number, $this->requestTimeout($deadline));
-        if (!$this->approvalCoversContent($contentLastEditedAt, $approval)) {
+        $content = $this->github->issueContent($repository, $number, $this->requestTimeout($deadline));
+        if (!$this->approvalCoversContent($content['lastEditedAt'], $approval)) {
             return;
         }
         $eventId = $approval['id'];
-        $title = is_string($issue['title'] ?? null) ? $issue['title'] : "Issue #{$number}";
-        $body = is_string($issue['body'] ?? null) ? $issue['body'] : '';
         $url = is_string($issue['html_url'] ?? null) ? $issue['html_url'] : "https://github.com/{$repository}/issues/{$number}";
-        $prompt = "Implement GitHub issue {$repository}#{$number}: {$title}\n\n{$body}\n\nIssue URL: {$url}\n"
+        $prompt = "Implement GitHub issue {$repository}#{$number}: {$content['title']}\n\n{$content['body']}\n\nIssue URL: {$url}\n"
             .'Work in the isolated local checkout. Do not push, open a pull request, mutate labels, or comment on GitHub.';
         $this->store->enqueueIntake(
             repository: $repository,

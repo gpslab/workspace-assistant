@@ -13,6 +13,10 @@ interface IntakeApi
     /** @return list<array<string, mixed>> */
     public function issueEvents(string $repository, int $issueNumber, int $timeoutSeconds): array;
 
-    /** ISO 8601 time of the last title/body edit, or null when the content has never been edited. */
-    public function issueContentLastEditedAt(string $repository, int $issueNumber, int $timeoutSeconds): ?string;
+    /**
+     * One current content snapshot. `lastEditedAt` is null when the title/body have never been edited.
+     *
+     * @return array{title:string, body:string, lastEditedAt:?string}
+     */
+    public function issueContent(string $repository, int $issueNumber, int $timeoutSeconds): array;
 }

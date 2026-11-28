@@ -47,9 +47,13 @@ final class WiringIntakeApi implements IntakeApi
         ]];
     }
 
-    public function issueContentLastEditedAt(string $repository, int $issueNumber, int $timeoutSeconds): string
+    public function issueContent(string $repository, int $issueNumber, int $timeoutSeconds): array
     {
-        return '2025-12-31T23:59:59Z';
+        return [
+            'title' => 'Wired intake',
+            'body' => 'Implement through the Bot loop',
+            'lastEditedAt' => '2025-12-31T23:59:59Z',
+        ];
     }
 }
 

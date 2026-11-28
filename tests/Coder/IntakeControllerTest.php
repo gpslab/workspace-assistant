@@ -18,6 +18,8 @@ final class FakeIntakeApi implements IntakeApi
     public array $issues = [];
     /** @var array<string, list<array<string, mixed>>> */
     public array $events = [];
+    /** @var array<string, array{title:string, body:string}> */
+    public array $contents = [];
     /** @var array<string, string> */
     public array $contentEdits = [];
     /** @var array<string, true> */
@@ -50,14 +52,30 @@ final class FakeIntakeApi implements IntakeApi
         return $this->events[$repository.'#'.$issueNumber] ?? [];
     }
 
-    public function issueContentLastEditedAt(string $repository, int $issueNumber, int $timeoutSeconds): ?string
+    public function issueContent(string $repository, int $issueNumber, int $timeoutSeconds): array
     {
         $this->calls[] = ['kind' => 'content', 'repository' => $repository, 'page' => $issueNumber, 'timeout' => $timeoutSeconds];
         if ($this->onCall !== null) {
             ($this->onCall)($repository);
         }
+        $key = $repository.'#'.$issueNumber;
+        $content = $this->contents[$key] ?? null;
+        if ($content === null) {
+            $issue = null;
+            foreach ($this->issues[$repository] ?? [] as $candidate) {
+                if (($candidate['number'] ?? null) === $issueNumber) {
+                    $issue = $candidate;
+                    break;
+                }
+            }
+            $content = [
+                'title' => is_string($issue['title'] ?? null) ? $issue['title'] : "Issue #{$issueNumber}",
+                'body' => is_string($issue['body'] ?? null) ? $issue['body'] : '',
+            ];
+        }
+        $content['lastEditedAt'] = $this->contentEdits[$key] ?? null;
 
-        return $this->contentEdits[$repository.'#'.$issueNumber] ?? null;
+        return $content;
     }
 }
 
@@ -207,6 +225,34 @@ final class IntakeControllerTest extends TestCase
 
         self::assertCount(1, $this->store->jobs());
         self::assertSame('9002', $this->store->jobs()[0]['diagnostics']['label_event_id']);
+    }
+
+    public function testAdmissionUsesFreshContentAfterRemoveEditAndTrustedRelabel(): void
+    {
+        $stale = self::issue(1);
+        $stale['title'] = 'UNAPPROVED STALE TITLE A';
+        $stale['body'] = 'UNAPPROVED STALE BODY A';
+        $this->api->issues['acme/one'] = [$stale];
+        $this->api->contents['acme/one#1'] = [
+            'title' => 'Approved current title B',
+            'body' => 'APPROVED CURRENT BODY B',
+        ];
+        $this->api->contentEdits['acme/one#1'] = '2026-01-01T00:00:02Z';
+        $removed = self::approval(9002);
+        $removed['event'] = 'unlabeled';
+        $removed['created_at'] = '2026-01-01T00:00:01Z';
+        $reapproval = self::approval(9003);
+        $reapproval['created_at'] = '2026-01-01T00:00:03Z';
+        $this->api->events['acme/one#1'] = [self::approval(9001), $removed, $reapproval];
+
+        self::assertSame(1, $this->controller(['acme/one' => 'coder'])->poll());
+
+        self::assertCount(1, $this->store->jobs());
+        $job = $this->store->jobs()[0];
+        self::assertSame('9003', $job['diagnostics']['label_event_id']);
+        self::assertStringContainsString('Approved current title B', $job['diagnostics']['prompt']);
+        self::assertStringContainsString('APPROVED CURRENT BODY B', $job['diagnostics']['prompt']);
+        self::assertStringNotContainsString('UNAPPROVED STALE', $job['diagnostics']['prompt']);
     }
 
     public function testSameSecondEditAfterApprovalFailsClosedUntilUnambiguousReapproval(): void

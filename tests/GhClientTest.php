@@ -105,7 +105,7 @@ final class GhClientTest extends TestCase
             $calls[] = $cmd;
             $timeouts[] = $timeout;
             $stdout = in_array('graphql', $cmd, true)
-                ? '{"data":{"repository":{"issue":{"lastEditedAt":"2025-12-31T23:59:59Z"}}}}'
+                ? '{"data":{"repository":{"issue":{"title":"Approved title","body":"Approved body","lastEditedAt":"2025-12-31T23:59:59Z"}}}}'
                 : '[{"number":7}]';
 
             return ['exit' => 0, 'stdout' => $stdout, 'stderr' => ''];
@@ -113,25 +113,29 @@ final class GhClientTest extends TestCase
 
         self::assertSame([['number' => 7]], $gh->openIssues('o/r', 2, 50, 3));
         self::assertSame([['number' => 7]], $gh->issueEvents('o/r', 7, 4));
-        self::assertSame('2025-12-31T23:59:59Z', $gh->issueContentLastEditedAt('o/r', 7, 2));
+        self::assertSame([
+            'title' => 'Approved title',
+            'body' => 'Approved body',
+            'lastEditedAt' => '2025-12-31T23:59:59Z',
+        ], $gh->issueContent('o/r', 7, 2));
         self::assertSame([
             ['gh', 'api', 'repos/o/r/issues?state=open&labels=openronin%3Ado-it&sort=created&direction=asc&per_page=50&page=2'],
             ['gh', 'api', 'repos/o/r/issues/7/events?per_page=100&page=1'],
         ], array_slice($calls, 0, 2));
         self::assertSame(['gh', 'api', 'graphql', '-f'], array_slice($calls[2], 0, 4));
-        self::assertStringContainsString('issue(number:$number){lastEditedAt}', $calls[2][4]);
+        self::assertStringContainsString('issue(number:$number){title body lastEditedAt}', $calls[2][4]);
         self::assertSame(['-f', 'owner=o', '-f', 'name=r', '-F', 'number=7'], array_slice($calls[2], 5));
         self::assertSame([3, 4, 2], $timeouts);
     }
 
     public function testStandaloneIntakeRequiresExplicitContentEditMetadata(): void
     {
-        $missing = self::client(['exit' => 0, 'stdout' => '{"data":{"repository":{"issue":{}}}}', 'stderr' => '']);
-        $neverEdited = self::client(['exit' => 0, 'stdout' => '{"data":{"repository":{"issue":{"lastEditedAt":null}}}}', 'stderr' => '']);
+        $missing = self::client(['exit' => 0, 'stdout' => '{"data":{"repository":{"issue":{"title":"Title","body":"Body"}}}}', 'stderr' => '']);
+        $neverEdited = self::client(['exit' => 0, 'stdout' => '{"data":{"repository":{"issue":{"title":"Title","body":"Body","lastEditedAt":null}}}}', 'stderr' => '']);
 
-        self::assertNull($neverEdited->issueContentLastEditedAt('o/r', 7, 2));
+        self::assertSame(['title' => 'Title', 'body' => 'Body', 'lastEditedAt' => null], $neverEdited->issueContent('o/r', 7, 2));
         $this->expectException(\RuntimeException::class);
-        $missing->issueContentLastEditedAt('o/r', 7, 2);
+        $missing->issueContent('o/r', 7, 2);
     }
 
     public function testColdReviewNoRunsOnHeadIsDone(): void
