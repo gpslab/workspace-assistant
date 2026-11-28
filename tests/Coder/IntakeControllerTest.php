@@ -18,6 +18,8 @@ final class FakeIntakeApi implements IntakeApi
     public array $issues = [];
     /** @var array<string, list<array<string, mixed>>> */
     public array $events = [];
+    /** @var array<string, string> */
+    public array $contentEdits = [];
     /** @var array<string, true> */
     public array $fail = [];
     /** @var list<array{kind:string, repository:string, page:int, timeout:int}> */
@@ -46,6 +48,16 @@ final class FakeIntakeApi implements IntakeApi
         }
 
         return $this->events[$repository.'#'.$issueNumber] ?? [];
+    }
+
+    public function issueContentLastEditedAt(string $repository, int $issueNumber, int $timeoutSeconds): ?string
+    {
+        $this->calls[] = ['kind' => 'content', 'repository' => $repository, 'page' => $issueNumber, 'timeout' => $timeoutSeconds];
+        if ($this->onCall !== null) {
+            ($this->onCall)($repository);
+        }
+
+        return $this->contentEdits[$repository.'#'.$issueNumber] ?? null;
     }
 }
 
@@ -154,9 +166,24 @@ final class IntakeControllerTest extends TestCase
         self::assertSame('peter', $job['diagnostics']['approved_by']);
         self::assertStringContainsString('Implement task 1', $job['diagnostics']['prompt']);
         self::assertSame(['standalone-issue:1:label-event:9001'], $this->store->processedEventKeys($job['id']));
-        self::assertSame(['issues', 'events', 'events', 'events', 'events'], array_column($this->api->calls, 'kind'));
+        self::assertSame(['issues', 'events', 'content', 'events', 'events', 'events'], array_column($this->api->calls, 'kind'));
         self::assertNotContains('acme/open', array_column($this->api->calls, 'repository'));
         self::assertNotContains('acme/unlisted', array_column($this->api->calls, 'repository'));
+    }
+
+    public function testTrustedLabelingAdmitsContentWhenLabelTouchesTheIssueTimestamp(): void
+    {
+        $issue = self::issue(1);
+        $issue['updated_at'] = '2026-01-01T00:00:00Z';
+        $this->api->issues['acme/one'] = [$issue];
+        $this->api->events['acme/one#1'] = [self::approval(9001)];
+        $this->api->contentEdits['acme/one#1'] = '2025-12-31T23:59:59Z';
+
+        self::assertSame(1, $this->controller(['acme/one' => 'coder'])->poll());
+
+        self::assertCount(1, $this->store->jobs());
+        self::assertSame($issue['updated_at'], $this->api->events['acme/one#1'][0]['created_at']);
+        self::assertSame('9001', $this->store->jobs()[0]['diagnostics']['label_event_id']);
     }
 
     public function testIssueEditedAfterApprovalFailsClosedUntilItIsLabeledAgain(): void
@@ -166,6 +193,7 @@ final class IntakeControllerTest extends TestCase
         $issue['updated_at'] = '2026-01-01T00:00:01Z';
         $this->api->issues['acme/one'] = [$issue];
         $this->api->events['acme/one#1'] = [self::approval(9001)];
+        $this->api->contentEdits['acme/one#1'] = '2026-01-01T00:00:01Z';
         $controller = $this->controller(['acme/one' => 'coder']);
 
         self::assertSame(1, $controller->poll());
@@ -188,10 +216,11 @@ final class IntakeControllerTest extends TestCase
         $issue['updated_at'] = '2026-01-01T00:00:00Z';
         $this->api->issues['acme/one'] = [$issue];
         $this->api->events['acme/one#1'] = [self::approval(9001)];
+        $this->api->contentEdits['acme/one#1'] = '2026-01-01T00:00:00Z';
         $controller = $this->controller(['acme/one' => 'coder']);
 
         self::assertSame(1, $controller->poll());
-        self::assertSame([], $this->store->jobs(), 'Equal timestamps cannot prove that approval followed the edit.');
+        self::assertSame([], $this->store->jobs(), 'Equal content-edit and approval timestamps cannot prove that approval followed the edit.');
 
         $reapproval = self::approval(9002);
         $reapproval['created_at'] = '2026-01-01T00:00:01Z';
@@ -205,20 +234,16 @@ final class IntakeControllerTest extends TestCase
 
     public function testMissingOrMalformedContentApprovalTimestampsFailClosed(): void
     {
-        $missingIssueTimestamp = self::issue(1);
-        unset($missingIssueTimestamp['updated_at']);
-        $invalidIssueTimestamp = self::issue(3);
-        $invalidIssueTimestamp['updated_at'] = 'not-a-date';
-        $this->api->issues['acme/one'] = [$missingIssueTimestamp, self::issue(2), $invalidIssueTimestamp];
-        $missingEventTimestamp = self::approval(9002);
+        $this->api->issues['acme/one'] = [self::issue(1), self::issue(2)];
+        $missingEventTimestamp = self::approval(9001);
         unset($missingEventTimestamp['created_at']);
         $this->api->events = [
-            'acme/one#1' => [self::approval(9001)],
-            'acme/one#2' => [$missingEventTimestamp],
-            'acme/one#3' => [self::approval(9003)],
+            'acme/one#1' => [$missingEventTimestamp],
+            'acme/one#2' => [self::approval(9002)],
         ];
+        $this->api->contentEdits['acme/one#2'] = 'not-a-date';
 
-        self::assertSame(3, $this->controller(['acme/one' => 'coder'])->poll());
+        self::assertSame(2, $this->controller(['acme/one' => 'coder'])->poll());
         self::assertSame([], $this->store->jobs());
     }
 
@@ -352,13 +377,13 @@ final class IntakeControllerTest extends TestCase
             $this->api->events['acme/one#'.$number] = [self::approval(500 + $number)];
         }
         $this->api->onCall = function (): void {
-            $this->now += 0.4;
+            $this->now += 0.2;
         };
 
         $this->controller(['acme/one' => 'coder'], budget: 2, timeout: 1)->poll();
 
-        self::assertSame(['issues', 'events', 'events'], array_column($this->api->calls, 'kind'));
-        self::assertSame([1, 1, 1], array_column($this->api->calls, 'timeout'));
+        self::assertSame(['issues', 'events', 'content', 'events', 'content'], array_column($this->api->calls, 'kind'));
+        self::assertSame([1, 1, 1, 1, 1], array_column($this->api->calls, 'timeout'));
         self::assertSame([1, 2], array_column($this->store->jobs(), 'issue_number'));
         self::assertSame(['issue_number' => 2, 'page' => 1], $this->store->intakeCursor('acme/one'));
     }

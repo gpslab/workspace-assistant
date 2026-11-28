@@ -171,7 +171,11 @@ final class IntakeController
             return;
         }
         $approval = $this->currentApproval($events);
-        if ($approval === null || !$this->approvalCoversContent($issue, $approval)) {
+        if ($approval === null) {
+            return;
+        }
+        $contentLastEditedAt = $this->github->issueContentLastEditedAt($repository, $number, $this->requestTimeout($deadline));
+        if (!$this->approvalCoversContent($contentLastEditedAt, $approval)) {
             return;
         }
         $eventId = $approval['id'];
@@ -226,25 +230,29 @@ final class IntakeController
     }
 
     /**
-     * The trusted label must approve the current title and body, not a later edit. With GitHub's
-     * one-second timestamps, equality cannot distinguish approval from a subsequent edit in the
-     * same second, so only strictly earlier content has an unambiguous approval order.
+     * The trusted label must approve the current title and body, not a later edit. Applying a label
+     * updates the issue's generic `updated_at`, so only the content-specific edit timestamp can
+     * establish this order. Null means the original content. With one-second timestamps, an edit at
+     * the same time as approval remains ambiguous and fails closed.
      *
-     * @param array<string, mixed> $issue
      * @param array<string, mixed> $approval
      */
-    private function approvalCoversContent(array $issue, array $approval): bool
+    private function approvalCoversContent(?string $contentLastEditedAt, array $approval): bool
     {
-        $updatedAt = $issue['updated_at'] ?? null;
         $approvedAt = $approval['created_at'] ?? null;
-        if (!is_string($updatedAt) || !is_string($approvedAt)) {
+        if (!is_string($approvedAt)) {
             return false;
         }
-        $updatedTimestamp = strtotime($updatedAt);
         $approvedTimestamp = strtotime($approvedAt);
+        if ($approvedTimestamp === false) {
+            return false;
+        }
+        if ($contentLastEditedAt === null) {
+            return true;
+        }
+        $contentTimestamp = strtotime($contentLastEditedAt);
 
-        return $updatedTimestamp !== false && $approvedTimestamp !== false
-            && $updatedTimestamp < $approvedTimestamp;
+        return $contentTimestamp !== false && $contentTimestamp < $approvedTimestamp;
     }
 
     private function hasDoItLabel(mixed $labels): bool

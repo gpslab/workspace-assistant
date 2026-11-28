@@ -63,6 +63,14 @@ final class GhClient implements Forge, IntakeApi
         }
         GQL;
 
+    private const string INTAKE_CONTENT_QUERY = <<<'GQL'
+        query($owner:String!,$name:String!,$number:Int!){
+          repository(owner:$owner,name:$name){
+            issue(number:$number){lastEditedAt}
+          }
+        }
+        GQL;
+
     public function __construct(
         private readonly ForgeOwners $owners = new ForgeOwners(),
         private readonly int $timeout = 15,
@@ -97,6 +105,23 @@ final class GhClient implements Forge, IntakeApi
         [$owner, $name] = self::intakeRepository($repository);
 
         return $this->readOnlyList("repos/{$owner}/{$name}/issues/{$issueNumber}/events?per_page=100&page=1", $timeoutSeconds);
+    }
+
+    public function issueContentLastEditedAt(string $repository, int $issueNumber, int $timeoutSeconds): ?string
+    {
+        [$owner, $name] = self::intakeRepository($repository);
+        $res = $this->run([
+            'gh', 'api', 'graphql', '-f', 'query='.self::INTAKE_CONTENT_QUERY,
+            '-f', "owner={$owner}", '-f', "name={$name}", '-F', "number={$issueNumber}",
+        ], $timeoutSeconds);
+        $data = json_decode($res['stdout'], true);
+        $issue = is_array($data) ? ($data['data']['repository']['issue'] ?? null) : null;
+        if ($res['exit'] !== 0 || !is_array($issue) || !array_key_exists('lastEditedAt', $issue)
+            || (!is_string($issue['lastEditedAt']) && $issue['lastEditedAt'] !== null)) {
+            throw new \RuntimeException('gh graphql read: '.trim($res['stderr'] !== '' ? $res['stderr'] : $res['stdout']));
+        }
+
+        return $issue['lastEditedAt'];
     }
 
     /** @return array{string, string} */
