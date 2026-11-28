@@ -107,7 +107,7 @@ final class FakeGithubTransport implements GithubTransport
 
                 return $pr;
             case 'ready':
-                $this->pullRequests[$issueKey]['isDraft'] = false;
+                $this->pullRequests[$issueKey]['draft'] = false;
 
                 return [];
             case 'add_label':
@@ -134,7 +134,7 @@ final class FakeGithubTransport implements GithubTransport
     {
         return [
             '_repository' => $repository, 'number' => $number, 'state' => 'open', 'merged' => false,
-            'isDraft' => true, 'title' => $title, 'body' => $body, 'head' => ['ref' => $branch],
+            'draft' => true, 'title' => $title, 'body' => $body, 'head' => ['ref' => $branch],
         ];
     }
 

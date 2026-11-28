@@ -53,7 +53,7 @@ final class PublicationController
             function () use ($request): ?array {
                 $existing = $this->github(IdentityRouter::PR_FIND)->findPullRequest($this->repository($request), $request->branch);
 
-                return $existing === null ? null : $this->associate($request, $existing);
+                return $existing === null || ($existing['state'] ?? 'open') !== 'open' ? null : $this->associate($request, $existing);
             },
             function () use ($request, $title, $body): array {
                 $created = $this->github(IdentityRouter::PR_CREATE)->createDraftPullRequest(
@@ -71,7 +71,7 @@ final class PublicationController
                     throw new \RuntimeException('The associated coder pull request disappeared during reconciliation.');
                 }
 
-                return ($current['isDraft'] ?? false) === true
+                return ($current['draft'] ?? false) === true
                     && (($current['title'] ?? null) !== $title || ($current['body'] ?? null) !== $body) ? null : $current;
             },
             fn (): array => $this->github(IdentityRouter::PR_UPDATE)->updateDraftPullRequest($this->repository($request), $number, $title, $body),
@@ -96,7 +96,7 @@ final class PublicationController
                     throw new \RuntimeException('The coder pull request disappeared before readiness reconciliation.');
                 }
 
-                return ($pr['isDraft'] ?? true) ? null : ['number' => $number, 'ready' => true];
+                return ($pr['draft'] ?? true) ? null : ['number' => $number, 'ready' => true];
             },
             function () use ($request, $number): array {
                 $this->github(IdentityRouter::READY)->markReady($this->repository($request), $number);
@@ -106,7 +106,7 @@ final class PublicationController
         );
     }
 
-    public function deleteBranch(PublicationRequest $request): void
+    public function deleteBranch(PublicationRequest $request, bool $terminalCleanup = false): void
     {
         $this->operation($request, IdentityRouter::DELETE_BRANCH, $this->prefix($request).':delete-branch', ['branch' => $request->branch],
             function () use ($request): ?array {
@@ -122,6 +122,7 @@ final class PublicationController
 
                 return ['deleted' => true];
             },
+            $terminalCleanup,
         );
     }
 
@@ -220,7 +221,7 @@ final class PublicationController
         return $result;
     }
 
-    /** Recheck lease, cancellation, stored/worktree heads and the complete diff directly before a write. */
+    /** Recheck lease and request identity; ordinary writes also recheck stored/worktree heads and the complete diff. */
     private function gate(PublicationRequest $request, bool $terminalCleanup = false): void
     {
         $job = $this->store->assertPublicationLease(
@@ -229,6 +230,9 @@ final class PublicationController
         if ($job['branch'] !== $request->branch || $job['worktree'] !== $request->worktree
             || ($job['diagnostics']['local_result']['lease_generation'] ?? null) !== $request->leaseGeneration) {
             throw new \RuntimeException('Coder publication rejected: the local request identity is stale.');
+        }
+        if ($terminalCleanup) {
+            return;
         }
         $baseHead = $job['diagnostics']['base_head'] ?? null;
         if (!is_string($baseHead)) {

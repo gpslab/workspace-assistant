@@ -49,6 +49,7 @@ final class LifecycleControllerTest extends PublicationTestCase
         self::assertNotNull($job);
         self::assertSame($expected, $job['state']);
         self::assertSame([], $this->transport->issues['acme/repo#7']['labels']);
+        self::assertArrayNotHasKey('acme/repo:'.$request->branch, $this->transport->branches);
         self::assertNull($job['worker_id']);
         self::assertNull($job['lease_expires_at']);
         $worker = $this->store->worker(1);
@@ -64,6 +65,51 @@ final class LifecycleControllerTest extends PublicationTestCase
         $calls = count($this->transport->calls);
         self::assertSame($expected, $lifecycle->poll($request));
         self::assertSame($calls, count($this->transport->calls), 'Terminal polling emits no new GitHub work.');
+    }
+
+    public function testExplicitRetryAfterClosedPullRequestPublishesANewHeadAndPullRequest(): void
+    {
+        $first = $this->job();
+        $controller = $this->controller();
+        $controller->publish($first, 'First attempt', 'Body');
+        $this->transport->pullRequests['acme/repo#70']['state'] = 'closed';
+        self::assertSame(Store::CANCELLED, $this->lifecycle()->poll($first));
+
+        $retry = $this->job(content: "retry change\n", retryOf: $first);
+        self::assertSame($first->branch, $retry->branch);
+        self::assertNotSame($first->head, $retry->head);
+        $published = $controller->publish($retry, 'Retry', 'Body');
+
+        self::assertSame(71, $published['pull_request']['number']);
+        self::assertSame('open', $published['pull_request']['state']);
+        self::assertSame('closed', $this->transport->pullRequests['acme/repo#70']['state']);
+        self::assertSame($retry->head, $this->transport->branches['acme/repo:'.$retry->branch]);
+        $job = $this->store->job($retry->jobId);
+        self::assertNotNull($job);
+        self::assertSame(71, $job['pull_request_number']);
+    }
+
+    public function testCancellationAfterRejectedDiffSkipsWorktreeValidationForTerminalCleanup(): void
+    {
+        $request = $this->job('.env.production', "secret=true\n");
+        try {
+            $this->controller()->publish($request, 'Title', 'Body');
+            self::fail('The protected path must reject publication.');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('protected', $e->getMessage());
+        }
+        rename($request->worktree.'/.git', $request->worktree.'/.git-unavailable');
+
+        self::assertSame(Store::CANCELLED, $this->lifecycle()->cancel($request));
+
+        self::assertSame([], $this->transport->issues['acme/repo#7']['labels']);
+        $job = $this->store->job($request->jobId);
+        self::assertNotNull($job);
+        self::assertSame(Store::CANCELLED, $job['state']);
+        self::assertNotNull($job['cleanup_scheduled_at']);
+        $worker = $this->store->worker(1);
+        self::assertNotNull($worker);
+        self::assertNull($worker['active_job_id']);
     }
 
     public function testUncertainTerminalLabelRemovalIsReconciledBeforeRelease(): void

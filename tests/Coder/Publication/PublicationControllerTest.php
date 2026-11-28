@@ -81,7 +81,7 @@ final class PublicationControllerTest extends PublicationTestCase
     {
         $request = $this->job();
         $this->transport->branches['acme/repo:'.$request->branch] = $request->head;
-        $this->transport->pullRequests['acme/repo#91'] = $this->transport->newPr('acme/repo', 91, $request->branch, 'Implement fixture', 'Body');
+        $this->transport->pullRequests['acme/repo#91'] = $this->transport->newPr('acme/repo', 91, $request->branch, 'Stale title', 'Body');
 
         $result = $this->controller()->publish($request, 'Implement fixture', 'Body');
 
@@ -91,7 +91,28 @@ final class PublicationControllerTest extends PublicationTestCase
         self::assertSame(91, $job['pull_request_number']);
         self::assertSame([], $this->transport->writes('push'));
         self::assertSame([], $this->transport->writes('create_pr'));
+        self::assertCount(1, $this->transport->writes('update_pr'));
+        self::assertSame('Implement fixture', $result['pull_request']['title']);
         self::assertCount(1, $this->transport->comments['acme/repo#7']);
+    }
+
+    public function testReadyRetryReconcilesRestDraftStateWithoutRepeatingTheWrite(): void
+    {
+        $request = $this->job();
+        $controller = $this->controller();
+        $controller->publish($request, 'Implement fixture', 'Body');
+        $this->transport->crashAfter = 'ready';
+        try {
+            $controller->markReady($request);
+            self::fail('The injected readiness crash must surface as an uncertain outcome.');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('reconciliation', $e->getMessage());
+        }
+
+        $controller->markReady($request);
+
+        self::assertCount(1, $this->transport->writes('ready'));
+        self::assertFalse($this->transport->pullRequests['acme/repo#70']['draft']);
     }
 
     public function testExpiredLeaseRejectsAllWrites(): void

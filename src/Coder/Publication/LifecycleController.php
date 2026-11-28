@@ -25,7 +25,7 @@ final readonly class LifecycleController
         $this->clock = $clock ?? time(...);
     }
 
-    /** Return done/cancelled only after labels, lease, cursor and cleanup are all handled. */
+    /** Return done/cancelled only after labels, branch, lease, cursor and cleanup are all handled. */
     public function poll(PublicationRequest $request): ?string
     {
         $job = $this->store->job($request->jobId);
@@ -80,6 +80,7 @@ final readonly class LifecycleController
     {
         $this->publication->setLifecycleLabel($request, PublicationController::DO_IT, false, true);
         $this->publication->setLifecycleLabel($request, PublicationController::IN_PROGRESS, false, true);
+        $this->publication->deleteBranch($request, true);
         if (!$this->store->terminate($request->jobId, $request->workerId, $request->leaseToken, $state, $reason, ($this->clock)())) {
             throw new \RuntimeException('The coder lease was lost before terminal release.');
         }

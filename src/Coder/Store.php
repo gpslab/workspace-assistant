@@ -817,7 +817,7 @@ final class Store
 
     /**
      * Read a job only while the exact worker lease, head and publication state are still valid.
-     * Terminal label cleanup may observe a cancellation request; ordinary publication may not.
+     * Terminal cleanup may observe a cancellation request; ordinary publication may not.
      *
      * @return array<string, mixed>
      */

@@ -57,9 +57,18 @@ abstract class PublicationTestCase extends TestCase
         );
     }
 
-    protected function job(string $path = 'src/change.txt', string $content = "safe change\n"): PublicationRequest
+    protected function job(string $path = 'src/change.txt', string $content = "safe change\n", ?PublicationRequest $retryOf = null): PublicationRequest
     {
-        $id = $this->store->enqueue('acme/repo', 'pending', 7, diagnostics: ['prompt' => 'Implement fixture'], now: 100);
+        $diagnostics = ['prompt' => 'Implement fixture'];
+        if ($retryOf === null) {
+            $id = $this->store->enqueue('acme/repo', 'pending', 7, diagnostics: $diagnostics, now: 100);
+        } else {
+            $id = $this->store->retryIntake(
+                $retryOf->jobId, 'standalone-issue:7:label-event:retry-'.$retryOf->jobId, $retryOf->branch, $diagnostics, now: 100,
+            );
+            self::assertNotNull($id);
+        }
+        $branch = $retryOf->branch ?? 'coder/job-'.$id;
         $worktree = $this->worktreeRoot.'/job-'.$id;
         mkdir($worktree, 0700, true);
         $this->git($worktree, ['init', '-q', '-b', 'master']);
@@ -77,8 +86,10 @@ abstract class PublicationTestCase extends TestCase
         $this->git($worktree, ['add', '-A']);
         $this->git($worktree, ['commit', '-q', '-m', 'Coder change']);
         $head = $this->git($worktree, ['rev-parse', 'HEAD']);
-        $this->git($worktree, ['checkout', '-q', '-b', 'coder/job-'.$id]);
-        $this->store->registerWorker(1, 100);
+        $this->git($worktree, ['checkout', '-q', '-b', $branch]);
+        if ($retryOf === null) {
+            $this->store->registerWorker(1, 100);
+        }
         $lease = $this->store->assign(1, 300, 100);
         self::assertNotNull($lease);
         $diagnostics = [
@@ -87,7 +98,7 @@ abstract class PublicationTestCase extends TestCase
             'checks' => ['full' => [['argv' => ['composer', 'test'], 'exit' => 0]]],
         ];
         self::assertTrue($this->store->updateContext(
-            $id, 1, $lease['lease_token'], $head, 'session-1', $worktree, $diagnostics, now: 101, branch: 'coder/job-'.$id,
+            $id, 1, $lease['lease_token'], $head, 'session-1', $worktree, $diagnostics, now: 101, branch: $branch,
         ));
         self::assertTrue($this->store->transition($id, Store::RUNNING, 1, $lease['lease_token'], 102));
         self::assertTrue($this->store->transition($id, Store::AWAITING_ACTION, 1, $lease['lease_token'], 103));
@@ -95,7 +106,7 @@ abstract class PublicationTestCase extends TestCase
             'number' => 7, 'state' => 'open', 'labels' => [['name' => PublicationController::DO_IT]],
         ];
 
-        return new PublicationRequest($id, 'run-1', 'coder/job-'.$id, $worktree, $head, 'session-1', 1, $lease['lease_token'], 1);
+        return new PublicationRequest($id, 'run-1', $branch, $worktree, $head, 'session-1', 1, $lease['lease_token'], 1);
     }
 
     /** @param list<string> $args */

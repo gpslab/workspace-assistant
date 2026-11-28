@@ -113,13 +113,15 @@ Immediately before every push, pull-request operation, readiness change, label o
 comment, the controller rechecks the exact lease token and worker, cancellation state, stored and
 worktree head SHA and request generation. `DiffGuard` also revalidates a clean worktree and the full
 base-to-head patch, including deleted/renamed paths, workflow files, secret content and every
-`CODER_PROTECTED_PATHS` glob. A failure emits no write. The C1b non-secret git author configuration
-stays in `Worktree` and is not duplicated by publication.
+`CODER_PROTECTED_PATHS` glob. A failure emits no write. Terminal label removal and branch deletion
+recheck only the lease and request identity locally; branch deletion still requires the expected
+remote head. They do not revalidate a worktree or diff that may already have been rejected. The C1b
+non-secret git author configuration stays in `Worktree` and is not duplicated by publication.
 
 Every action and response has a durable row in `coder_publications`, keyed by repository and an
 idempotency key containing job and head, stable across lease generations. A pending or uncertain operation is
 reconciled with a GitHub read before any retry. Push and deletion reconcile the branch head; pull
-request creation finds the deterministic branch's existing PR and restores its local association;
+request creation finds the deterministic branch's existing open PR and restores its local association;
 labels read current labels; comments carry a hidden response key. An exception after a write marks
 its outcome uncertain rather than authorizing a blind repeat.
 
@@ -127,7 +129,8 @@ its outcome uncertain rather than authorizing a blind repeat.
 
 `LifecycleController` maps a merged PR to `done`; a closed-unmerged PR, closed issue or author
 cancellation maps to `cancelled`. Before terminal release it removes both lifecycle labels through
-the coder client. It then releases the lease and worker slot, closes the job cursor, retains all
+the coder client and deletes the deterministic remote branch after reconciling its expected head. It
+then releases the lease and worker slot, closes the job cursor, retains all
 execution diagnostics and records a deterministic worktree cleanup target. `CleanupScheduler` only
 schedules the validated `worktree-root/job-ID` path outside the managed repository; it performs no
 inline deletion. An already terminal job produces no GitHub operation and cannot be assigned again.
