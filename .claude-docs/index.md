@@ -73,8 +73,11 @@ Which file to read for which task. Start here when unsure.
 | `src/IncomingFile.php` / `AlbumBuffer.php`       | Incoming files of any type (pure functions); album buffer with debounce                                                          |
 | `src/MarkdownConverter.php`                      | Markdown → Telegram HTML subset                                                                                                  |
 | `src/Database.php`                               | SQLite: sessions `(chat_id, thread_id)`, queue, key-value state                                                                  |
-| `src/Coder/Store.php`                            | Independent `state/coder.sqlite`: standalone coder job/worker identities, migrations, atomic intake, durable polling cursors, events and transactional worker leases   |
+| `src/Coder/Store.php`                            | Independent `state/coder.sqlite`: standalone coder job/worker identities, migrations, atomic intake and retry, durable polling cursors, publication idempotency and transactional leases |
 | `src/Coder/IntakeController.php`                 | Bounded read-only standalone issue intake in the Bot loop; explicit coder allowlist and trusted label-event approval; never starts a worker |
+| `src/Coder/Worker.php` / `Worktree.php`           | Explicit local-only execution and commits in isolated worktrees; returns a leased publication request and has no forge write path |
+| `src/Coder/Github/*`                             | Named reviewer/coder clients and credential providers, per-child identity environments, action routing and startup actor/read-access validation |
+| `src/Coder/Publication/*`                        | Controller-only coder push/PR/labels/comments, pre-write lease/head/full-diff gates, GitHub reconciliation, terminal release and safe cleanup scheduling |
 | `src/SessionFiles.php`                           | Deletes the session files of the engine (the Claude transcript, the Kimi session directory) on `/new` and `/compact`             |
 | `src/Config.php` / `Env.php`                     | Configuration from `.env`, no vlucas/phpdotenv                                                                                   |
 | `src/Locale.php` / `resources/locales/*.json`    | Text catalog: `en` is the reference and fallback, `{name}` placeholders                                                          |

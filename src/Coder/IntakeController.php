@@ -182,18 +182,27 @@ final class IntakeController
         $url = is_string($issue['html_url'] ?? null) ? $issue['html_url'] : "https://github.com/{$repository}/issues/{$number}";
         $prompt = "Implement GitHub issue {$repository}#{$number}: {$content['title']}\n\n{$content['body']}\n\nIssue URL: {$url}\n"
             .'Work in the isolated local checkout. Do not push, open a pull request, mutate labels, or comment on GitHub.';
+        $eventKey = "standalone-issue:{$number}:label-event:{$eventId}";
+        $diagnostics = [
+            'prompt' => $prompt,
+            'source' => 'standalone_issue_intake',
+            'issue_url' => $url,
+            'label_event_id' => (string) $eventId,
+            'approved_by' => $this->config->trustedAuthor,
+        ];
+        $previous = $this->store->latestIssueJob($repository, $number);
+        if ($previous !== null && in_array($previous['state'], [Store::CANCELLED, Store::FAILED, Store::DONE], true)) {
+            // A fresh trusted label event is an explicit author retry, never revival of processed keys.
+            $this->store->retryIntake($previous['id'], $eventKey, "coder/issue-{$number}", $diagnostics);
+
+            return;
+        }
         $this->store->enqueueIntake(
             repository: $repository,
-            eventKey: "standalone-issue:{$number}:label-event:{$eventId}",
+            eventKey: $eventKey,
             branch: "coder/issue-{$number}",
             issueNumber: $number,
-            diagnostics: [
-                'prompt' => $prompt,
-                'source' => 'standalone_issue_intake',
-                'issue_url' => $url,
-                'label_event_id' => (string) $eventId,
-                'approved_by' => $this->config->trustedAuthor,
-            ],
+            diagnostics: $diagnostics,
         );
     }
 

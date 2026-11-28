@@ -21,15 +21,21 @@ final readonly class LocalResult
         public ?string $head,
         public ?string $sessionId,
         public array $details = [],
+        public int $workerId = 0,
+        public string $leaseToken = '',
+        public int $leaseGeneration = 0,
     ) {
     }
 
     public function publicationRequest(): ?PublicationRequest
     {
-        if ($this->status !== self::PUBLICATION_REQUESTED || $this->head === null || $this->sessionId === null) {
+        if ($this->status !== self::PUBLICATION_REQUESTED || $this->head === null || $this->sessionId === null || $this->leaseToken === '') {
             return null;
         }
 
-        return new PublicationRequest($this->jobId, $this->runId, $this->branch, $this->worktree, $this->head, $this->sessionId);
+        return new PublicationRequest(
+            $this->jobId, $this->runId, $this->branch, $this->worktree, $this->head, $this->sessionId,
+            $this->workerId, $this->leaseToken, $this->leaseGeneration,
+        );
     }
 }
