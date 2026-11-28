@@ -10,6 +10,10 @@ use GpsLab\WorkspaceAssistant\Callback\Handler;
 use GpsLab\WorkspaceAssistant\Callback\LangHandler;
 use GpsLab\WorkspaceAssistant\Callback\ModeHandler;
 use GpsLab\WorkspaceAssistant\Callback\ModelHandler;
+use GpsLab\WorkspaceAssistant\Coder\IntakeApi;
+use GpsLab\WorkspaceAssistant\Coder\IntakeController;
+use GpsLab\WorkspaceAssistant\Coder\RoutingGuard;
+use GpsLab\WorkspaceAssistant\Coder\Store as CoderStore;
 use GpsLab\WorkspaceAssistant\Command\CancelCommand;
 use GpsLab\WorkspaceAssistant\Command\CompactCommand;
 use GpsLab\WorkspaceAssistant\Command\EpicCommand;
@@ -92,6 +96,7 @@ final class Bot implements LoopControl
     private readonly QueueScheduler $queueScheduler;
     private readonly RunLifecycle $runLifecycle;
     private readonly CompactFlow $compactFlow;
+    private readonly ?IntakeController $coderIntake;
 
     /**
      * Callback handlers in the order they are tried: the stateless `mode:`, `model:`, `lang:`, `epic:` first,
@@ -112,7 +117,10 @@ final class Bot implements LoopControl
         private readonly ?string $selfRepoPath = null,
         ?RunnerFactory $runnerFactory = null,
         ?KimiGateGuard $kimiGate = null,
+        ?IntakeController $coderIntake = null,
     ) {
+        $routingGuard = new RoutingGuard($config->coderIntake->routing, $db, $config->forgeOwners);
+        $routingGuard->assertRoutingAllowed();
         $this->locale = $locale ?? Locale::fromConfig($config);
         $this->locales = new Locales($this->locale, $db);
         $this->subRepoSync = new SubRepoSync($config, $this->locale);
@@ -127,7 +135,7 @@ final class Bot implements LoopControl
         $this->kimiGate = $kimiGate ?? new KimiGateGuard($config, $this->locale);
         $this->albumBuffer = new AlbumBuffer();
         $this->epicCard = new Card($db, $tg, $config->repoPath, $config->epicsDir, $config->epicTickMinutes * 60, $this->locale);
-        $this->epicChat = new ChatSurface($db, $tg, $config, $git, $this->epicCard, $this->locale, $this->kimiGate);
+        $this->epicChat = new ChatSurface($db, $tg, $config, $git, $this->epicCard, $this->locale, $this->kimiGate, $routingGuard);
         $this->queueTexts = new QueueTexts($this->locale);
         // Memory of the instance: off unless MEMORY_3LAYER_BIN is set, and off on Claude Code whatever the
         // setting says, because that engine reads the user scope itself (Config::memoryBin()) — OpenCode
@@ -168,9 +176,13 @@ final class Bot implements LoopControl
             masterRedHours: $config->epicMasterRedHours,
             owners: $config->forgeOwners,
             locale: $this->locale,
+            routingGuard: $routingGuard,
         );
         $this->runLifecycle = new RunLifecycle($config, $db, $git, $this->delivery, $this->locale, $this->epicCard, $notifier, $this->runResult, $this->dirtyTree, $this->orchestrator, $this->secretBlocker, $github);
         $this->compactFlow = new CompactFlow($config, $db, $tg, $git, $sessionFiles, $this->delivery, $this->locale, $this->dirtyTree, $this->runState, $this->jobRunner, $this->kimiGate);
+        $this->coderIntake = $coderIntake ?? ($github instanceof IntakeApi && $config->coderIntake->routing->coderRepositories() !== []
+            ? new IntakeController($config->coderIntake, new CoderStore($config->stateDir), $github)
+            : null);
     }
 
     /** Menu order = registration order. */
@@ -298,6 +310,7 @@ final class Bot implements LoopControl
 
         $this->flushReadyAlbums();
         $this->pollEpics();
+        $this->pollCoderIntake();
         // The memory sync of the instance runs outside the job: its client is reaped (and killed at its
         // timeout) here, whatever the state of the job and the queue.
         $this->memorySync->poll();
@@ -340,6 +353,19 @@ final class Bot implements LoopControl
         }
     }
 
+    /** Standalone intake has its own bounded pass and never starts a worker. */
+    private function pollCoderIntake(): void
+    {
+        if ($this->coderIntake === null || !$this->running) {
+            return;
+        }
+        try {
+            $this->coderIntake->poll();
+        } catch (\Throwable $e) {
+            Log::line('coder intake poll failed: '.$e->getMessage());
+        }
+    }
+
     /**
      * getUpdates timeout: 0 if there is something to do without waiting (active job,
      * immature album, queue head not on pause); otherwise a long-poll,
@@ -352,6 +378,12 @@ final class Bot implements LoopControl
         $epicDue = !$busy && $this->orchestrator !== null && $this->running && $this->db->epicsRunningExist()
             ? $this->epicPollDueAt()
             : null;
+        $coderDue = !$busy && $this->running ? $this->coderIntake?->pollDueAt() : null;
+        $forgeDue = match (true) {
+            $epicDue === null => $coderDue,
+            $coderDue === null => $epicDue,
+            default => min($epicDue, $coderDue),
+        };
 
         return PollSchedule::longPollTimeout(
             $busy,
@@ -359,7 +391,7 @@ final class Bot implements LoopControl
             $busy || $queueEmpty ? 0 : $this->queueScheduler->queueBlockedUntil(),
             $this->queueScheduler->isTreePaused(),
             $this->config->pollTimeout,
-            $epicDue,
+            $forgeDue,
             time(),
         );
     }

@@ -302,6 +302,12 @@ Claude; nothing filters the injected memory. The same holds for a Kimi run and t
 | `FORGE_REPO` | empty | Workspace repository as `owner/name`, for commit links (alias: `GITHUB_REPO`; the new key wins, a warning is logged when both are set) |
 | `FORGE_OWNERS` | empty | Owners the bot works with; the first is the default owner; with `FORGE=gitlab` an owner may be a namespace path `group/subgroup` (alias: `GITHUB_OWNERS`) |
 | `OPENRONIN_LOGINS` | empty | Logins allowed to author the `<!-- openronin:bot -->` marker |
+| `REPOSITORY_EXECUTORS` | empty | Exclusive repository-to-executor map, comma-separated `owner/repository:openronin` or `owner/repository:coder`. The repositories mapped to `coder` are the standalone intake allowlist; empty disables it |
+| `CODER_INTAKE_AUTHOR` | empty | Trusted human GitHub login whose `openronin:do-it` label event authorizes standalone intake; required with coder routing. Separate from Telegram and executor login settings |
+| `CODER_INTAKE_POLL_SECONDS` | `30` | Seconds between bounded read-only intake passes (minimum `5`) |
+| `CODER_INTAKE_TICK_BUDGET` | `10` | Time budget of one intake pass, seconds |
+| `CODER_INTAKE_WORK_BUDGET` | `4` | Maximum repository scans and issue records examined per intake pass (maximum `100`) |
+| `CODER_INTAKE_REQUEST_TIMEOUT` | `5` | Timeout of one read-only GitHub request, seconds; cannot exceed the tick budget |
 | `ENGINE` | `claude` | Agent engine that runs the jobs: `claude`, `opencode` or `kimi`; anything else is a startup error. See [OpenCode](#opencode) and [Kimi](#kimi) |
 | `CLAUDE_BIN` | `claude` | Path or name of the `claude` binary (`ENGINE=claude`) |
 | `OPENCODE_BIN` | `opencode` | Path or name of the `opencode` binary (`ENGINE=opencode`) |
@@ -343,6 +349,35 @@ Claude; nothing filters the injected memory. The same holds for a Kimi run and t
 | `EPIC_QUIET_MINUTES` | `10` | PR quiet period before the hot review; a safety net, since the review is queued earlier once openronin has the last word on a green PR |
 | `EPIC_ANSWER_TIMEOUT_MINUTES` | `120` | Timeout of `openronin:awaiting-answer` |
 | `EPIC_MASTER_RED_HOURS` | `6` | Hours a confirmed red default branch is tolerated |
+
+### Standalone coder issue intake
+
+`REPOSITORY_EXECUTORS` is empty by default, so the bot creates no standalone jobs and starts no
+coder worker. Mapping a repository to `coder` enables bounded, read-only polling of its open issues
+in the Bot loop. Standalone intake requires `FORGE=github` and an authenticated `gh` client; on
+another forge, configured coder routing produces a startup warning and polling stays disabled. Only
+issues carrying `openronin:do-it` are listed by GitHub. Intake also requires a matching latest
+`labeled` event by `CODER_INTAKE_AUTHOR`; comments and labels from other actors create no jobs.
+Applying a label touches the issue's generic `updated_at`, so approval is ordered against the
+content-specific `lastEditedAt` instead. Original content is admissible; edited content must precede
+the label event strictly, and equal content-edit and approval timestamps fail closed. An edit after
+approval is refused until the issue is labeled again at an unambiguously later time. The worker
+remains an explicitly invoked local process.
+Polling does not push, create pull requests, mutate labels, comment, or perform any other GitHub write.
+Request and repository failures retain the durable cursor, are logged as warnings, and are retried on
+a later scheduled pass.
+
+Changing `REPOSITORY_EXECUTORS` or the intake settings requires a bot restart. On that restart the
+store automatically applies the pending `state/coder.sqlite` migration for stable polling cursors;
+no manual SQL is needed. Intake transactions enforce one active job per repository and issue.
+
+Each repository can have only one executor assignment. Routing a repository to `coder` is rejected
+at startup while an epic containing it is `running`; pause or complete that epic first. A blocked
+epic does not prevent startup, but resuming it with coder-routed tasks is refused. New epic plans for
+a coder-routed repository are rejected, and an existing epic stops loudly rather than applying
+`openronin:do-it` there. The map does not disable or drain an external Openronin service.
+
+### Epic run models
 
 The three `MODEL_EPIC_*` keys choose the model of an epic run per run kind; each non-empty value must be a
 member of `CLAUDE_MODELS` (otherwise the bot fails at startup). With a key empty the run falls back to the

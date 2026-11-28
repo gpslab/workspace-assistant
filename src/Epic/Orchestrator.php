@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Epic;
 
+use GpsLab\WorkspaceAssistant\Coder\RoutingGuard;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\ForgeOwners;
 use GpsLab\WorkspaceAssistant\Locale;
@@ -49,6 +50,7 @@ final class Orchestrator
         private readonly int $masterRedHours = 6,
         private readonly ForgeOwners $owners = new ForgeOwners(),
         private readonly Locale $locale = new Locale(),
+        private readonly ?RoutingGuard $routingGuard = null,
     ) {
     }
 
@@ -244,6 +246,9 @@ final class Orchestrator
             $this->external[$slug] = $snap['external'];
         }
         $acted = $this->act($slug, $states, $now, $busy);
+        if ($acted === 'routing') {
+            return $states;
+        }
         if ($acted === 'review') {
             $busy = true;
         }
@@ -338,7 +343,8 @@ final class Orchestrator
      *
      * @param array<string, TaskState> $states mutated: reflects our actions
      *
-     * @return string|null 'review' — hot review enqueued, 'other' — another action, null — nothing
+     * @return string|null 'review' — hot review enqueued, 'routing' — conflicting repository stopped the epic,
+     *                     'other' — another action, null — nothing
      */
     private function act(string $slug, array &$states, int $now, bool $busy): ?string
     {
@@ -352,6 +358,14 @@ final class Orchestrator
 
             if (!$task['hold'] && $s->issueOpen && $s->prState === TaskState::NO_PR && !$this->hasOpenroninLabel($s)
                 && $this->afterMerged($task['after'], $states)) {
+                $coderRepository = $this->routingGuard?->coderRepository($task['task']);
+                if ($coderRepository !== null) {
+                    $reason = "Stopped {$task['task']}: {$coderRepository} is routed to the standalone coder; refusing to apply ".self::LABEL_DO_IT.'.';
+                    $this->db->epicSetTaskStatus($slug, $task['task'], 'blocked');
+                    ($this->block)($slug, $reason);
+
+                    return 'routing';
+                }
                 $this->github->addLabel($task['task'], self::LABEL_DO_IT);
                 $states[$task['task']] = $s->withLabel(self::LABEL_DO_IT);
                 $result ??= 'other';

@@ -212,6 +212,17 @@ final class ConfigTest extends TestCase
         self::assertSame(['group/sub', 'proj', 12], $config->forgeOwners->parse('group/sub/proj#12'));
     }
 
+    public function testGitlabForgeWarnsThatConfiguredCoderIntakeIsDisabled(): void
+    {
+        $this->writeEnv("FORGE=gitlab\nOPENRONIN_LOGINS=bot\nREPOSITORY_EXECUTORS=group/proj:coder\nCODER_INTAKE_AUTHOR=peter\n");
+
+        $warnings = Config::load($this->envFile)->startupWarnings();
+
+        self::assertCount(1, $warnings);
+        self::assertStringContainsString('standalone intake requires FORGE=github', $warnings[0]);
+        self::assertStringContainsString('polling is disabled', $warnings[0]);
+    }
+
     public function testForgeNameAndCliFollowTheForge(): void
     {
         $this->writeEnv();

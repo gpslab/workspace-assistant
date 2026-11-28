@@ -1,10 +1,55 @@
-# Standalone coder storage
+# Standalone coder intake and storage
 
 `GpsLab\WorkspaceAssistant\Coder\Store` is the durable storage and lease dispatcher for standalone
-coder jobs. It is not connected to the Bot loop and starts no service. Its default file is
-`state/coder.sqlite`; the Bot's `Database` continues to use `state/state.sqlite`. Each `Store`
-instance owns a PDO connection, enables WAL, foreign keys and a busy timeout, and can reconnect after
-`disconnect()`. There is no shared or static connection.
+coder jobs. Its default file is `state/coder.sqlite`; the Bot's `Database` continues to use
+`state/state.sqlite`. Each `Store` instance owns a PDO connection, enables WAL, foreign keys and a
+busy timeout, and can reconnect after `disconnect()`. There is no shared or static connection.
+
+## Explicit intake
+
+`Coder\IntakeController`, composed into `Bot`, is the only standalone polling component. With the
+default empty `REPOSITORY_EXECUTORS` map it is not wired, performs no request and starts no worker.
+The map assigns each listed repository exactly one executor, `openronin` or `coder`; only the
+`coder` entries form the intake allowlist. Duplicate assignments and unknown executors fail
+configuration validation. This map drives Workspace Assistant guards only: it does not reconfigure
+or drain the external Openronin service.
+
+A scheduled `poll()` examines only open issues in coder-routed repositories through read-only issue,
+issue-event and GraphQL content-metadata APIs. An issue is admitted only when its current
+`openronin:do-it` label is proven by a latest `labeled` event from `CODER_INTAKE_AUTHOR`, a separately
+configured trusted human login. GitHub also touches the issue's generic `updated_at` when applying
+that label, so intake instead compares the event's `created_at` with the content-specific
+`lastEditedAt`. Original content has no edit timestamp and is admissible; otherwise the content edit
+must be strictly earlier than approval. Equal content-edit and approval timestamps fail closed
+because GitHub's one-second resolution cannot order a same-second edit and approval. This binds
+approval to the title and body current at the trusted label event. A later edit, missing or malformed
+approval or content-edit metadata, a label by itself, comments, arbitrary issues and unlisted
+repositories create no instruction: a fresh trusted label at an unambiguously later time is required
+after such an edit. The immutable label-event id is part of the
+`(repository, event_key)` intake identity. `Store::enqueueIntake()` records that identity and creates
+the queued job in one immediate transaction, so a repeated or concurrent event returns without
+another job. The same transaction also checks for an active `(repository, issue_number)` job before
+inserting, so distinct re-label events cannot create concurrent jobs for one issue.
+
+The controller owns both durable cursors in `state/coder.sqlite`: the last examined issue number in
+each repository's server-filtered, creation-ordered scan and the repository starting the next
+round-robin pass. Passes normally resume from page one and skip only issue identities at or before
+the issue cursor, so closing an earlier issue cannot shift a numeric offset past new work. When the
+page cap contains only already-cursored records, the next page is retained for the following pass;
+examining new work returns the durable scan to page one. This bounds each pass without permanently
+starving candidates beyond the cap. Reaching the end resets the cursor to consider older re-labelled
+issues. `Coder\Worker` only consumes leased jobs and never polls GitHub.
+`CODER_INTAKE_POLL_SECONDS`, `CODER_INTAKE_TICK_BUDGET`, `CODER_INTAKE_WORK_BUDGET` and
+`CODER_INTAKE_REQUEST_TIMEOUT` bound the pass. A repository failure is logged as a warning with its
+cursor retained and isolated; a slow or full event page fails closed. Intake adds no GitHub write and
+no production worker start.
+
+`Coder\RoutingGuard` rejects coder routing at startup while an epic containing the repository is
+`running`; `paused`, `blocked` and `done` epics permit startup. Resuming a paused or blocked epic
+whose plan contains a coder-routed repository is refused, so a routing block cannot put the Bot into
+a restart crash loop. The guard rejects new epic plans containing a coder-routed repository before
+`Database::epicCreate()`, and `Epic\Orchestrator` checks it again immediately before applying
+`openronin:do-it`, blocking the task and epic with an explicit reason instead of labelling the issue.
 
 ## Migrations and identities
 

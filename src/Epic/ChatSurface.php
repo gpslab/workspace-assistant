@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GpsLab\WorkspaceAssistant\Epic;
 
+use GpsLab\WorkspaceAssistant\Coder\RoutingGuard;
 use GpsLab\WorkspaceAssistant\Config;
 use GpsLab\WorkspaceAssistant\Database;
 use GpsLab\WorkspaceAssistant\GitManager;
@@ -39,6 +40,7 @@ final class ChatSurface
         private readonly Card $card,
         private readonly Locale $locale,
         private readonly KimiGateGuard $kimiGate,
+        private readonly RoutingGuard $routingGuard,
     ) {
     }
 
@@ -177,6 +179,7 @@ final class ChatSurface
         $planPath = Run::planPath($this->config->repoPath, $this->config->epicsDir, $slug);
         try {
             $plan = Plan::load($planPath, $this->config->forgeOwners);
+            $this->routingGuard->assertPlanAllowed($plan->tasks, $plan->releases);
         } catch (\InvalidArgumentException $e) {
             return $this->t('epic.plan_invalid', ['error' => $e->getMessage()]);
         }
@@ -226,6 +229,11 @@ final class ChatSurface
         $running = $epic['status'] === self::EPIC_RUNNING;
         if ($running && array_filter($this->db->epicTasks($epic['slug']), static fn (array $t): bool => $t['status'] === 'blocked') === []) {
             return $this->t('epic.not_paused', ['slug' => $epic['slug'], 'status' => $epic['status']]);
+        }
+        try {
+            $this->routingGuard->assertPlanAllowed($this->db->epicTasks($epic['slug']), $this->db->epicReleases($epic['slug']));
+        } catch (\InvalidArgumentException $e) {
+            return $this->t('epic.blocked', ['reason' => $e->getMessage()]);
         }
         $unblocked = $this->db->epicResume($epic['slug']);
         $this->card->update($epic['slug']);
