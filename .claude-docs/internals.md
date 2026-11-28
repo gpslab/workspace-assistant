@@ -443,6 +443,8 @@ Authoritative list with comments: `.env.dist`. Main variables:
 | `OPENRONIN_LOGINS`      | logins allowed to author the `<!-- openronin:bot -->` marker   | empty (any author + warning)     |
 | `REPOSITORY_EXECUTORS`  | exclusive `owner/repository:openronin|coder` map; coder entries are the standalone intake allowlist | empty (intake off) |
 | `CODER_INTAKE_*`        | trusted human approval login and bounded read-only intake schedule, tick/work budgets and request timeout ([coder.md](coder.md)) | off with empty routing |
+| `CODER_GITHUB_*`, `CODER_REVIEWER_GITHUB_*` | separately named coder/reviewer logins, tokens and isolated CLI config; coder scopes must exclude `workflow` ([coder.md](coder.md)) | explicit controller composition only |
+| `CODER_BASE_BRANCH`, `CODER_PROTECTED_PATHS`, `CODER_PUBLICATION_TIMEOUT` | draft PR base, additional protected diff globs and GitHub request timeout | `master`, empty, `30` |
 | `ENGINE`                | agent engine that runs the jobs: `claude`, `opencode` or `kimi` (any other value fails startup); on `opencode` the factory builds an `OpencodeRunner`, on `kimi` a `KimiRunner`, and on both `/model` is read-only | `claude` |
 | `CLAUDE_BIN`            | path to the claude binary                                      | `claude`                         |
 | `OPENCODE_BIN`          | path to the opencode binary (`ENGINE=opencode`; the installer checks this one instead of `CLAUDE_BIN`) | `opencode` |

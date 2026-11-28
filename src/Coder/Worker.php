@@ -245,14 +245,21 @@ final class Worker
             if ($sessionId === null) {
                 throw new \RuntimeException('A publication request requires a session and a local head.');
             }
-            $request = new PublicationRequest($jobId, $runId, $branch, $path, $head, $sessionId);
+            $request = new PublicationRequest(
+                $jobId, $runId, $branch, $path, $head, $sessionId,
+                $this->workerId, $lease['lease_token'], $lease['lease_generation'],
+            );
             $diagnostics['local_result'] = $request->toArray();
-            $diagnostics['phase'] = 'done';
-            if (!$this->store->complete($jobId, $this->workerId, $lease['lease_token'], $diagnostics)) {
+            $diagnostics['phase'] = 'publication_requested';
+            $this->persist($jobId, $lease, $diagnostics, $head, $sessionId, $path, 'Local commit awaits controller publication');
+            if (!$this->store->transition($jobId, Store::AWAITING_ACTION, $this->workerId, $lease['lease_token'])) {
                 return $this->interruptedResult($jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
             }
 
-            return new LocalResult(LocalResult::PUBLICATION_REQUESTED, $jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics);
+            return new LocalResult(
+                LocalResult::PUBLICATION_REQUESTED, $jobId, $runId, $branch, $path, $head, $sessionId, $diagnostics,
+                $this->workerId, $lease['lease_token'], $lease['lease_generation'],
+            );
         } catch (\Throwable $e) {
             $current = $this->store->job($jobId);
             if (($current['state'] ?? null) === Store::CANCELLED) {
@@ -350,7 +357,10 @@ final class Worker
      */
     private function persist(int $jobId, array $lease, array $diagnostics, ?string $head, ?string $sessionId, string $path, string $progress): void
     {
-        if (!$this->store->updateContext($jobId, $this->workerId, $lease['lease_token'], $head, $sessionId, $path, $diagnostics, $progress)) {
+        if (!$this->store->updateContext(
+            $jobId, $this->workerId, $lease['lease_token'], $head, $sessionId, $path, $diagnostics, $progress,
+            branch: is_string($diagnostics['branch'] ?? null) ? $diagnostics['branch'] : null,
+        )) {
             throw new \RuntimeException('The coder lease was lost while persisting execution state.');
         }
     }

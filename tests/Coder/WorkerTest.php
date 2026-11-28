@@ -127,7 +127,7 @@ final class WorkerTest extends TestCase
 
         $job = $this->store->job($id);
         self::assertNotNull($job);
-        self::assertSame(Store::DONE, $job['state']);
+        self::assertSame(Store::AWAITING_ACTION, $job['state']);
         self::assertSame($result->head, $job['current_head']);
         self::assertCount(1, $job['diagnostics']['checks']['targeted']);
         self::assertSame([
@@ -369,7 +369,7 @@ final class WorkerTest extends TestCase
         self::assertNotNull($result);
         self::assertSame(LocalResult::PUBLICATION_REQUESTED, $result->status, (string) ($result->details['error'] ?? ''));
         self::assertGreaterThan(4.0, microtime(true) - $started);
-        self::assertSame(Store::DONE, $this->store->job($id)['state'] ?? null);
+        self::assertSame(Store::AWAITING_ACTION, $this->store->job($id)['state'] ?? null);
     }
 
     public function testLostLeaseIsNotCancellationOrAPublicationRequest(): void
@@ -442,7 +442,7 @@ final class WorkerTest extends TestCase
 
         self::assertNotNull($result);
         self::assertSame(LocalResult::PUBLICATION_REQUESTED, $result->status, (string) ($result->details['error'] ?? ''));
-        self::assertSame(Store::DONE, $this->store->job($id)['state'] ?? null);
+        self::assertSame(Store::AWAITING_ACTION, $this->store->job($id)['state'] ?? null);
         $composer = json_decode((string) file_get_contents($result->worktree.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('^1.0', $composer['require']['example/package']);
     }
@@ -821,7 +821,7 @@ final class WorkerTest extends TestCase
         self::assertNotNull($job);
         self::assertSame(Store::FAILED, $job['state']);
         self::assertArrayHasKey('reconciliation_error', $job['diagnostics']);
-        self::assertSame(Store::DONE, $this->store->job($healthy)['state'] ?? null);
+        self::assertSame(Store::AWAITING_ACTION, $this->store->job($healthy)['state'] ?? null);
     }
 
     private function startWorker(string $mode = 'write'): int

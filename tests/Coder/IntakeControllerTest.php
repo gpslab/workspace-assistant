@@ -434,6 +434,41 @@ final class IntakeControllerTest extends TestCase
         self::assertSame(['issue_number' => 2, 'page' => 1], $this->store->intakeCursor('acme/one'));
     }
 
+    public function testExplicitAuthorRetryCreatesFreshEventAndJobWithoutRevivingProcessedKeys(): void
+    {
+        $this->api->issues['acme/one'] = [self::issue(1)];
+        $this->api->events['acme/one#1'] = [self::approval(9001)];
+        $controller = $this->controller(['acme/one' => 'coder']);
+        $controller->poll();
+        $first = $this->store->jobs()[0];
+        $this->store->cancel($first['id'], 110, 'author');
+
+        // Closed terminal issues are not retried by polling.
+        $this->api->issues['acme/one'] = [self::issue(1, state: 'closed')];
+        $this->now += 5;
+        $controller->poll();
+        self::assertSame($first['id'], $this->store->jobs()[0]['id']);
+
+        $this->api->issues['acme/one'] = [self::issue(1)];
+        $this->api->events['acme/one#1'] = [self::approval(9002)];
+        $this->now += 5;
+        $controller->poll();
+        self::assertCount(2, $this->store->jobs());
+        $second = $this->store->jobs()[1];
+        self::assertNotSame($first['id'], $second['id']);
+        self::assertSame($first['id'], $second['diagnostics']['retry_of']);
+        self::assertSame(['standalone-issue:1:label-event:9002'], $this->store->processedEventKeys($second['id']));
+        $previous = $this->store->job($first['id']);
+        self::assertNotNull($previous);
+        self::assertSame(1, $previous['retry_count']);
+
+        $this->store->cancel($second['id'], 120, 'author');
+        $this->api->events['acme/one#1'] = [self::approval(9001)];
+        $this->now += 5;
+        $controller->poll();
+        self::assertCount(2, $this->store->jobs(), 'An old processed key cannot create another retry.');
+    }
+
     public function testFailureIsIsolatedAndASlowRepositoryDoesNotStarveTheNextRepository(): void
     {
         $this->api->issues['acme/a'] = [self::issue(1)];

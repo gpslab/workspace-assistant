@@ -145,6 +145,24 @@ final class Store
         4 => <<<'SQL'
             ALTER TABLE coder_intake_cursors ADD COLUMN issue_number INTEGER NOT NULL DEFAULT 0;
             SQL,
+        5 => <<<'SQL'
+            CREATE TABLE IF NOT EXISTS coder_publications (
+                repository      TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                job_id          INTEGER NOT NULL REFERENCES coder_jobs(id) ON DELETE CASCADE,
+                action          TEXT NOT NULL,
+                state           TEXT NOT NULL CHECK (state IN ('pending', 'uncertain', 'confirmed')),
+                payload         TEXT NOT NULL DEFAULT '{}',
+                result          TEXT,
+                created_at      INTEGER NOT NULL,
+                updated_at      INTEGER NOT NULL,
+                PRIMARY KEY (repository, idempotency_key)
+            );
+            CREATE INDEX IF NOT EXISTS coder_publications_job ON coder_publications(job_id, action);
+            ALTER TABLE coder_jobs ADD COLUMN cursor_closed_at INTEGER;
+            ALTER TABLE coder_jobs ADD COLUMN cleanup_scheduled_at INTEGER;
+            ALTER TABLE coder_jobs ADD COLUMN cleanup_path TEXT;
+            SQL,
     ];
 
     private ?\PDO $pdo = null;
@@ -433,6 +451,7 @@ final class Store
         ?string $progress = null,
         ?string $lastError = null,
         ?int $now = null,
+        ?string $branch = null,
     ): bool {
         $now ??= time();
         $stmt = $this->connection()->prepare(
@@ -440,7 +459,7 @@ final class Store
             UPDATE coder_jobs
                SET current_head = COALESCE(:head, current_head),
                    session_id = COALESCE(:session, session_id),
-                   worktree = COALESCE(:worktree, worktree),
+                   worktree = COALESCE(:worktree, worktree), branch = COALESCE(:branch, branch),
                    diagnostics = COALESCE(:diagnostics, diagnostics),
                    progress = COALESCE(:progress, progress),
                    last_error = COALESCE(:error, last_error), updated_at = :now
@@ -461,6 +480,7 @@ final class Store
             'job' => $jobId,
             'worker' => $workerId,
             'token' => $leaseToken,
+            'branch' => $branch,
         ]) && $stmt->rowCount() === 1;
     }
 
@@ -795,6 +815,246 @@ final class Store
         return $events;
     }
 
+    /**
+     * Read a job only while the exact worker lease, head and publication state are still valid.
+     * Terminal label cleanup may observe a cancellation request; ordinary publication may not.
+     *
+     * @return array<string, mixed>
+     */
+    public function assertPublicationLease(
+        int $jobId,
+        int $workerId,
+        string $leaseToken,
+        string $expectedHead,
+        ?int $now = null,
+        bool $terminalCleanup = false,
+    ): array {
+        $now ??= time();
+        $cancellation = $terminalCleanup ? '' : ' AND cancellation_requested = 0';
+        $stmt = $this->connection()->prepare(
+            "SELECT * FROM coder_jobs
+             WHERE id = :job AND worker_id = :worker AND lease_token = :token
+               AND current_head = :head AND lease_expires_at > :now{$cancellation}
+               AND state IN ('starting', 'running', 'reconciling', 'waiting_ci_review', 'awaiting_action')"
+        );
+        $stmt->execute(['job' => $jobId, 'worker' => $workerId, 'token' => $leaseToken, 'head' => $expectedHead, 'now' => $now]);
+        $row = $stmt->fetch();
+        if ($row === false) {
+            throw new \RuntimeException('Coder publication rejected: the lease, cancellation state or expected head is stale.');
+        }
+
+        return self::jobRow($row);
+    }
+
+    /** Restore the durable issue-to-PR association without weakening the lease guard. */
+    public function bindPullRequest(int $jobId, int $workerId, string $leaseToken, string $expectedHead, int $pullRequestNumber, ?int $now = null): bool
+    {
+        $this->assertPublicationLease($jobId, $workerId, $leaseToken, $expectedHead, $now);
+        if ($pullRequestNumber < 1) {
+            throw new \InvalidArgumentException('A pull request number must be positive.');
+        }
+        $now ??= time();
+        $stmt = $this->connection()->prepare(
+            <<<'SQL'
+            UPDATE coder_jobs SET pull_request_number = :pr, updated_at = :now
+             WHERE id = :job AND (pull_request_number IS NULL OR pull_request_number = :pr)
+               AND worker_id = :worker AND lease_token = :token AND current_head = :head
+               AND lease_expires_at > :now AND cancellation_requested = 0
+            SQL
+        );
+        $stmt->execute([
+            'pr' => $pullRequestNumber, 'now' => $now, 'job' => $jobId,
+            'worker' => $workerId, 'token' => $leaseToken, 'head' => $expectedHead,
+        ]);
+
+        return $stmt->rowCount() === 1 || ($this->job($jobId)['pull_request_number'] ?? null) === $pullRequestNumber;
+    }
+
+    /** Request author cancellation while retaining the lease for gated terminal label cleanup. */
+    public function requestCancellation(int $jobId, int $workerId, string $leaseToken, string $reason, ?int $now = null): bool
+    {
+        $now ??= time();
+        $stmt = $this->connection()->prepare(
+            <<<'SQL'
+            UPDATE coder_jobs
+               SET cancellation_requested = 1, cancellation_requested_at = :now, updated_at = :now,
+                   diagnostics = json_set(diagnostics, '$.cancellation', json_object('reason', :reason, 'requested_at', :now))
+             WHERE id = :job AND worker_id = :worker AND lease_token = :token AND lease_expires_at > :now
+               AND state IN ('starting', 'running', 'reconciling', 'waiting_ci_review', 'awaiting_action')
+            SQL
+        );
+        $stmt->execute(['now' => $now, 'reason' => $reason, 'job' => $jobId, 'worker' => $workerId, 'token' => $leaseToken]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /** Finish terminal handling, close the cursor and release lease and worker capacity atomically. */
+    public function terminate(int $jobId, int $workerId, string $leaseToken, string $state, string $reason, ?int $now = null): bool
+    {
+        if (!in_array($state, [self::DONE, self::CANCELLED], true)) {
+            throw new \InvalidArgumentException('A coder terminal transition must be done or cancelled.');
+        }
+        $now ??= time();
+
+        return $this->transaction(function (\PDO $pdo) use ($jobId, $workerId, $leaseToken, $state, $reason, $now): bool {
+            $job = $this->job($jobId);
+            if ($job === null || ($state === self::DONE && $job['cancellation_requested'])) {
+                return false;
+            }
+            $diagnostics = $job['diagnostics'];
+            $diagnostics['terminal'] = ['state' => $state, 'reason' => $reason, 'at' => $now];
+            $stmt = $pdo->prepare(
+                <<<'SQL'
+                UPDATE coder_jobs
+                   SET state = :state, diagnostics = :diagnostics, completed_at = :now, updated_at = :now,
+                       cursor_closed_at = :now, worker_id = NULL, lease_token = NULL, leased_at = NULL, heartbeat_at = NULL,
+                       lease_expires_at = NULL, cancelled_at = CASE WHEN :state = 'cancelled' THEN :now ELSE cancelled_at END,
+                       cancellation_requested = CASE WHEN :state = 'cancelled' THEN 1 ELSE cancellation_requested END,
+                       cancellation_requested_at = CASE WHEN :state = 'cancelled' THEN COALESCE(cancellation_requested_at, :now) ELSE cancellation_requested_at END
+                 WHERE id = :job AND worker_id = :worker AND lease_token = :token AND lease_expires_at > :now
+                   AND state IN ('starting', 'running', 'reconciling', 'waiting_ci_review', 'awaiting_action')
+                SQL
+            );
+            $stmt->execute([
+                'state' => $state, 'diagnostics' => json_encode($diagnostics, JSON_THROW_ON_ERROR), 'now' => $now,
+                'job' => $jobId, 'worker' => $workerId, 'token' => $leaseToken,
+            ]);
+            if ($stmt->rowCount() !== 1) {
+                return false;
+            }
+            $pdo->prepare('UPDATE coder_workers SET active_job_id = NULL, updated_at = :now WHERE id = :worker AND active_job_id = :job')
+                ->execute(['now' => $now, 'worker' => $workerId, 'job' => $jobId]);
+
+            return true;
+        });
+    }
+
+    /** Schedule, rather than perform, safe worktree cleanup after the terminal state is durable. */
+    public function scheduleCleanup(int $jobId, string $path, ?int $now = null): bool
+    {
+        if ($path === '') {
+            throw new \InvalidArgumentException('A coder cleanup path cannot be empty.');
+        }
+        $stmt = $this->connection()->prepare(
+            "UPDATE coder_jobs SET cleanup_path = :path, cleanup_scheduled_at = :now, updated_at = :now
+             WHERE id = :job AND state IN ('cancelled', 'done') AND cleanup_scheduled_at IS NULL"
+        );
+        $stmt->execute(['path' => $path, 'now' => $now ?? time(), 'job' => $jobId]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /** @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    public function beginPublication(string $repository, string $key, int $jobId, string $action, array $payload, ?int $now = null): array
+    {
+        if ($key === '' || $action === '') {
+            throw new \InvalidArgumentException('A publication needs an idempotency key and an action.');
+        }
+        $now ??= time();
+        $stmt = $this->connection()->prepare(
+            "INSERT OR IGNORE INTO coder_publications (repository, idempotency_key, job_id, action, state, payload, created_at, updated_at)
+             VALUES (:repository, :key, :job, :action, 'pending', :payload, :now, :now)"
+        );
+        $stmt->execute([
+            'repository' => $repository, 'key' => $key, 'job' => $jobId, 'action' => $action,
+            'payload' => json_encode($payload, JSON_THROW_ON_ERROR), 'now' => $now,
+        ]);
+
+        return $this->publication($repository, $key) ?? throw new \RuntimeException('The durable publication record disappeared.');
+    }
+
+    /** @return array<string, mixed>|null */
+    public function publication(string $repository, string $key): ?array
+    {
+        $stmt = $this->connection()->prepare('SELECT * FROM coder_publications WHERE repository = :repository AND idempotency_key = :key');
+        $stmt->execute(['repository' => $repository, 'key' => $key]);
+        $row = $stmt->fetch();
+        if ($row === false) {
+            return null;
+        }
+        foreach (['job_id', 'created_at', 'updated_at'] as $field) {
+            $row[$field] = (int) $row[$field];
+        }
+        foreach (['payload', 'result'] as $field) {
+            $decoded = $row[$field] === null ? null : json_decode((string) $row[$field], true, 512, JSON_THROW_ON_ERROR);
+            $row[$field] = is_array($decoded) ? $decoded : ($field === 'payload' ? [] : null);
+        }
+
+        return $row;
+    }
+
+    /** @param array<string, mixed> $result */
+    public function confirmPublication(string $repository, string $key, array $result, ?int $now = null): void
+    {
+        $stmt = $this->connection()->prepare(
+            "UPDATE coder_publications SET state = 'confirmed', result = :result, updated_at = :now WHERE repository = :repository AND idempotency_key = :key"
+        );
+        $stmt->execute(['result' => json_encode($result, JSON_THROW_ON_ERROR), 'now' => $now ?? time(), 'repository' => $repository, 'key' => $key]);
+    }
+
+    public function markPublicationUncertain(string $repository, string $key, ?int $now = null): void
+    {
+        $stmt = $this->connection()->prepare(
+            "UPDATE coder_publications SET state = 'uncertain', updated_at = :now WHERE repository = :repository AND idempotency_key = :key AND state != 'confirmed'"
+        );
+        $stmt->execute(['now' => $now ?? time(), 'repository' => $repository, 'key' => $key]);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function latestIssueJob(string $repository, int $issueNumber): ?array
+    {
+        $stmt = $this->connection()->prepare('SELECT id FROM coder_jobs WHERE repository = :repository AND issue_number = :issue ORDER BY id DESC LIMIT 1');
+        $stmt->execute(['repository' => $repository, 'issue' => $issueNumber]);
+        $id = $stmt->fetchColumn();
+
+        return $id === false ? null : $this->job((int) $id);
+    }
+
+    /**
+     * An explicit trusted-author retry is a fresh intake identity and job. The old terminal job and all
+     * of its processed publication keys remain immutable.
+     *
+     * @param array<string, mixed> $diagnostics
+     */
+    public function retryIntake(int $previousJobId, string $eventKey, string $branch, array $diagnostics, ?int $now = null): ?int
+    {
+        $now ??= time();
+
+        return $this->transaction(function (\PDO $pdo) use ($previousJobId, $eventKey, $branch, $diagnostics, $now): ?int {
+            $previous = $this->job($previousJobId);
+            if ($previous === null || !in_array($previous['state'], self::TERMINAL_STATES, true) || $previous['issue_number'] === null) {
+                return null;
+            }
+            $active = $pdo->prepare(
+                "SELECT id FROM coder_jobs WHERE repository = :repository AND issue_number = :issue
+                 AND state IN ('queued', 'starting', 'running', 'reconciling', 'waiting_ci_review', 'awaiting_action') LIMIT 1"
+            );
+            $active->execute(['repository' => $previous['repository'], 'issue' => $previous['issue_number']]);
+            if ($active->fetchColumn() !== false) {
+                return null;
+            }
+            $stmt = $pdo->prepare(
+                'INSERT OR IGNORE INTO coder_processed_events (repository, event_key, job_id, processed_at) VALUES (:repository, :key, NULL, :now)'
+            );
+            $stmt->execute(['repository' => $previous['repository'], 'key' => $eventKey, 'now' => $now]);
+            if ($stmt->rowCount() !== 1) {
+                return null;
+            }
+            $diagnostics['retry_of'] = $previousJobId;
+            $jobId = $this->enqueue($previous['repository'], $branch, $previous['issue_number'], diagnostics: $diagnostics, now: $now);
+            $pdo->prepare('UPDATE coder_processed_events SET job_id = :job WHERE repository = :repository AND event_key = :key')
+                ->execute(['job' => $jobId, 'repository' => $previous['repository'], 'key' => $eventKey]);
+            $pdo->prepare('UPDATE coder_jobs SET retry_count = retry_count + 1, updated_at = :now WHERE id = :job')
+                ->execute(['now' => $now, 'job' => $previousJobId]);
+            $pdo->prepare("INSERT INTO coder_job_events (job_id, kind, reason, payload, created_at) VALUES (:job, 'retry', 'explicit author retry', :payload, :now)")
+                ->execute(['job' => $previousJobId, 'payload' => json_encode(['event_key' => $eventKey, 'new_job_id' => $jobId], JSON_THROW_ON_ERROR), 'now' => $now]);
+
+            return $jobId;
+        });
+    }
+
     private function connection(): \PDO
     {
         if ($this->pdo !== null) {
@@ -992,7 +1252,7 @@ final class Store
      */
     private static function jobRow(array $row): array
     {
-        foreach (['id', 'issue_number', 'pull_request_number', 'worker_id', 'leased_at', 'heartbeat_at', 'lease_expires_at', 'cancellation_requested_at', 'cancelled_at', 'completed_at'] as $key) {
+        foreach (['id', 'issue_number', 'pull_request_number', 'worker_id', 'leased_at', 'heartbeat_at', 'lease_expires_at', 'cancellation_requested_at', 'cancelled_at', 'completed_at', 'cursor_closed_at', 'cleanup_scheduled_at'] as $key) {
             $row[$key] = $row[$key] === null ? null : (int) $row[$key];
         }
         foreach (['lease_generation', 'retry_count', 'dispute_count', 'created_at', 'updated_at'] as $key) {

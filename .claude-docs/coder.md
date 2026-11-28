@@ -82,3 +82,58 @@ token and reject an expired lease. Expiry is handled by `reconcileExpiredLeases(
 worker capacity and leaves the job in `reconciling`. Only explicit `requeue()` permits a new
 assignment; it receives a new token and an incremented lease generation. Terminal states never
 return to assignment.
+
+A worker's local commit is not `done`. The worker persists a `PublicationRequest`, moves to
+`awaiting_action` and returns the worker id, lease generation and lease token only in the in-memory
+hand-off. The token is excluded from the diagnostic array. `done` is reserved for a merged pull
+request; local execution alone never reaches it.
+
+## Controller-only GitHub publication
+
+`Coder\Publication\PublicationController` is the only standalone coder GitHub write path. The worker
+and engine receive no forge client or write credential. Manual Assistant review remains
+engine-mediated with its own per-run reviewer credential; this controller does not take over that
+path. Existing epic operations likewise retain their reviewer identity.
+
+`Coder\Github\IdentityRouter` names two clients: reviewer and coder. Branch push/delete, draft pull
+request find/create/update, `ready_for_review`, `openronin:do-it` / `openronin:in-progress` changes
+and coder comments always select the coder. Reviewer actions always select the reviewer. The push
+uses the coder's own git credential, not just the API token. Coder comments begin with the
+compatibility marker `<!-- openronin:bot -->`.
+
+Each `NamedGithubClient` has its own expected login, credential provider and `selfLogin` cache.
+`GhCliTransport` supplies `GH_TOKEN` and `GH_CONFIG_DIR` only in the child-process environment; no
+identity selection calls `putenv()` or mutates process-global authorization. The coder provider
+rejects a configured `workflow` scope. `ControllerFactory::fromEnv()` performs startup validation:
+the resolved human, reviewer and coder logins must be distinct and both clients must complete
+non-mutating repository probes. These probes establish current read access only; they do not claim
+to prove every future write permission. Read-only polling explicitly selects the coder client.
+
+Immediately before every push, pull-request operation, readiness change, label operation and coder
+comment, the controller rechecks the exact lease token and worker, cancellation state, stored and
+worktree head SHA and request generation. `DiffGuard` also revalidates a clean worktree and the full
+base-to-head patch, including deleted/renamed paths, workflow files, secret content and every
+`CODER_PROTECTED_PATHS` glob. A failure emits no write. The C1b non-secret git author configuration
+stays in `Worktree` and is not duplicated by publication.
+
+Every action and response has a durable row in `coder_publications`, keyed by repository and an
+idempotency key containing job and head, stable across lease generations. A pending or uncertain operation is
+reconciled with a GitHub read before any retry. Push and deletion reconcile the branch head; pull
+request creation finds the deterministic branch's existing PR and restores its local association;
+labels read current labels; comments carry a hidden response key. An exception after a write marks
+its outcome uncertain rather than authorizing a blind repeat.
+
+## Terminal reconciliation and explicit retry
+
+`LifecycleController` maps a merged PR to `done`; a closed-unmerged PR, closed issue or author
+cancellation maps to `cancelled`. Before terminal release it removes both lifecycle labels through
+the coder client. It then releases the lease and worker slot, closes the job cursor, retains all
+execution diagnostics and records a deterministic worktree cleanup target. `CleanupScheduler` only
+schedules the validated `worktree-root/job-ID` path outside the managed repository; it performs no
+inline deletion. An already terminal job produces no GitHub operation and cannot be assigned again.
+Closed issues are ignored by intake.
+
+A fresh trusted `openronin:do-it` label event on a terminal issue is an explicit author retry.
+`Store::retryIntake()` creates a new event identity and job while retaining the old terminal job and
+its processed keys. Reusing an older event key creates nothing. Polling itself never revives a
+processed key or starts a worker. The default repository allowlist remains empty.

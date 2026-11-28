@@ -39,8 +39,8 @@ final class StoreTest extends TestCase
         self::assertFileExists($this->dir.'/state.sqlite');
         self::assertFileExists($this->dir.'/coder.sqlite');
         self::assertSame($this->dir.'/coder.sqlite', $other->path());
-        self::assertSame(4, $other->schemaVersion());
-        self::assertSame([1, 2, 3, 4], $other->migrationVersions());
+        self::assertSame(5, $other->schemaVersion());
+        self::assertSame([1, 2, 3, 4, 5], $other->migrationVersions());
         self::assertSame(
             ['journal_mode' => 'wal', 'busy_timeout' => 4321, 'foreign_keys' => 1],
             $other->connectionSettings()
@@ -56,7 +56,7 @@ final class StoreTest extends TestCase
     {
         $this->store->enqueue('example/repo', 'coder/one');
         $this->store->reconnect();
-        self::assertSame([1, 2, 3, 4], $this->store->migrationVersions());
+        self::assertSame([1, 2, 3, 4, 5], $this->store->migrationVersions());
         self::assertCount(1, $this->store->jobs());
 
         $this->store->disconnect();
@@ -64,11 +64,15 @@ final class StoreTest extends TestCase
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->exec('DROP INDEX coder_one_active_pr_per_worker');
         $pdo->exec('ALTER TABLE coder_intake_cursors DROP COLUMN issue_number');
+        $pdo->exec('DROP TABLE coder_publications');
+        $pdo->exec('ALTER TABLE coder_jobs DROP COLUMN cursor_closed_at');
+        $pdo->exec('ALTER TABLE coder_jobs DROP COLUMN cleanup_scheduled_at');
+        $pdo->exec('ALTER TABLE coder_jobs DROP COLUMN cleanup_path');
         $pdo->exec('DELETE FROM coder_schema_migrations WHERE version >= 2');
         $pdo = null;
 
         $upgraded = new Store($this->dir);
-        self::assertSame([1, 2, 3, 4], $upgraded->migrationVersions());
+        self::assertSame([1, 2, 3, 4, 5], $upgraded->migrationVersions());
         $index = $upgraded->connectionSettings();
         self::assertSame('wal', $index['journal_mode']);
         $pdo = new \PDO('sqlite:'.$this->dir.'/coder.sqlite');
@@ -95,7 +99,7 @@ final class StoreTest extends TestCase
 
         try {
             $results = $this->concurrently([$open, $open]);
-            self::assertSame([4, 4], array_column($results, 'version'));
+            self::assertSame([5, 5], array_column($results, 'version'));
             self::assertSame(['wal', 'wal'], array_column(array_column($results, 'settings'), 'journal_mode'));
             self::assertSame([2345, 2345], array_column(array_column($results, 'settings'), 'busy_timeout'));
 
