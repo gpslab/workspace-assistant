@@ -31,7 +31,7 @@ final class WiringIntakeApi implements IntakeApi
             'state' => 'open',
             'title' => 'Wired intake',
             'body' => 'Implement through the Bot loop',
-            'updated_at' => '2026-01-01T00:00:00Z',
+            'updated_at' => '2025-12-31T23:59:59Z',
             'labels' => [['name' => 'openronin:do-it']],
         ]];
     }

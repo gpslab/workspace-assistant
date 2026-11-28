@@ -226,8 +226,9 @@ final class IntakeController
     }
 
     /**
-     * The trusted label must approve the current title and body, not a later edit. GitHub updates
-     * `updated_at` when the label is applied; a later content update requires a fresh trusted label.
+     * The trusted label must approve the current title and body, not a later edit. With GitHub's
+     * one-second timestamps, equality cannot distinguish approval from a subsequent edit in the
+     * same second, so only strictly earlier content has an unambiguous approval order.
      *
      * @param array<string, mixed> $issue
      * @param array<string, mixed> $approval
@@ -243,7 +244,7 @@ final class IntakeController
         $approvedTimestamp = strtotime($approvedAt);
 
         return $updatedTimestamp !== false && $approvedTimestamp !== false
-            && $updatedTimestamp <= $approvedTimestamp;
+            && $updatedTimestamp < $approvedTimestamp;
     }
 
     private function hasDoItLabel(mixed $labels): bool

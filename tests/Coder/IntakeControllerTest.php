@@ -92,7 +92,7 @@ final class IntakeControllerTest extends TestCase
             'state' => $state,
             'title' => 'Task '.$number,
             'body' => 'Implement task '.$number,
-            'updated_at' => '2026-01-01T00:00:00Z',
+            'updated_at' => '2025-12-31T23:59:59Z',
             'html_url' => 'https://example.test/issue/'.$number,
             'labels' => $doIt ? [['name' => 'openronin:do-it']] : [],
         ] + ($pr ? ['pull_request' => ['url' => 'https://example.test/pr/'.$number]] : []);
@@ -170,6 +170,28 @@ final class IntakeControllerTest extends TestCase
 
         self::assertSame(1, $controller->poll());
         self::assertSame([], $this->store->jobs());
+
+        $reapproval = self::approval(9002);
+        $reapproval['created_at'] = '2026-01-01T00:00:02Z';
+        $this->api->events['acme/one#1'] = [$reapproval];
+        $this->now += 5;
+        self::assertSame(1, $controller->poll());
+
+        self::assertCount(1, $this->store->jobs());
+        self::assertSame('9002', $this->store->jobs()[0]['diagnostics']['label_event_id']);
+    }
+
+    public function testSameSecondEditAfterApprovalFailsClosedUntilUnambiguousReapproval(): void
+    {
+        $issue = self::issue(1);
+        $issue['body'] = 'UNAPPROVED EDIT';
+        $issue['updated_at'] = '2026-01-01T00:00:00Z';
+        $this->api->issues['acme/one'] = [$issue];
+        $this->api->events['acme/one#1'] = [self::approval(9001)];
+        $controller = $this->controller(['acme/one' => 'coder']);
+
+        self::assertSame(1, $controller->poll());
+        self::assertSame([], $this->store->jobs(), 'Equal timestamps cannot prove that approval followed the edit.');
 
         $reapproval = self::approval(9002);
         $reapproval['created_at'] = '2026-01-01T00:00:01Z';

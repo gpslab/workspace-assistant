@@ -358,8 +358,10 @@ in the Bot loop. Standalone intake requires `FORGE=github` and an authenticated 
 another forge, configured coder routing produces a startup warning and polling stays disabled. Only
 issues carrying `openronin:do-it` are listed by GitHub. Intake also requires a matching latest
 `labeled` event by `CODER_INTAKE_AUTHOR`; comments and labels from other actors create no jobs. The
-issue's `updated_at` must be no later than the label event's `created_at`, so an edit after approval
-is refused until the issue is labeled again. The worker remains an explicitly invoked local process.
+issue's `updated_at` must be strictly earlier than the label event's `created_at`; equal timestamps
+fail closed because a same-second edit cannot be ordered against approval. An edit after approval is
+refused until the issue is labeled again at an unambiguously later time. The worker remains an
+explicitly invoked local process.
 Polling does not push, create pull requests, mutate labels, comment, or perform any other GitHub write.
 Request and repository failures retain the durable cursor, are logged as warnings, and are retried on
 a later scheduled pass.

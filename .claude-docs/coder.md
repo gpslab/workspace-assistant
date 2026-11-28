@@ -17,10 +17,12 @@ or drain the external Openronin service.
 A scheduled `poll()` examines only open issues in coder-routed repositories through read-only issue
 and issue-event APIs. An issue is admitted only when its current `openronin:do-it` label is proven
 by a latest `labeled` event from `CODER_INTAKE_AUTHOR`, a separately configured trusted human login.
-The issue's `updated_at` must be no later than that event's `created_at`; this binds approval to the
-title and body current at the trusted label event. A later edit, missing or malformed timestamp, a
-label by itself, comments, arbitrary issues and unlisted repositories create no instruction: a fresh
-trusted label is required after such an edit. The immutable label-event id is part of the
+The issue's `updated_at` must be strictly earlier than that event's `created_at`; equal timestamps
+fail closed because GitHub's one-second resolution cannot order an approval and a same-second edit.
+This binds approval to the title and body current at the trusted label event. A later edit, missing
+or malformed timestamp, a label by itself, comments, arbitrary issues and unlisted repositories
+create no instruction: a fresh trusted label at an unambiguously later time is required after such
+an edit. The immutable label-event id is part of the
 `(repository, event_key)` intake identity. `Store::enqueueIntake()` records that identity and creates
 the queued job in one immediate transaction, so a repeated or concurrent event returns without
 another job. The same transaction also checks for an active `(repository, issue_number)` job before
